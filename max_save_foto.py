@@ -2,16 +2,23 @@ import os
 import time
 import json
 import mimetypes
+import urllib3
 from pathlib import Path
 from datetime import datetime
 
 import requests
 
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 API = "https://platform-api2.max.ru"
 
 # Лучше задать токен через переменную окружения MAX_BOT_TOKEN
-TOKEN = os.environ.get("MAX_BOT_TOKEN")
+TOKEN = os.getenv("MAX_BOT_TOKEN")
 
 # 0 = сохранять фотографии из всех чатов, где работает бот.
 # Когда узнаете ID нужной беседы, впишите его сюда.
@@ -170,6 +177,7 @@ def main():
                 headers=HEADERS,
                 params=params,
                 timeout=40,
+                verify=False,
             )
 
             response.raise_for_status()
