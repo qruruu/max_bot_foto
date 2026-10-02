@@ -1,13 +1,12 @@
 import os
 import time
-from pathlib import Path
 
 import requests
 import urllib3
 from dotenv import load_dotenv
 
 from handlers.message import process_message
-
+from marker import load_marker, save_marker
 
 load_dotenv()
 
@@ -20,8 +19,6 @@ API = "https://platform-api2.max.ru"
 
 TOKEN = os.getenv("MAX_BOT_TOKEN")
 
-MARKER_FILE = Path("max_marker.txt")
-
 
 if not TOKEN:
     raise RuntimeError(
@@ -30,64 +27,59 @@ if not TOKEN:
 
 
 HEADERS = {
+    # Подготавливаем токен бота для авторизации в MAX API
     "Authorization": TOKEN,
+    # Сообщаем API, что ожидаем ответ в формате JSON
     "Accept": "application/json",
 }
 
 
-def load_marker():
-    if not MARKER_FILE.exists():
-        return None
-
-    value = MARKER_FILE.read_text(
-        encoding="utf-8"
-    ).strip()
-
-    if not value:
-        return None
-
-    try:
-        return int(value)
-    except ValueError:
-        return None
-
-
-def save_marker(marker):
-    if marker is not None:
-        MARKER_FILE.write_text(
-            str(marker),
-            encoding="utf-8",
-        )
-
 
 def main():
+    # Загружаем маркер из файла, если он существует
     marker = load_marker()
 
     print("Бот запущен.")
     print("Ожидаем новые сообщения из MAX...")
 
+    # Бесконечный цикл 
     while True:
         params = {
+            # Макс ждет максимум 30 секунд, а потом опять отправляет запрос
             "timeout": 30,
+            # Максимальное количество событий за один раз
             "limit": 100,
+            # Типы обновлений, которые мы хотим получать
             "types": "message_created",
         }
 
+        # Если маркер существует, добавляем его в параметры запроса
         if marker is not None:
             params["marker"] = marker
 
+        """Попробуй выполнить код ниже.
+           Если будет ошибка — программа не упадёт сразу,
+            ошибку потом поймает except."""
         try:
+            #Отправь GET-запрос и сохрани ответ в переменную response
             response = requests.get(
+                # Вот сюда
                 f"{API}/updates",
+                # передали эти данные в запросе
                 headers=HEADERS,
                 params=params,
+                # Ждём ответа от сервера не более 40 секунд
                 timeout=40,
+                # Игнорируем проверку SSL-сертификата
                 verify=False,
             )
 
+            # Проверяем, что запрос прошёл успешно.
             response.raise_for_status()
 
+            # Получаем данные из ответа в формате JSON
             data = response.json()
+
 
             for update in data.get("updates", []):
                 if update.get("update_type") != "message_created":

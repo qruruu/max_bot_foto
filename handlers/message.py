@@ -5,23 +5,27 @@ from config import (
     BASE_SAVE_DIR,
     CHAT_NAMES,
     IMAGE_EXTENSIONS,
+    FAIL_FILE,
 )
 
 from downloaders.image import download_photo
 from downloaders.file import download_file
 from services.max_api import send_message
 
-
-def get_save_dir_for_chat(chat_id):
+#создает папку для сохранения фото, если она не существует. Если не существует то не создает.
+def save_in_dir(chat_id):
     chat_name = CHAT_NAMES.get(chat_id)
 
     if not chat_name:
         return None
 
+    #Получаем сегодняшнюю дату в формате "YYYY-MM-DD"
     today = datetime.now().strftime("%Y-%m-%d")
 
+    #Создаем путь к папке для сохранения фото, используя базовую директорию, сегодняшнюю дату и имя чата
     save_dir = BASE_SAVE_DIR / today / chat_name
 
+    #Создаем папку, если она не существует, включая все родительские директории
     save_dir.mkdir(
         parents=True,
         exist_ok=True,
@@ -29,8 +33,8 @@ def get_save_dir_for_chat(chat_id):
 
     return save_dir
 
-
-def get_rejected_photo_dir(chat_id):
+#создает папку для сохранения отклоненных фото, если она не существует. Если не существует то не создает.
+def save_dir_fail(chat_id):
     chat_name = CHAT_NAMES.get(chat_id)
 
     if not chat_name:
@@ -38,13 +42,15 @@ def get_rejected_photo_dir(chat_id):
 
     today = datetime.now().strftime("%Y-%m-%d")
 
+    #Создаем путь к папке для сохранения отклоненных фото, используя базовую директорию, сегодняшнюю дату, поддиректорию "НЕПРИНЯТЫЕ_ФОТО" и имя чата
     save_dir = (
         BASE_SAVE_DIR
         / today
-        / "НЕПРИНЯТЫЕ_ФОТО"
+        / FAIL_FILE
         / chat_name
     )
 
+    #Создаем папку, если она не существует, включая все родительские директории
     save_dir.mkdir(
         parents=True,
         exist_ok=True,
@@ -53,8 +59,11 @@ def get_rejected_photo_dir(chat_id):
     return save_dir
 
 
+#
 def process_message(message):
+    # Получаем идентификатор чата из сообщения если он есть, иначе используем пустой словарь
     recipient = message.get("recipient") or {}
+    # Получаем идентификатор чата из словаря recipient, если он есть
     chat_id = recipient.get("chat_id")
 
     print(f"Сообщение из chat_id: {chat_id}")
@@ -66,9 +75,11 @@ def process_message(message):
         )
         return
 
+    # Получаем тело сообщения из словаря message, если оно есть, иначе используем пустой словарь
     body = message.get("body") or {}
     attachments = body.get("attachments") or []
 
+    # Вытаскиваем вложения из сообщения и обрабатываем их
     for attachment in attachments:
         attachment_type = attachment.get("type")
         payload = attachment.get("payload") or {}
@@ -84,7 +95,7 @@ def process_message(message):
                 print("У изображения нет URL")
                 continue
 
-            rejected_dir = get_rejected_photo_dir(
+            rejected_dir = save_dir_fail(
                 chat_id
             )
 
@@ -149,7 +160,7 @@ def process_message(message):
                 )
                 continue
 
-            save_dir = get_save_dir_for_chat(
+            save_dir = save_in_dir(
                 chat_id
             )
 

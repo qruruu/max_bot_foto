@@ -1,13 +1,18 @@
+import os
 from pathlib import Path
 
 
 BASE_SAVE_DIR = Path("MAX_PHOTOS")
 
+CHAT_1 = os.getenv("chat_1")
+CHAT_2 = os.getenv("chat_2")
+
 CHAT_NAMES = {
-    -79357181921806: "Ручная_уборка",
-    -79357148826126: "Механическая_уборка",
+    CHAT_1: "Ручная_уборка",
+    CHAT_2: "Механическая_уборка",
 }
 
+FAIL_FILE = "НЕПРИНЯТЫЕ_ФОТО"
 
 IMAGE_EXTENSIONS = {
     ".jpg",

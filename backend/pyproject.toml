@@ -1,0 +1,30 @@
+[project]
+name = "max-photo-service"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1", "SQLAlchemy>=2.0.38,<2.1",
+  "psycopg[binary]>=3.2,<4", "alembic>=1.14,<2", "geoalchemy2>=0.17,<1",
+  "pydantic-settings>=2.8,<3", "httpx>=0.28,<1", "argon2-cffi>=23.1,<26",
+  "Pillow>=11.1,<13", "pillow-heif>=0.22,<2", "pytesseract>=0.3.13,<1",
+  "openpyxl>=3.1.5,<4", "shapely>=2.1,<3", "python-multipart>=0.0.20,<1", "torch>=2.6,<3", "torchvision>=0.21,<1"
+]
+[dependency-groups]
+dev = ["pytest>=8.3,<10", "pytest-cov>=6,<8", "ruff>=0.11,<1", "respx>=0.22,<1"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["integration: requires a disposable PostgreSQL/PostGIS database"]
+[tool.ruff]
+line-length = 110
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]

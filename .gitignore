@@ -1,3 +1,21 @@
 .env
 .venv/
 MAX_PHOTOS/
+
+# New service
+__pycache__/
+*.py[cod]
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+backend/.venv/
+backend/data/
+.env.*
+!.env.example
+*.log
+.playwright/

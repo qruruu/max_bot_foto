@@ -1,0 +1,75 @@
+name: max-photos
+x-app: &app
+  build: ./backend
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+psycopg://maxphotos:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/maxphotos
+  volumes:
+    - photo_data:/data
+  restart: unless-stopped
+  init: true
+services:
+  db:
+    image: postgis/postgis:16-3.5
+    platform: ${POSTGIS_PLATFORM:-linux/amd64}
+    environment:
+      POSTGRES_DB: maxphotos
+      POSTGRES_USER: maxphotos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U maxphotos -d maxphotos"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+  migrate:
+    <<: *app
+    command: [alembic, upgrade, head]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+  api:
+    <<: *app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+  worker:
+    <<: *app
+    command: [python, -m, app.worker]
+    stop_grace_period: 3m
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  trainer:
+    <<: *app
+    command: [python, -m, app.ml]
+    stop_grace_period: 5m
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  receiver:
+    <<: *app
+    command: [python, -m, app.receiver]
+    stop_grace_period: 1m
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  web:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:${HTTP_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  postgres_data:
+  photo_data:
