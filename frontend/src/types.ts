@@ -5,7 +5,7 @@ export type Meta = { yandex_maps_api_key: string; today: string; timezone: strin
 export type Filters = Record<string, string>;
 export type Audit = {id: number; user_id: number | null; at: string; action: string; object_type: string; object_id: number; old_value: unknown; new_value: unknown};
 export type Photo = {
-  id: number; version: number; status: string; storage_status: string; photo_date: string | null; photo_time: string | null;
+  id: number; version: number; is_spam: boolean; status: string; storage_status: string; photo_date: string | null; photo_time: string | null;
   received_at: string; latitude: number | null; longitude: number | null; chat_name: string; district_id: number | null;
   district_name: string | null; work_type: string | null; work_type_name: string | null; ai_confidence: number | null;
   ai_alternatives: string[]; review_reason: string[]; detected_address: string | null; detected_city: string | null;

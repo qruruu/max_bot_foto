@@ -15,6 +15,9 @@ from app.schemas import PhotoFilters
 
 def filtered(filters: PhotoFilters):
     stmt = select(Photo)
+    # Spam is an explicit archive view; normal lists, work reports and exports omit it.
+    if filters.status != Status.SPAM:
+        stmt = stmt.where(Photo.is_spam.is_(False))
     received_date = cast(func.timezone(settings().app_timezone, Photo.received_at), Date)
     date_field = (
         func.coalesce(Photo.photo_date, received_date) if filters.date_basis == "photo" else received_date
@@ -107,7 +110,11 @@ def photo_dict(photo: Photo, districts: dict[int, str], operators: dict[int, str
     result.update(
         district_name=districts.get(photo.district_id),
         operator_name=operators.get(photo.reviewed_by),
-        work_type_name=WORK_TYPES[photo.work_type][0] if photo.work_type in WORK_TYPES else None,
+        work_type_name="Спам"
+        if photo.is_spam
+        else WORK_TYPES[photo.work_type][0]
+        if photo.work_type in WORK_TYPES
+        else None,
         preview_url=f"/api/photos/{photo.id}/preview" if photo.sha256 else None,
     )
     return result
@@ -152,7 +159,7 @@ def export_excel(db: Session, filters: PhotoFilters) -> bytes:
                 p.received_at.astimezone(ZoneInfo(settings().app_timezone)).replace(tzinfo=None),
                 p.chat_name,
                 districts.get(p.district_id),
-                WORK_TYPES[p.work_type][0] if p.work_type else None,
+                "Спам" if p.is_spam else WORK_TYPES[p.work_type][0] if p.work_type else None,
                 p.latitude,
                 p.longitude,
                 p.detected_address,

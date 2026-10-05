@@ -15,6 +15,7 @@ def photo(**kwargs):
         **{
             "id": 3,
             "status": Status.NEEDS_REVIEW,
+            "is_spam": False,
             "district_id": None,
             "work_type": None,
             "review_reason": [],

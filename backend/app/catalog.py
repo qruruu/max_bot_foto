@@ -10,6 +10,7 @@ class Status(StrEnum):
     DUPLICATE = "DUPLICATE"
     FORWARDED = "FORWARDED"
     ERROR = "ERROR"
+    SPAM = "SPAM"
 
 
 class Role(StrEnum):

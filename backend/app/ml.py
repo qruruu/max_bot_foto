@@ -61,6 +61,7 @@ def collect_examples(db: Session) -> tuple[list[Example], int]:
     rows = db.execute(
         select(Photo.id, Photo.sha256, Photo.work_type).where(
             Photo.work_type_source == "OPERATOR",
+            Photo.is_spam.is_(False),
             Photo.reviewed_by.is_not(None),
             Photo.sha256.is_not(None),
             Photo.work_type.is_not(None),

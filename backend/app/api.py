@@ -189,23 +189,35 @@ def edit_photo(photo_id: int, body: PhotoEdit, db: Db, user: CurrentUser):
     if photo.version != body.version:
         raise HTTPException(409, "Фото изменено другим оператором. Обновите карточку.")
     changes = body.model_dump(exclude_unset=True, exclude={"version"})
+    if changes.get("is_spam"):
+        changes["work_type"] = None
+    elif changes.get("work_type"):
+        # Selecting a real work category restores a previously archived photo.
+        changes["is_spam"] = False
     before = {key: getattr(photo, key) for key in changes}
-    before.update(district_id=photo.district_id, status=photo.status, work_type_source=photo.work_type_source)
+    before.update(
+        district_id=photo.district_id,
+        status=photo.status,
+        work_type_source=photo.work_type_source,
+        is_spam=photo.is_spam,
+    )
     for key, value in changes.items():
         setattr(photo, key, value)
     if "work_type" in changes:
-        photo.work_type_source = "OPERATOR" if photo.work_type else None
+        photo.work_type_source = "OPERATOR" if photo.work_type or photo.is_spam else None
     photo.reviewed_by, photo.reviewed_at = user.id, now()
     reassess(db, photo)
     photo.version += 1
     photo.storage_status = "PENDING"
     after = {key: getattr(photo, key) for key in before}
-    audit(db, user.id, "PHOTO_REVIEWED", "photo", photo.id, before, after)
+    action = "PHOTO_SPAMMED" if photo.is_spam else "PHOTO_RESTORED" if before["is_spam"] else "PHOTO_REVIEWED"
+    audit(db, user.id, action, "photo", photo.id, before, after)
     enqueue(db, "SYNC", photo.id, f"sync:{photo.id}:{photo.version}")
     db.commit()
     return {
         "id": photo.id,
         "status": photo.status,
+        "is_spam": photo.is_spam,
         "version": photo.version,
         "review_reason": photo.review_reason,
         "storage_status": photo.storage_status,

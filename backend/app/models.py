@@ -107,6 +107,7 @@ class Photo(Timestamps, Base):
         DateTime(timezone=True), server_default=func.now(), index=True
     )
     is_forwarded: Mapped[bool] = mapped_column(default=False)
+    is_spam: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     photo_date: Mapped[date | None] = mapped_column(Date, index=True)
     photo_time: Mapped[time | None] = mapped_column(Time)
     ocr_raw_text: Mapped[str | None] = mapped_column(Text)
@@ -140,7 +141,8 @@ class Photo(Timestamps, Base):
         CheckConstraint("longitude BETWEEN -180 AND 180"),
         CheckConstraint("(latitude IS NULL) = (longitude IS NULL)"),
         CheckConstraint(
-            "status IN ('RECEIVED','PROCESSING','ACCEPTED','NEEDS_REVIEW','REJECTED','DUPLICATE','FORWARDED','ERROR')"
+            "status IN ('RECEIVED','PROCESSING','ACCEPTED','NEEDS_REVIEW','REJECTED','DUPLICATE','FORWARDED','ERROR','SPAM')",
+            name="ck_photos_status",
         ),
         CheckConstraint("work_type_source IS NULL OR work_type_source IN ('AI','OPERATOR')"),
         Index("ix_photos_review_order", "status", "received_at", "id"),

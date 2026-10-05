@@ -51,6 +51,7 @@ class DistrictInput(StrictModel):
 
 class PhotoEdit(StrictModel):
     version: int = Field(ge=1)
+    is_spam: bool = False
     photo_date: date | None = None
     photo_time: time | None = None
     latitude: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
@@ -68,6 +69,8 @@ class PhotoEdit(StrictModel):
 
     @model_validator(mode="after")
     def coordinate_pair(self):
+        if self.is_spam and self.work_type is not None:
+            raise ValueError("Спаму нельзя назначить вид работы")
         changed = self.model_fields_set
         if ("latitude" in changed) != ("longitude" in changed) or (self.latitude is None) != (
             self.longitude is None

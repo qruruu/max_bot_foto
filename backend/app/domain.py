@@ -58,6 +58,10 @@ def resolve_district(db: Session, latitude: float | None, longitude: float | Non
 
 
 def reassess(db: Session, photo: Photo):
+    if photo.is_spam:
+        photo.status = Status.SPAM
+        photo.review_reason = []
+        return
     photo.district_id, geo_reason = resolve_district(db, photo.latitude, photo.longitude)
     reasons = []
     if photo.photo_date is None:
@@ -79,6 +83,11 @@ def safe_component(value: str, limit: int = 45) -> str:
 
 def storage_path(photo: Photo, district_name: str | None):
     folder_date = photo.photo_date.isoformat() if photo.photo_date else "ДАТА_НЕ_ОПРЕДЕЛЕНА"
+    if photo.is_spam:
+        return (
+            f"disk:/{settings().yandex_disk_root}/СПАМ/{folder_date}/"
+            f"{safe_component(photo.chat_name)}/Спам_{photo.id}{photo.extension}"
+        )
     district = safe_component(district_name, 35) if district_name else "МР_НЕ_ОПРЕДЕЛЕН"
     work = WORK_TYPES[photo.work_type][1] if photo.work_type else "НЕ_ОПРЕДЕЛЕНО"
     filename = f"{district}_{work}_{photo.id}{photo.extension}"
@@ -90,6 +99,8 @@ def bot_reply(photos: list[Photo], district_names: dict[int, str]) -> str:
         accepted = sum(p.status in {Status.ACCEPTED, Status.NEEDS_REVIEW} for p in photos)
         return f"✅ Обработано фотографий: {len(photos)}\nПринято: {accepted}\nНе принято: {len(photos) - accepted}"
     photo = photos[0]
+    if photo.is_spam:
+        return "❌ Не принято: фотография отмечена как спам."
     if photo.status == Status.FORWARDED:
         return "❌ Не принято: пересланные фотографии не принимаются."
     if photo.status == Status.DUPLICATE:

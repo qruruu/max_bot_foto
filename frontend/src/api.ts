@@ -18,7 +18,7 @@ export async function api<T>(path: string, method = 'GET', body?: unknown, signa
   }
   return response.json();
 }
-export const statusNames: Record<string, string> = {RECEIVED:'Получено', PROCESSING:'Обработка', ACCEPTED:'Принято', NEEDS_REVIEW:'Требует проверки', REJECTED:'Отклонено', DUPLICATE:'Дубль', FORWARDED:'Переслано', ERROR:'Ошибка'};
+export const statusNames: Record<string, string> = {RECEIVED:'Получено', PROCESSING:'Обработка', ACCEPTED:'Принято', NEEDS_REVIEW:'Требует проверки', REJECTED:'Отклонено', DUPLICATE:'Дубль', FORWARDED:'Переслано', ERROR:'Ошибка', SPAM:'Спам'};
 export const reasonNames: Record<string,string> = {DATE_MISSING:'Не распознана дата', COORDINATES_MISSING:'Не распознаны координаты', OUTSIDE_DISTRICTS:'Точка вне микрорайонов', DISTRICT_OVERLAP:'Точка в пересечении границ', WORK_MULTIPLE:'Несколько видов работ', WORK_UNCERTAIN:'Вид работы не определён', UNSUPPORTED_FORMAT:'Неподдерживаемый формат', CORRUPT_IMAGE:'Изображение не читается'};
 export function dateLabel(value: string | null) { return value ? new Date(value.length === 10 ? value + 'T12:00:00' : value).toLocaleDateString('ru-RU') : '—'; }
 export function shiftDate(value: string, days: number) { const d = new Date(value + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0,10); }

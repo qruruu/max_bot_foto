@@ -306,6 +306,102 @@ def test_review_version_audit_sync_and_dataset(admin, db, monkeypatch):
     assert db.scalar(select(func.count()).select_from(Audit).where(Audit.photo_id == p.id)) == 1
 
 
+def test_spam_archive_restore_reports_and_training(admin, db, monkeypatch):
+    from app.ml import collect_examples
+
+    setup_chat(db)
+    setup_district(db)
+    photo = intake_photo(db)
+    disk = FakeDisk()
+    process_photo(photo.id, FakeMax(), disk, GoodOCR(), MultipleAI())
+    db.refresh(photo)
+    original_path, original_hash = photo.yandex_disk_path, photo.sha256
+    # Ordinary operators may archive accidental photos, without supplying date/coordinates.
+    admin.post("/api/auth/logout")
+    admin.post("/api/auth/login", json={"login": "operator", "password": "test-password-123"})
+    admin.headers["X-CSRF-Token"] = admin.cookies["csrf"]
+    result = admin.patch(f"/api/photos/{photo.id}", json={"version": photo.version, "is_spam": True})
+    assert result.status_code == 200, result.text
+    assert result.json()["status"] == "SPAM"
+    db.refresh(photo)
+    assert photo.is_spam and photo.work_type is None and not photo.review_reason
+    assert admin.get("/api/photos?status=NEEDS_REVIEW").json()["total"] == 0
+    assert admin.get("/api/photos").json()["total"] == 0
+    assert admin.get("/api/reports").json()["total"] == 0
+    assert admin.get("/api/photos?status=SPAM").json()["total"] == 1
+    assert collect_examples(db)[0] == []
+    wb = load_workbook(BytesIO(admin.get("/api/export.xlsx").content))
+    assert wb["Все фото"].max_row == 1
+    spam_wb = load_workbook(BytesIO(admin.get("/api/export.xlsx?status=SPAM").content))
+    assert spam_wb["Все фото"]["G2"].value == "Спам"
+    assert admin.get(f"/api/photos/{photo.id}").json()["work_type_name"] == "Спам"
+    monkeypatch.setattr("app.processing.YandexDisk", lambda: disk)
+    sync_photo(photo.id)
+    db.refresh(photo)
+    assert photo.status == "SPAM" and photo.storage_status == "SYNCED"
+    assert "/СПАМ/" in photo.yandex_disk_path and original_path not in disk.files
+    assert photo.sha256 == original_hash
+    regeo_all()
+    process_photo(photo.id, FakeMax(), disk, BrokenOCR(), BrokenAI())
+    db.refresh(photo)
+    assert photo.status == "SPAM"  # Late processing and polygon edits must not restore it.
+    spam_path = photo.yandex_disk_path
+    stale = admin.patch(f"/api/photos/{photo.id}", json={"version": 1, "work_type": "SWEEPING"})
+    assert stale.status_code == 409
+    result = admin.patch(f"/api/photos/{photo.id}", json={"version": photo.version, "work_type": "SWEEPING"})
+    assert result.status_code == 200 and result.json()["status"] == "ACCEPTED"
+    sync_photo(photo.id)
+    db.refresh(photo)
+    assert not photo.is_spam and "/СПАМ/" not in photo.yandex_disk_path
+    assert spam_path not in disk.files and len(disk.files) == 1
+    assert len(collect_examples(db)[0]) == 1
+    assert admin.get("/api/reports").json()["accepted"] == 1
+    assert admin.get("/api/photos?status=SPAM").json()["total"] == 0
+    assert set(db.scalars(select(Audit.action).where(Audit.photo_id == photo.id))) == {
+        "PHOTO_SPAMMED",
+        "PHOTO_RESTORED",
+    }
+
+
+def test_spam_without_metadata_survives_disk_outage(admin, db, monkeypatch):
+    setup_chat(db)
+    photo = intake_photo(db)
+    disk = FakeDisk()
+    process_photo(photo.id, FakeMax(), disk, BrokenOCR(), BrokenAI())
+    db.refresh(photo)
+    old_path = photo.yandex_disk_path
+    response = admin.patch(f"/api/photos/{photo.id}", json={"version": photo.version, "is_spam": True})
+    assert response.status_code == 200
+    monkeypatch.setattr("app.processing.YandexDisk", lambda: disk)
+    move = disk.move
+    monkeypatch.setattr(disk, "move", lambda *_: (_ for _ in ()).throw(RuntimeError("Disk offline")))
+    with pytest.raises(RuntimeError):
+        sync_photo(photo.id)
+    db.refresh(photo)
+    assert photo.status == "SPAM" and photo.is_spam and photo.storage_status == "ERROR"
+    assert photo.yandex_disk_path == old_path and old_path in disk.files
+    assert admin.get("/api/photos?status=SPAM").json()["total"] == 1
+    from app.integrations import DownloadRejected
+
+    monkeypatch.setattr(disk, "move", lambda *_: (_ for _ in ()).throw(DownloadRejected("Transport policy")))
+    with pytest.raises(DownloadRejected):
+        process_photo(photo.id, FakeMax(), disk, BrokenOCR(), BrokenAI())
+    db.refresh(photo)
+    assert photo.status == "SPAM" and photo.is_spam
+    monkeypatch.setattr(disk, "move", move)
+    sync_photo(photo.id)
+    db.refresh(photo)
+    assert photo.status == "SPAM" and photo.storage_status == "SYNCED"
+    assert "/СПАМ/ДАТА_НЕ_ОПРЕДЕЛЕНА/" in photo.yandex_disk_path
+    assert (
+        admin.patch(
+            f"/api/photos/{photo.id}",
+            json={"version": photo.version, "is_spam": True, "work_type": "SWEEPING"},
+        ).status_code
+        == 422
+    )
+
+
 def test_shared_filters_reports_list_and_excel(admin, db):
     setup_chat(db)
     setup_district(db)

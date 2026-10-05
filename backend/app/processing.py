@@ -69,7 +69,7 @@ def process_photo(
     with photo_lock(photo_id), Session(engine(), expire_on_commit=False) as db:
         photo = db.get(Photo, photo_id)
         if photo.status in REJECTED_STATUSES or (
-            photo.status in ACCEPTED_STATUSES and photo.storage_status == "SYNCED"
+            photo.status in ACCEPTED_STATUSES | {Status.SPAM} and photo.storage_status == "SYNCED"
         ):
             return
         original = media_path(photo.id)
@@ -178,13 +178,19 @@ def process_photo(
             # A transport policy/size failure is visible and retryable; never mislabel it as a corrupt file.
             db.rollback()
             photo = db.get(Photo, photo_id)
-            photo.status, photo.processing_error = Status.ERROR, "DOWNLOAD_POLICY_OR_SIZE"
+            photo.status, photo.processing_error = (
+                Status.SPAM if photo.is_spam else Status.ERROR,
+                "DOWNLOAD_POLICY_OR_SIZE",
+            )
             db.commit()
             raise
         except Exception as exc:
             db.rollback()
             photo = db.get(Photo, photo_id)
-            photo.status, photo.processing_error = Status.ERROR, error_code(exc)
+            photo.status, photo.processing_error = (
+                Status.SPAM if photo.is_spam else Status.ERROR,
+                error_code(exc),
+            )
             photo.storage_status = "ERROR" if photo.analyzed_at else "PENDING"
             db.commit()
             raise
