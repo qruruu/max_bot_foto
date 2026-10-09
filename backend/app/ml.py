@@ -25,7 +25,7 @@ from app.recognition import Classification, ClassificationResponse
 
 log = logging.getLogger(__name__)
 CODES = list(WORK_TYPES)
-ARCHITECTURE = "resnet18-local-v1"
+ARCHITECTURE = "resnet18-local-v2-short16"
 BACKBONE_URL = "https://download.pytorch.org/models/resnet18-f37072fd.pth"
 
 
@@ -123,7 +123,10 @@ def training_plan(examples: list[Example]) -> dict:
 def latest_evaluated(db):
     return db.scalar(
         select(ModelVersion)
-        .where(ModelVersion.status.in_(["ACTIVE", "SUPERSEDED", "REJECTED"]))
+        .where(
+            ModelVersion.status.in_(["ACTIVE", "SUPERSEDED", "REJECTED"]),
+            ModelVersion.metrics["architecture"].as_string() == ARCHITECTURE,
+        )
         .order_by(ModelVersion.id.desc())
         .limit(1)
     )
@@ -147,6 +150,15 @@ def version_dict(version):
     }
 
 
+def active_model(db):
+    return db.scalar(
+        select(ModelVersion).where(
+            ModelVersion.status == "ACTIVE",
+            ModelVersion.metrics["architecture"].as_string() == ARCHITECTURE,
+        )
+    )
+
+
 def training_status(db: Session):
     examples, missing = collect_examples(db)
     previous = latest_evaluated(db)
@@ -159,7 +171,7 @@ def training_status(db: Session):
         "plan": training_plan(examples),
         "new_labels": changed_labels(snapshot(examples), previous.labels_snapshot if previous else {}),
         "min_new_labels": settings().ml_min_new_labels,
-        "active": version_dict(db.scalar(select(ModelVersion).where(ModelVersion.status == "ACTIVE"))),
+        "active": version_dict(active_model(db)),
         "runs": [
             version_dict(v)
             for v in db.scalars(select(ModelVersion).order_by(ModelVersion.id.desc()).limit(15))
@@ -350,7 +362,7 @@ def interpret_probabilities(probabilities: list[list[float]], supported: list[st
 class LocalClassifier:
     def classify(self, path: Path) -> ClassificationResponse:
         with Session(engine()) as db:
-            active = db.scalar(select(ModelVersion).where(ModelVersion.status == "ACTIVE"))
+            active = active_model(db)
             if not active:
                 result = Classification(result="UNKNOWN", work_type=None, confidence=0, alternatives=[])
                 return ClassificationResponse(
@@ -419,7 +431,7 @@ def train_model(force: bool = False):
                 ):
                     db.commit()
                     return
-                active = db.scalar(select(ModelVersion).where(ModelVersion.status == "ACTIVE"))
+                active = active_model(db)
                 active_info = (
                     (active.model_path, active.model_sha256, list(active.supported_classes))
                     if active

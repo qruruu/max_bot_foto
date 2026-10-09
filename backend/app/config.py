@@ -6,6 +6,8 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.catalog import WORK_TYPES
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -28,7 +30,7 @@ class Settings(BaseSettings):
     ml_auto_train: bool = True
     ml_min_samples: int = Field(default=100, ge=4)
     ml_min_per_class: int = Field(default=20, ge=2)
-    ml_min_classes: int = Field(default=2, ge=2, le=22)
+    ml_min_classes: int = Field(default=2, ge=2, le=len(WORK_TYPES))
     ml_min_new_labels: int = Field(default=20, ge=1)
     ml_min_validation_per_class: int = Field(default=3, ge=1)
     ml_min_macro_f1: float = Field(default=0.70, ge=0, le=1)

@@ -27,9 +27,12 @@ def photo(**kwargs):
     )
 
 
-def test_catalog_has_exactly_22_stable_types():
-    assert len(WORK_TYPES) == 22
-    assert len(set(x[1] for x in WORK_TYPES.values())) == 22
+def test_catalog_matches_short_markings_in_sheet_order():
+    markings = [
+        "ПГМ", "ПОДХОДЫ", "УРНЫ", "МУСОР_ГАЗОН", "КОЛОДЦЫ", "АРМАТУРА", "ПЛОЩАДКИ", "СЛУЧ_МУСОР",
+        "ПОДМЕТАНИЕ", "МОЙКА_УРН", "ГРАБЛИ", "ГАЗОН", "ПОКОС", "БРУСЧ_МОЙКА", "МЕХ_СНЕГ", "ВЫВОЗ_СНЕГА",
+    ]
+    assert list(WORK_TYPES.values()) == [(label, label) for label in markings]
 
 
 @pytest.mark.parametrize(
@@ -50,7 +53,7 @@ def test_reply_hides_review_and_no_work_without_district():
     assert bot_reply([photo(district_id=1)], {1: "12 мкр"}) == "✅ Принято\nМикрорайон: 12 мкр"
     assert (
         bot_reply([photo(district_id=1, work_type="BIN_EMPTYING")], {1: "12 мкр"})
-        == "✅ Принято\nМикрорайон: 12 мкр\nВид работы: Очистка урн от мусора"
+        == "✅ Принято\nМикрорайон: 12 мкр\nВид работы: УРНЫ"
     )
     assert (
         bot_reply([photo(), photo(status=Status.DUPLICATE)], {})
@@ -60,7 +63,15 @@ def test_reply_hides_review_and_no_work_without_district():
 
 def test_storage_paths_and_sanitization():
     p = photo()
-    assert storage_path(p, None) == "disk:/MAX_PHOTOS/2026-10-01/Чат_1/МР_НЕ_ОПРЕДЕЛЕН_НЕ_ОПРЕДЕЛЕНО_3.jpg"
+    assert storage_path(p, None) == (
+        "disk:/MAX_PHOTOS/2026-10-01/Чат_1/МР_НЕ_ОПРЕДЕЛЕН/МР_НЕ_ОПРЕДЕЛЕН_НЕ_ОПРЕДЕЛЕНО_3.jpg"
+    )
+    assert storage_path(photo(work_type="BIN_EMPTYING"), "12 мкр") == (
+        "disk:/MAX_PHOTOS/2026-10-01/Чат_1/12_мкр/12_мкр_УРНЫ_3.jpg"
+    )
+    assert storage_path(photo(is_spam=True), "12 мкр") == (
+        "disk:/MAX_PHOTOS/СПАМ/2026-10-01/Чат_1/12_мкр/Спам_3.jpg"
+    )
     p.photo_date = None
     assert "ДАТА_НЕ_ОПРЕДЕЛЕНА" in storage_path(p, None)
     assert "/" not in safe_component("../../abc/def")

@@ -83,15 +83,18 @@ def safe_component(value: str, limit: int = 45) -> str:
 
 def storage_path(photo: Photo, district_name: str | None):
     folder_date = photo.photo_date.isoformat() if photo.photo_date else "ДАТА_НЕ_ОПРЕДЕЛЕНА"
+    district = safe_component(district_name, 35) if district_name else "МР_НЕ_ОПРЕДЕЛЕН"
     if photo.is_spam:
         return (
             f"disk:/{settings().yandex_disk_root}/СПАМ/{folder_date}/"
-            f"{safe_component(photo.chat_name)}/Спам_{photo.id}{photo.extension}"
+            f"{safe_component(photo.chat_name)}/{district}/Спам_{photo.id}{photo.extension}"
         )
-    district = safe_component(district_name, 35) if district_name else "МР_НЕ_ОПРЕДЕЛЕН"
     work = WORK_TYPES[photo.work_type][1] if photo.work_type else "НЕ_ОПРЕДЕЛЕНО"
     filename = f"{district}_{work}_{photo.id}{photo.extension}"
-    return f"disk:/{settings().yandex_disk_root}/{folder_date}/{safe_component(photo.chat_name)}/{filename}"
+    return (
+        f"disk:/{settings().yandex_disk_root}/{folder_date}/"
+        f"{safe_component(photo.chat_name)}/{district}/{filename}"
+    )
 
 
 def bot_reply(photos: list[Photo], district_names: dict[int, str]) -> str:

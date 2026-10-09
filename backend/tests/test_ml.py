@@ -49,7 +49,7 @@ def test_promotion_requires_quality_without_regression():
 
 def test_ambiguous_unsupported_and_multiple_predictions_go_to_review():
     def row(index, confidence):
-        values = [(1 - confidence) / 21] * 22
+        values = [(1 - confidence) / (len(ml.CODES) - 1)] * len(ml.CODES)
         values[index] = confidence
         return values
 
@@ -83,6 +83,23 @@ def test_no_model_is_explicit_unknown_without_network(db, monkeypatch):
     result = ml.LocalClassifier().classify(Path("does-not-need-to-exist"))
     assert result.classification.result == "UNKNOWN"
     assert result.raw == {"provider": "local", "reason": "MODEL_NOT_TRAINED", "model_id": None}
+
+
+def test_old_catalog_model_is_never_loaded_and_does_not_block_retraining(db, monkeypatch):
+    seed_dataset(db, per_class=60)
+    examples, _ = ml.collect_examples(db)
+    old_model = ModelVersion(
+        status="ACTIVE", dataset_fingerprint=ml.fingerprint(ml.snapshot(examples)), sample_count=120,
+        labels_snapshot=ml.snapshot(examples), metrics={"architecture": "resnet18-local-v1"},
+        supported_classes=ml.CODES[:2], model_path="old-22-class-weights.pt",
+    )
+    db.add(old_model)
+    db.commit()
+    monkeypatch.setattr(ml, "load_model", lambda *_: pytest.fail("Incompatible weights must not load"))
+    result = ml.LocalClassifier().classify(Path("unused"))
+    assert result.classification.work_type is None
+    assert ml.training_status(db)["active"] is None
+    assert ml.schedule_training()  # Same labels are enough for a new catalog's first model.
 
 
 def seed_dataset(db, per_class=25):
@@ -145,7 +162,7 @@ def test_train_save_activate_classify_and_queue_isolation(db, monkeypatch):
 
         def __init__(self):
             super().__init__()
-            self.fc = torch.nn.Linear(3, 22)
+            self.fc = torch.nn.Linear(3, len(ml.CODES))
             with torch.no_grad():
                 self.fc.weight.zero_()
                 self.fc.bias.fill_(-10)
