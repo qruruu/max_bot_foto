@@ -13,6 +13,48 @@ def test_date_formats(value):
     assert result.raw
 
 
+@pytest.mark.parametrize(
+    "month,variants",
+    [
+        (1, "янв. январь января"), (2, "фев. февр. февраль февраля"),
+        (3, "мар. март марта"), (4, "апр. апрель апреля"), (5, "май мая"),
+        (6, "июн. июнь июня"), (7, "июл. июль июля"), (8, "авг. август августа"),
+        (9, "сен. сент. сентябрь сентября"), (10, "окт. октябрь октября"),
+        (11, "ноя. нояб. ноябрь ноября"), (12, "дек. декабрь декабря"),
+    ],
+)
+def test_russian_month_names(month, variants):
+    for name in variants.split():
+        result = DateTimeParser().parse(f"20 {name} 2026 г. 11:43")
+        assert result.photo_date == date(2026, month, 20), name
+        assert result.photo_time == time(11, 43)
+        assert result.raw == f"20 {name} 2026 | 11:43"
+
+
+@pytest.mark.parametrize("value", ["20 апр 2026", "20 АПР. 2026 г.", "20\u00a0апр.\n2026 г."])
+def test_text_date_spacing_and_case(value):
+    assert DateTimeParser().parse(value).photo_date == date(2026, 4, 20)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "31 апр. 2026", "29 февраля 2026", "0 января 2026", "120 апр. 2026",
+        "20 апрельский 2026", "20 апр. 20260", "20 апр. 2026abc", "20 апр. 26",
+        "20 апр. 2026 г. 21.04.2026", "20 апреля 2026 21 апреля 2026",
+    ],
+)
+def test_invalid_or_conflicting_text_dates(value):
+    result = DateTimeParser().parse(value)
+    assert result.photo_date is None
+    assert result.confidence is None
+
+
+def test_matching_numeric_and_text_dates_and_leap_year():
+    result = DateTimeParser().parse("29 февраля 2024 г. 29.02.2024")
+    assert result.photo_date == date(2024, 2, 29)
+
+
 @pytest.mark.parametrize("value", ["31.02.2026", "2026-13-01", "no date", "01.10.2026 02.10.2026"])
 def test_bad_or_ambiguous_dates(value):
     assert DateTimeParser().parse(value).photo_date is None

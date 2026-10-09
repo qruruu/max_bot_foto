@@ -14,8 +14,25 @@ class DateTimeResult:
 
 
 class DateTimeParser:
+    MONTHS = {
+        name: number
+        for number, names in enumerate(
+            (
+                "янв январь января", "фев февр февраль февраля", "мар март марта",
+                "апр апрель апреля", "май мая", "июн июнь июня", "июл июль июля",
+                "авг август августа", "сен сент сентябрь сентября", "окт октябрь октября",
+                "ноя нояб ноябрь ноября", "дек декабрь декабря",
+            ),
+            start=1,
+        )
+        for name in names.split()
+    }
     DATE = re.compile(
         r"(?<!\d)(?:(\d{4})-(\d{1,2})-(\d{1,2})|(\d{1,2})([./-])(\d{1,2})\5(\d{4}|\d{2}))(?!\d)"
+    )
+    TEXT_DATE = re.compile(
+        r"(?<!\w)(\d{1,2})\s+(" + "|".join(MONTHS) + r")\.?\s+(\d{4})(?!\w)",
+        re.IGNORECASE,
     )
     TIME = re.compile(r"(?<![\d:])(\d{1,2}):(\d{2})(?::(\d{2}))?(?![\d:])")
 
@@ -29,6 +46,12 @@ class DateTimeParser:
                     year = int(m[7]) + (2000 if len(m[7]) == 2 else 0)
                     value = date(year, int(m[6]), int(m[4]))
                 dates.add(value)
+                raw.append(m[0])
+            except ValueError:
+                continue
+        for m in self.TEXT_DATE.finditer(text):
+            try:
+                dates.add(date(int(m[3]), self.MONTHS[m[2].lower()], int(m[1])))
                 raw.append(m[0])
             except ValueError:
                 continue
