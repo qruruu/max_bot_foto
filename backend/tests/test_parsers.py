@@ -36,6 +36,25 @@ def test_text_date_spacing_and_case(value):
     assert DateTimeParser().parse(value).photo_date == date(2026, 4, 20)
 
 
+@pytest.mark.parametrize("month", ["anp", "aпр", "апp", "аnp", "aпp", "ANP", "апpeля"])
+def test_ocr_latin_lookalikes_in_russian_month(month):
+    text = f"20 {month}. 2026 г. 09:24:37"
+    result = DateTimeParser().parse(text)
+    assert result.photo_date == date(2026, 4, 20)
+    assert result.photo_time == time(9, 24, 37)
+    assert f"20 {month}. 2026" in result.raw
+
+
+@pytest.mark.parametrize("text", ["20 anp. 2O26", "2O anp. 2026", "20 abc. 2026", "31 anp. 2026"])
+def test_month_normalization_never_guesses_digits_or_unknown_words(text):
+    assert DateTimeParser().parse(text).photo_date is None
+
+
+def test_normalized_month_still_detects_conflicting_dates():
+    assert DateTimeParser().parse("20 anp. 2026\n21 апр. 2026").photo_date is None
+    assert DateTimeParser().parse("20 anp. 2026\n20 апр. 2026").photo_date == date(2026, 4, 20)
+
+
 @pytest.mark.parametrize(
     "value",
     [

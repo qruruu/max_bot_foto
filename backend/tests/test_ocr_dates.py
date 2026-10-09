@@ -101,6 +101,20 @@ def test_no_coordinate_pair_is_invented_across_passes(monkeypatch):
     assert CoordinateParser().parse(TesseractOCR().recognize(PHOTO)).latitude is None
 
 
+def test_photo74_server_ocr_recovers_date_on_second_pass(monkeypatch):
+    # Relevant lines from the user's actual saved OCR, not a transcription of the image.
+    first = "a\n\nnp. 202\n\nбг 09:24:37\n\n61,0840М 72,6310Е"
+    second = "20 anp. 2026 r.\n\n9:24:37\n\n61,0840N 72,6310E"
+    recognize = mock_ocr(monkeypatch, [first, second])
+    text = TesseractOCR().recognize(PHOTO)
+    timestamp = DateTimeParser().parse(text)
+    coordinates = CoordinateParser().parse(text)
+    assert timestamp.photo_date == date(2026, 4, 20)
+    assert timestamp.photo_time == time(9, 24, 37)
+    assert (coordinates.latitude, coordinates.longitude) == (61.0840, 72.6310)
+    assert recognize.call_count == 2
+
+
 @pytest.mark.skipif(not shutil.which("tesseract"), reason="Tesseract is installed in the Docker image")
 def test_real_russian_camera_stamp():
     text = TesseractOCR().recognize(STAMP)
@@ -121,3 +135,20 @@ def test_real_camera_metadata_at_different_sizes(tmp_path, width):
     assert timestamp.photo_time == time(9, 33, 34), text
     assert coordinates.latitude == pytest.approx(61.0863), text
     assert coordinates.longitude == pytest.approx(72.6303), text
+
+
+@pytest.mark.skipif(not shutil.which("tesseract"), reason="Tesseract is installed in the Docker image")
+@pytest.mark.parametrize("width", [1050, 840, 700, 525])
+@pytest.mark.parametrize(
+    "filename,expected_time",
+    [("camera_stamp_bin_092405.png", time(9, 24, 5)), ("camera_stamp_photo74.png", time(9, 24, 37))],
+)
+def test_april_stamp_dates_from_new_screenshots(tmp_path, width, filename, expected_time):
+    with Image.open(STAMP.parent / filename) as original:
+        image = original.resize((width, round(original.height * width / original.width)))
+    path = tmp_path / "photo.png"
+    image.save(path)
+    text = TesseractOCR().recognize(path)
+    timestamp = DateTimeParser().parse(text)
+    assert timestamp.photo_date == date(2026, 4, 20), text
+    assert timestamp.photo_time == expected_time, text

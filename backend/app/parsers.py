@@ -30,8 +30,14 @@ class DateTimeParser:
     DATE = re.compile(
         r"(?<!\d)(?:(\d{4})-(\d{1,2})-(\d{1,2})|(\d{1,2})([./-])(\d{1,2})\5(\d{4}|\d{2}))(?!\d)"
     )
+    # rus+eng OCR can render Cyrillic camera-stamp months with Latin lookalikes
+    # (e.g. "anp." for "апр."). Normalize only the month token, never date digits.
+    MONTH_LOOKALIKES = str.maketrans({
+        "a": "а", "c": "с", "e": "е", "k": "к", "m": "м", "n": "п",
+        "o": "о", "p": "р", "t": "т", "x": "х", "y": "у",
+    })
     TEXT_DATE = re.compile(
-        r"(?<!\w)(\d{1,2})\s+(" + "|".join(MONTHS) + r")\.?\s+(\d{4})(?!\w)",
+        r"(?<!\w)(\d{1,2})\s+([a-zа-яё]{3,9})\.?\s+(\d{4})(?!\w)",
         re.IGNORECASE,
     )
     TIME = re.compile(r"(?<![\d:])(\d{1,2}):(\d{2})(?::(\d{2}))?(?![\d:])")
@@ -50,8 +56,11 @@ class DateTimeParser:
             except ValueError:
                 continue
         for m in self.TEXT_DATE.finditer(text):
+            month = self.MONTHS.get(m[2].lower().translate(self.MONTH_LOOKALIKES))
+            if month is None:
+                continue
             try:
-                dates.add(date(int(m[3]), self.MONTHS[m[2].lower()], int(m[1])))
+                dates.add(date(int(m[3]), month, int(m[1])))
                 raw.append(m[0])
             except ValueError:
                 continue
