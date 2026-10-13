@@ -13,6 +13,10 @@ import httpx
 from app.config import settings
 
 
+class OriginalMissing(RuntimeError):
+    """Neither the saved source nor the verified destination exists on Disk."""
+
+
 class DownloadRejected(ValueError):
     pass
 
@@ -191,12 +195,20 @@ class YandexDisk:
         self.wait_for_file(target, digest)
 
     def move(self, source: str, target: str, digest: str):
-        if source == target or self.matches(target, digest):
+        if self.matches(target, digest):
             return
+        if source == target or not self.matches(source, digest):
+            raise OriginalMissing("ORIGINAL_MISSING")
         self.mkdirs(target.rsplit("/", 1)[0])
         response = self.request(
             "POST", "/resources/move", params={"from": source, "path": target, "overwrite": "false"}
         )
+        if response.status_code == 404:
+            # A move can finish before a retry, or the source can disappear after the preflight.
+            if self.matches(target, digest):
+                return
+            if self.metadata(source) is None:
+                raise OriginalMissing("ORIGINAL_MISSING")
         response.raise_for_status()
         if response.status_code == 202:
             url = response.json()["href"]
@@ -213,6 +225,48 @@ class YandexDisk:
                     raise RuntimeError("YANDEX_MOVE_FAILED")
                 time.sleep(1)
         self.wait_for_file(target, digest)
+
+    def wait_operation(self, response: httpx.Response):
+        response.raise_for_status()
+        if response.status_code != 202:
+            return
+        url = response.json()["href"]
+        if not url.startswith(self.API + "/operations/"):
+            raise RuntimeError("YANDEX_INVALID_OPERATION_URL")
+        for _ in range(30):
+            operation = self.request("GET", url.removeprefix(self.API))
+            operation.raise_for_status()
+            status = operation.json()["status"]
+            if status == "success":
+                return
+            if status == "failed":
+                raise RuntimeError("YANDEX_OPERATION_FAILED")
+            time.sleep(1)
+        raise RuntimeError("YANDEX_OPERATION_PENDING")
+
+    def move_folder(self, source: str, target: str):
+        src, dst = self.metadata(source), self.metadata(target)
+        if src is None:
+            return  # absent source, or a previous attempt already moved it
+        if src.get("type") != "dir" or dst is not None:
+            raise RuntimeError("YANDEX_FOLDER_MOVE_CONFLICT")
+        self.mkdirs(target.rsplit("/", 1)[0])
+        response = self.request("POST", "/resources/move",
+                                params={"from": source, "path": target, "overwrite": "false"})
+        self.wait_operation(response)
+        dst = self.metadata(target)
+        if self.metadata(source) is not None or not dst or dst.get("type") != "dir":
+            raise RuntimeError("YANDEX_FOLDER_MOVE_NOT_READY")
+
+    def trash_exchange_file(self, path: str, digest: str):
+        if not self.matches(path, digest):
+            return
+        response = self.request("DELETE", "/resources", params={"path": path, "permanently": "false"})
+        if response.status_code == 404:
+            return
+        self.wait_operation(response)
+        if self.metadata(path) is not None:
+            raise RuntimeError("YANDEX_DELETE_NOT_READY")
 
     def download(self, source: str, target: Path):
         response = self.request("GET", "/resources/download", params={"path": source})

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import engine
 from app.domain import now
-from app.integrations import MaxClient
+from app.integrations import MaxClient, OriginalMissing
 from app.models import Chat, Inbox, Job
 from app.processing import error_code, process_batch, regeo_all, sync_photo
 
@@ -42,7 +42,7 @@ def run_once(kinds: list[str] | None = None) -> bool:
                 .where(
                     Job.status.in_(["PENDING", "RUNNING"]),
                     Job.next_run_at <= now(),
-                    Job.kind.in_(kinds) if kinds else Job.kind.not_in(["TRAIN", "PUBLISH"]),
+                    Job.kind.in_(kinds) if kinds else Job.kind.not_in(["TRAIN", "PUBLISH", "EXCHANGE_GC", "ARCHIVE_ORGANIZE"]),
                 )
                 .order_by(Job.next_run_at, Job.id)
                 .limit(30)
@@ -56,8 +56,8 @@ def run_once(kinds: list[str] | None = None) -> bool:
                 continue
             try:
                 with Session(engine(), expire_on_commit=False) as db:
-                    job = db.get(Job, job_id)
-                    if job.status == "DONE" or job.next_run_at > now():
+                    job = db.get(Job, job_id, with_for_update=True)
+                    if job.status not in {"PENDING", "RUNNING"} or job.next_run_at > now():
                         continue
                     job.status, job.attempts = "RUNNING", job.attempts + 1
                     db.commit()
@@ -66,7 +66,7 @@ def run_once(kinds: list[str] | None = None) -> bool:
                     if kind == "BATCH":
                         process_batch(object_id)
                     elif kind == "SYNC":
-                        sync_photo(object_id)
+                        sync_photo(object_id, job_id=job_id)
                     elif kind == "REPLY":
                         send_reply(object_id)
                     elif kind == "REGEO":
@@ -75,6 +75,14 @@ def run_once(kinds: list[str] | None = None) -> bool:
                         from app.exchange import publish
 
                         publish(object_id)
+                    elif kind == "EXCHANGE_GC":
+                        from app.exchange_housekeeping import collect_generations
+
+                        collect_generations()
+                    elif kind == "ARCHIVE_ORGANIZE":
+                        from app.exchange_housekeeping import organize_archive
+
+                        organize_archive()
                     elif kind == "TRAIN":
                         from app.ml import train_model
 
@@ -83,11 +91,23 @@ def run_once(kinds: list[str] | None = None) -> bool:
                         raise ValueError("UNKNOWN_JOB_KIND")
                     with Session(engine()) as db:
                         job = db.get(Job, job_id)
-                        job.status, job.last_error = "DONE", None
+                        if job.status == "RUNNING":
+                            job.status, job.last_error = "DONE", None
                         db.commit()
+                except OriginalMissing:
+                    # sync_photo already persisted BLOCKED under its photo lock. Do not overwrite
+                    # a manual retry that might have been requested after that lock was released.
+                    with Session(engine()) as db:
+                        job = db.get(Job, job_id)
+                        if job.status == "RUNNING":
+                            job.status, job.last_error = "BLOCKED", "ORIGINAL_MISSING"
+                            db.commit()
+                    log.warning("job=%s kind=%s error=ORIGINAL_MISSING (paused)", job_id, kind)
                 except Exception as exc:
                     with Session(engine()) as db:
                         job = db.get(Job, job_id)
+                        if job.status != "RUNNING":
+                            return True
                         job.status, job.last_error = "PENDING", error_code(exc)
                         job.next_run_at = now() + timedelta(seconds=min(3600, 5 * 2 ** min(job.attempts, 10)))
                         db.commit()

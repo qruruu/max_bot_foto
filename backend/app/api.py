@@ -181,6 +181,8 @@ def preview(photo_id: int, db: Db, user: CurrentUser):
 @app.get("/api/photos/{photo_id}/original")
 def original(photo_id: int, db: Db, user: CurrentUser):
     photo = require_photo(db, photo_id)
+    if photo.processing_error == "ORIGINAL_MISSING":
+        raise HTTPException(409, "Оригинал не найден на Диске. Восстановите файл и нажмите «Проверить снова».")
     if not photo.yandex_disk_path:
         raise HTTPException(409, "Загрузка оригинала ещё не завершена")
     response = YandexDisk().request("GET", "/resources/download", params={"path": photo.yandex_disk_path})
@@ -236,6 +238,7 @@ def edit_photo(photo_id: int, body: PhotoEdit, db: Db, user: CurrentUser):
 
 @app.post("/api/photos/{photo_id}/retry")
 def retry_photo(photo_id: int, db: Db, user: CurrentUser):
+    db.execute(text("SELECT pg_advisory_xact_lock(7002, :id)"), {"id": photo_id})
     photo = require_photo(db, photo_id)
     kind, object_id = ("SYNC", photo.id) if photo.analyzed_at else ("BATCH", photo.inbox_id)
     if photo.status in {Status.REJECTED, Status.DUPLICATE, Status.FORWARDED}:
@@ -498,7 +501,13 @@ def retry_job(job_id: int, db: Db, user: AdminUser):
     job = db.get(Job, job_id)
     if not job:
         raise HTTPException(404, "Задача не найдена")
-    if job.status == "PENDING":
+    if job.kind == "SYNC":
+        db.execute(text("SELECT pg_advisory_xact_lock(7002, :id)"), {"id": job.object_id})
+        db.refresh(job)
+    if job.status not in {"PENDING", "BLOCKED"}:
+        raise HTTPException(409, "Задача уже выполняется или завершена. Обновите список.")
+    if job.status in {"PENDING", "BLOCKED"}:
+        job.status, job.last_error = "PENDING", None
         job.next_run_at = now() - timedelta(seconds=1)
         audit(db, user.id, "JOB_RETRY", "job", job.id, None, {"kind": job.kind})
     db.commit()
@@ -540,6 +549,9 @@ def exchange_status(db: Db, user: AdminUser):
         "production_started_at": state.production_started_at,
         "source_timezone": state.source_timezone,
         "roots": {c: exchange_root(state, c) for c in ("test", "production")},
+        "photo_root": f"disk:/{settings().yandex_disk_root}",
+        "training_root": f"disk:/{settings().training_folder}",
+        "organizing": db.scalar(select(Job.status).where(Job.dedupe_key == "archive-organize:v2")),
         "counts": {c: counts.get(c, 0) for c in ("test", "production")},
         "publications": [
             {
@@ -595,3 +607,16 @@ def exchange_publish(body: ExchangeModeInput, db: Db, user: AdminUser):
         )
     db.commit()
     return {"id": pub.id, "status": pub.status, "cohort": pub.cohort}
+
+
+@app.post("/api/exchange/organize", status_code=202)
+def exchange_organize(db: Db, user: AdminUser):
+    db.execute(text("SELECT pg_advisory_xact_lock(7009, 1)"))
+    job = db.scalar(select(Job).where(Job.dedupe_key == "archive-organize:v2"))
+    if job is None:
+        enqueue(db, "ARCHIVE_ORGANIZE", 1, "archive-organize:v2")
+    elif job.status != "RUNNING":
+        job.status, job.last_error, job.next_run_at = "PENDING", None, now()
+    audit(db, user.id, "ARCHIVE_ORGANIZATION_REQUESTED", "exchange_state", 1, None, {})
+    db.commit()
+    return {"ok": True}

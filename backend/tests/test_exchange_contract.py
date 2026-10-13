@@ -27,13 +27,13 @@ def test_synthetic_examples_validate_and_index_hashes_match():
     for path in sorted(examples.glob("[0-9]*.json")):
         part = Partition.model_validate_json(path.read_bytes())
         assert part.photo_count == len(part.items) == 1
-        assert part.source_instance_id.endswith(part.cohort)
+        assert part.source_instance_id.endswith("test" if part.cohort == "training" else part.cohort)
         records += part.items
     assert len(records) >= 8
     assert {"ACCEPTED", "NEEDS_REVIEW", "DUPLICATE", "ERROR", "SPAM", "RECEIVED"} <= {
         i.status for i in records
     }
-    assert {"test", "production"} == {i.cohort for i in records}
+    assert {"training", "production"} == {i.cohort for i in records}
     index = Index.model_validate_json((examples / "index.json").read_bytes())
     for ref in [*index.partitions, index.dictionaries]:
         assert hashlib.sha256((examples / ref.file_ref).read_bytes()).hexdigest() == ref.sha256

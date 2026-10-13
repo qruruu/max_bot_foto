@@ -2,17 +2,17 @@ import logging
 from contextlib import contextmanager
 
 import httpx
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session
 
 from app.catalog import ACCEPTED_STATUSES, IMAGE_EXTENSIONS, REJECTED_STATUSES, WORK_TYPES, Status
 from app.config import settings
 from app.db import engine
 from app.domain import audit, bot_reply, enqueue, now, reassess, storage_path
-from app.integrations import DownloadRejected, MaxClient, YandexDisk
+from app.integrations import DownloadRejected, MaxClient, OriginalMissing, YandexDisk
 from app.media import InvalidImage, digest_file, inspect_image, media_path, write_preview
 from app.ml import LocalClassifier
-from app.models import District, Inbox, Photo
+from app.models import District, Inbox, Job, Photo
 from app.parsers import CoordinateParser, DateTimeParser, parse_address
 from app.recognition import OCRService, TesseractOCR, WorkTypeClassifier
 
@@ -34,6 +34,8 @@ def photo_lock(photo_id: int):
 
 def error_code(exc: Exception) -> str:
     # No URLs, query signatures, tokens or upstream response bodies in logs/UI.
+    if isinstance(exc, OriginalMissing):
+        return "ORIGINAL_MISSING"
     if isinstance(exc, httpx.HTTPStatusError):
         return f"HTTP_{exc.response.status_code}"
     return type(exc).__name__
@@ -44,7 +46,18 @@ def synchronize(db: Session, photo: Photo, disk: YandexDisk):
     target = storage_path(photo, district.name if district else None)
     original = media_path(photo.id)
     if photo.yandex_disk_path:
-        disk.move(photo.yandex_disk_path, target, photo.sha256)
+        try:
+            disk.move(photo.yandex_disk_path, target, photo.sha256)
+        except OriginalMissing:
+            # A preview is never a replacement for the original. Recover only exact original bytes.
+            if not original.is_file():
+                raise
+            if digest_file(original) != photo.sha256:
+                raise RuntimeError("LOCAL_ORIGINAL_HASH_MISMATCH") from None
+            disk.upload(original, target, photo.sha256)
+    elif not original.is_file():
+        if not disk.matches(target, photo.sha256):
+            raise OriginalMissing("ORIGINAL_MISSING")
     else:
         disk.upload(original, target, photo.sha256)
     photo.yandex_disk_path = target
@@ -218,6 +231,9 @@ def process_batch(inbox_id: int):
     for photo_id in ids:
         try:
             process_photo(photo_id)
+        except OriginalMissing:
+            # The photo already records the error; retrying an entire album cannot restore deleted bytes.
+            log.warning("photo=%s processing_error=ORIGINAL_MISSING (manual recovery required)", photo_id)
         except Exception as exc:
             failed = True
             log.warning("photo=%s processing_error=%s", photo_id, error_code(exc))
@@ -235,11 +251,28 @@ def process_batch(inbox_id: int):
         db.commit()
 
 
-def sync_photo(photo_id: int):
+def sync_photo(photo_id: int, job_id: int | None = None):
     with photo_lock(photo_id), Session(engine(), expire_on_commit=False) as db:
         photo = db.get(Photo, photo_id)
         if not photo or not photo.sha256 or not photo.analyzed_at:
             return
+        if job_id is not None:
+            job = db.get(Job, job_id)
+            if not job or job.status != "RUNNING":
+                return
+            # Under the photo lock, this job handles the latest state for every older queued SYNC.
+            # A competing worker may already be waiting here; it will see DONE and skip its network call.
+            db.execute(
+                update(Job)
+                .where(
+                    Job.kind == "SYNC",
+                    Job.object_id == photo_id,
+                    Job.id != job_id,
+                    Job.status.in_(["PENDING", "RUNNING", "BLOCKED"]),
+                )
+                .values(status="DONE", last_error="SYNC_SUPERSEDED")
+            )
+            db.commit()
         try:
             synchronize(db, photo, YandexDisk())
             reassess(db, photo)
@@ -248,6 +281,9 @@ def sync_photo(photo_id: int):
             db.rollback()
             photo = db.get(Photo, photo_id)
             photo.storage_status, photo.processing_error = "ERROR", error_code(exc)
+            if isinstance(exc, OriginalMissing) and job_id is not None:
+                job = db.get(Job, job_id)
+                job.status, job.last_error = "BLOCKED", "ORIGINAL_MISSING"
             db.commit()
             raise
 

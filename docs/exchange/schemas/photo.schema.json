@@ -240,7 +240,7 @@
     },
     "cohort": {
       "enum": [
-        "test",
+        "training",
         "production"
       ],
       "title": "Cohort",

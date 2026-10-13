@@ -38,6 +38,17 @@ def audit(
 
 
 def enqueue(db: Session, kind: str, object_id: int, key: str):
+    if kind == "SYNC":
+        # Callers hold the photo lock. One queued job is enough: it reads the latest Photo.
+        existing = db.scalar(
+            select(Job)
+            .where(Job.kind == kind, Job.object_id == object_id, Job.status.in_(["PENDING", "BLOCKED"]))
+            .order_by(Job.id)
+            .limit(1)
+        )
+        if existing:
+            existing.status, existing.last_error, existing.next_run_at = "PENDING", None, now()
+            return
     db.execute(
         insert(Job)
         .values(kind=kind, object_id=object_id, dedupe_key=key, status="PENDING", attempts=0)
@@ -88,8 +99,8 @@ def storage_path(photo: Photo, district_name: str | None):
     district = safe_component(district_name, 35) if district_name else "МР_НЕ_ОПРЕДЕЛЕН"
     root = f"disk:/{settings().yandex_disk_root}"
     legacy = getattr(photo, "archive_layout", "district_v1") == "legacy"
-    if not legacy and getattr(photo, "cohort", "production") == "test":
-        root += "/ТЕСТОВЫЕ"
+    if getattr(photo, "cohort", "production") == "test":
+        root = f"disk:/{settings().training_folder}"
     chat_folder = f"{safe_component(photo.chat_name)}/" if legacy else ""
     if photo.is_spam:
         return f"{root}/СПАМ/{folder_date}/{chat_folder}{district}/Спам_{photo.id}{photo.extension}"

@@ -73,7 +73,7 @@ def test_storage_paths_and_sanitization():
         "disk:/MAX_PHOTOS/СПАМ/2026-10-01/12_мкр/Спам_3.jpg"
     )
     assert '/Чат_1/' in storage_path(photo(archive_layout='legacy'), '12 мкр')
-    assert '/ТЕСТОВЫЕ/' in storage_path(photo(cohort='test'), '12 мкр')
+    assert '/MAX_PHOTOS_TRAINING/' in storage_path(photo(cohort='test'), '12 мкр')
     p.photo_date = None
     assert "ДАТА_НЕ_ОПРЕДЕЛЕНА" in storage_path(p, None)
     assert "/" not in safe_component("../../abc/def")

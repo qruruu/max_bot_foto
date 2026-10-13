@@ -3,7 +3,7 @@
 import hashlib
 import json
 from collections import defaultdict
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Literal
@@ -16,12 +16,12 @@ from sqlalchemy.orm import Session
 from app.catalog import WORK_TYPES, Status
 from app.config import settings
 from app.db import engine
-from app.domain import now
+from app.domain import enqueue, now
 from app.integrations import YandexDisk
-from app.models import District, ExchangeState, Photo, Publication
+from app.models import District, ExchangeState, Job, Photo, Publication
 from app.processing import error_code
 
-Cohort = Literal["test", "production"]
+Cohort = Literal["training", "production"]
 
 
 class Document(BaseModel):
@@ -66,7 +66,7 @@ class Partition(Document):
     source_timezone: str
     partition_received_date: date
     generation_id: str
-    published_at: datetime
+    produced_at: datetime
     as_of: datetime
     photo_count: int = Field(ge=0)
     items: list[PhotoRecord]
@@ -114,7 +114,8 @@ def json_bytes(value: dict) -> bytes:
 
 
 def exchange_root(state: ExchangeState, cohort: str) -> str:
-    return f"disk:/{settings().yandex_disk_root}/ARM_EXCHANGE/{cohort}/{state.instance_id}"
+    external_cohort = "training" if cohort == "test" else cohort
+    return f"disk:/{settings().exchange_folder}/{external_cohort}/{state.instance_id}"
 
 
 def record(photo: Photo) -> PhotoRecord:
@@ -141,7 +142,7 @@ def record(photo: Photo) -> PhotoRecord:
         duplicate_of=str(photo.duplicate_of) if photo.duplicate_of else None,
         sha256=photo.sha256,
         original_disk_path=photo.yandex_disk_path,
-        cohort=photo.cohort,
+        cohort="training" if photo.cohort == "test" else photo.cohort,
         error_code=photo.processing_error,
         latitude=photo.latitude,
         longitude=photo.longitude,
@@ -158,6 +159,7 @@ def prepare(publication_id: int):
         state = db.get(ExchangeState, 1)
         instant = now()
         identity = f"{state.instance_id}-{pub.cohort}"
+        external_cohort = "training" if pub.cohort == "test" else pub.cohort
         generation = f"{pub.id:020d}"
         groups = defaultdict(list)
         for photo in db.scalars(select(Photo).where(Photo.cohort == pub.cohort).order_by(Photo.id)):
@@ -175,11 +177,11 @@ def prepare(publication_id: int):
             path = f"snapshots/{day}/{generation}.json"
             doc = Partition(
                 source_instance_id=identity,
-                cohort=pub.cohort,
+                cohort=external_cohort,
                 source_timezone=state.source_timezone,
                 partition_received_date=day,
                 generation_id=generation,
-                published_at=instant,
+                produced_at=instant,
                 as_of=instant,
                 photo_count=len(items),
                 items=items,
@@ -210,7 +212,7 @@ def prepare(publication_id: int):
             )
         dictionary = Dictionary(
             source_instance_id=identity,
-            cohort=pub.cohort,
+            cohort=external_cohort,
             work_types=[{"code": c, "name": n[0]} for c, n in WORK_TYPES.items()],
             statuses=list(Status),
             storage_statuses=["PENDING", "ERROR", "SYNCED", "NOT_REQUIRED"],
@@ -219,7 +221,7 @@ def prepare(publication_id: int):
         dictionary_ref = FileRef(**add_file(f"dictionaries/{generation}.json", dictionary))
         index = Index(
             source_instance_id=identity,
-            cohort=pub.cohort,
+            cohort=external_cohort,
             source_timezone=state.source_timezone,
             published_at=instant,
             as_of=instant,
@@ -270,6 +272,9 @@ def publish(publication_id: int, disk: YandexDisk | None = None):
                     pub.status, pub.finished_at, pub.last_error = "DONE", now(), None
                     state = db.get(ExchangeState, 1)
                     setattr(state, f"last_{pub.cohort}_publication_id", pub.id)
+                    enqueue(db, "EXCHANGE_GC", pub.id, f"exchange-gc:{pub.id}")
+                    job = db.scalar(select(Job).where(Job.dedupe_key == f"exchange-gc:{pub.id}"))
+                    job.next_run_at = now() + timedelta(hours=settings().exchange_read_window_hours)
                     db.commit()
             except Exception as exc:
                 with Session(engine()) as db:

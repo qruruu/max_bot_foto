@@ -155,8 +155,8 @@ def test_cutover_does_not_export_tests_or_duplicate_against_them(db, admin):
     process_photo(new.id, FakeMax(), disk, GoodOCR(), GoodAI())
     db.refresh(old)
     db.refresh(new)
-    assert old.cohort == "test" and "/ТЕСТОВЫЕ/" in old.yandex_disk_path
-    assert new.cohort == "production" and "/ТЕСТОВЫЕ/" not in new.yandex_disk_path
+    assert old.cohort == "test" and "/MAX_PHOTOS_TRAINING/" in old.yandex_disk_path
+    assert new.cohort == "production" and "/MAX_PHOTOS_TRAINING/" not in new.yandex_disk_path
     assert old.sha256 == new.sha256 and new.duplicate_of is None
     assert "/Чат_1/" not in new.yandex_disk_path
     dup = intake_photo(db, "prod-dup")

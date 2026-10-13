@@ -3,4 +3,4 @@
 from app.worker import main
 
 if __name__ == "__main__":
-    main(["PUBLISH"])
+    main(["PUBLISH", "EXCHANGE_GC", "ARCHIVE_ORGANIZE"])

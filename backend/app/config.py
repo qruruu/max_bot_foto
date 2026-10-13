@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     max_download_hosts: str = "max.ru,max.com,okcdn.ru,mycdn.me,userapi.com"
     yandex_disk_token: str = ""
     yandex_disk_root: str = "MAX_PHOTOS"
+    yandex_exchange_root: str | None = None
+    yandex_training_root: str | None = None
+    exchange_read_window_hours: int = Field(default=24, ge=1, le=720)
     yandex_maps_api_key: str = ""
     ml_auto_train: bool = True
     ml_min_samples: int = Field(default=100, ge=4)
@@ -51,6 +54,14 @@ class Settings(BaseSettings):
     worker_idle_seconds: float = 2
 
     @property
+    def exchange_folder(self) -> str:
+        return self.yandex_exchange_root or f"{self.yandex_disk_root}_ARM_EXCHANGE"
+
+    @property
+    def training_folder(self) -> str:
+        return self.yandex_training_root or f"{self.yandex_disk_root}_TRAINING"
+
+    @property
     def max_transport(self) -> str:
         if self.max_update_mode != "auto":
             return self.max_update_mode
@@ -67,6 +78,14 @@ class Settings(BaseSettings):
             raise ValueError("MAX production delivery requires webhook; polling is for local development")
         if "/" in self.yandex_disk_root or not self.yandex_disk_root.strip():
             raise ValueError("YANDEX_DISK_ROOT must be a folder name")
+        roots = [self.yandex_disk_root, self.exchange_folder, self.training_folder]
+        if any(
+            "/" in value or "\\" in value or value.strip() != value or value in {"", ".", ".."}
+            for value in roots
+        ):
+            raise ValueError("Disk roots must be separate top-level folder names")
+        if len({value.casefold() for value in roots}) != 3:
+            raise ValueError("Photo, exchange and training folders must be distinct")
         return self
 
 

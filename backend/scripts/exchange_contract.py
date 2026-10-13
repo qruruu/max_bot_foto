@@ -158,14 +158,14 @@ def generate(root: Path):
             "10-test-cohort",
             dict(
                 source_photo_id="110",
-                cohort="test",
-                original_disk_path="disk:/MAX_PHOTOS/ТЕСТОВЫЕ/2026-10-12/Пример/Пример_УРНЫ_110.jpg",
+                cohort="training",
+                original_disk_path="disk:/MAX_PHOTOS_TRAINING/2026-10-12/Пример/Пример_УРНЫ_110.jpg",
             ),
         ),
     ]
     for name, changes in scenarios:
         item = PhotoRecord.model_validate({**base.model_dump(), **changes})
-        identity = f"00000000-0000-4000-8000-000000000000-{item.cohort}"
+        identity = "00000000-0000-4000-8000-000000000000-" + ("test" if item.cohort == "training" else item.cohort)
         as_of = max(instant, item.updated_at)
         part = Partition(
             source_instance_id=identity,
@@ -173,7 +173,7 @@ def generate(root: Path):
             source_timezone="Asia/Yekaterinburg",
             partition_received_date=date(2026, 10, 13),
             generation_id="00000000000000000001",
-            published_at=as_of,
+            produced_at=as_of,
             as_of=as_of,
             photo_count=1,
             items=[item],

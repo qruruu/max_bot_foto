@@ -108,6 +108,7 @@ def test_yandex_async_move_and_idempotent_retry(monkeypatch):
             httpx.Response(404),
             httpx.Response(200, json={"sha256": "digest"}),
             httpx.Response(200, json={"sha256": "digest"}),
+            httpx.Response(200, json={"sha256": "digest"}),
         ]
     )
     respx.put(api + "/resources").mock(return_value=httpx.Response(201))
@@ -174,3 +175,29 @@ def test_real_ocr_if_available(tmp_path):
     img.save(path)
     result = TesseractOCR().recognize(path)
     assert "30.09.2026" in result and "61.1060" in result
+
+
+@respx.mock
+def test_exchange_trash_checks_hash_and_uses_recoverable_delete(monkeypatch):
+    monkeypatch.setenv("YANDEX_DISK_TOKEN", "test-token")
+    settings.cache_clear()
+    digest = "a" * 64
+    path = "disk:/MAX_PHOTOS_ARM_EXCHANGE/production/source/indexes/0001.json"
+    respx.get(YandexDisk.API + "/resources").mock(
+        side_effect=[httpx.Response(200, json={"type": "file", "sha256": digest}), httpx.Response(404)]
+    )
+    route = respx.delete(YandexDisk.API + "/resources").mock(return_value=httpx.Response(204))
+    YandexDisk().trash_exchange_file(path, digest)
+    assert route.calls.last.request.url.params["permanently"] == "false"
+    assert route.calls.last.request.url.params["path"] == path
+
+
+@respx.mock
+def test_folder_move_refuses_overwrite(monkeypatch):
+    monkeypatch.setenv("YANDEX_DISK_TOKEN", "test-token")
+    settings.cache_clear()
+    respx.get(YandexDisk.API + "/resources").mock(return_value=httpx.Response(200, json={"type": "dir"}))
+    route = respx.post(YandexDisk.API + "/resources/move").mock(return_value=httpx.Response(201))
+    with pytest.raises(RuntimeError, match="CONFLICT"):
+        YandexDisk().move_folder("disk:/MAX_PHOTOS/ARM_EXCHANGE", "disk:/MAX_PHOTOS_ARM_EXCHANGE/legacy")
+    assert not route.called

@@ -225,7 +225,7 @@
         },
         "cohort": {
           "enum": [
-            "test",
+            "training",
             "production"
           ],
           "title": "Cohort",
@@ -332,7 +332,7 @@
     },
     "cohort": {
       "enum": [
-        "test",
+        "training",
         "production"
       ],
       "title": "Cohort",
@@ -351,9 +351,9 @@
       "title": "Generation Id",
       "type": "string"
     },
-    "published_at": {
+    "produced_at": {
       "format": "date-time",
-      "title": "Published At",
+      "title": "Produced At",
       "type": "string"
     },
     "as_of": {
@@ -380,7 +380,7 @@
     "source_timezone",
     "partition_received_date",
     "generation_id",
-    "published_at",
+    "produced_at",
     "as_of",
     "photo_count",
     "items"
