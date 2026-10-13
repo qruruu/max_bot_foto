@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.catalog import IMAGE_EXTENSIONS, Status
 from app.domain import enqueue, now
-from app.models import Chat, Inbox, Photo
+from app.models import Chat, ExchangeState, Inbox, Photo
 
 
 def ingest(db: Session, update: dict) -> int | None:
@@ -21,7 +21,7 @@ def ingest(db: Session, update: dict) -> int | None:
     chat_id = (message.get("recipient") or {}).get("chat_id")
     if not isinstance(chat_id, int):
         return None
-    chat = db.scalar(select(Chat).where(Chat.max_chat_id == chat_id, Chat.active))
+    chat = db.scalar(select(Chat).where(Chat.max_chat_id == chat_id, Chat.active).with_for_update(read=True))
     if chat is None:
         return None
     body = message.get("body") or {}
@@ -50,6 +50,10 @@ def ingest(db: Session, update: dict) -> int | None:
     inbox_id = result.scalar_one_or_none()
     if inbox_id is None:
         return None
+    # Shared lock serializes the cutover with intake, without serializing chats against each other.
+    exchange = db.scalar(select(ExchangeState).where(ExchangeState.id == 1).with_for_update(read=True))
+    if exchange is None:
+        raise RuntimeError("EXCHANGE_MIGRATION_REQUIRED")
     for index, attachment in candidates:
         filename = attachment.get("filename") or (attachment.get("payload") or {}).get("filename")
         extension = PurePosixPath(filename or "").suffix.lower()
@@ -70,6 +74,11 @@ def ingest(db: Session, update: dict) -> int | None:
                 sender_id=sender.get("user_id"),
                 received_at=now(),
                 is_forwarded=forwarded,
+                cohort=exchange.intake_cohort,
+                archive_layout="district_v1",
+                classification_mode="AI" if chat.cv_work_type_enabled else "CHAT_FIXED",
+                fixed_work_type_snapshot=None if chat.cv_work_type_enabled else chat.fixed_work_type_code,
+                work_rule_version=chat.work_rule_version,
                 status=status,
                 review_reason=["UNSUPPORTED_FORMAT"] if unsupported and not forwarded else [],
                 storage_status="NOT_REQUIRED" if forwarded or unsupported else "PENDING",

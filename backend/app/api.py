@@ -19,12 +19,13 @@ from app.domain import audit, enqueue, now, reassess
 from app.intake import ingest
 from app.integrations import YandexDisk, safe_url
 from app.media import media_path
-from app.models import Audit, Chat, District, Job, LoginSession, Photo, User
+from app.models import Audit, Chat, District, ExchangeState, Job, LoginSession, Photo, Publication, User
 from app.receiver import connection_status, received
 from app.reports import export_excel, filtered, photo_dict, summarize
 from app.schemas import (
     ChatInput,
     DistrictInput,
+    ExchangeModeInput,
     PhotoEdit,
     PhotoFilters,
     UserCreate,
@@ -104,7 +105,15 @@ def meta(db: Db, user: CurrentUser):
         "yandex_maps_api_key": settings().yandex_maps_api_key,
         "today": now().astimezone(ZoneInfo(settings().app_timezone)).date(),
         "chats": [
-            {"id": c.id, "max_chat_id": c.max_chat_id, "name": c.name, "active": c.active}
+            {
+                "id": c.id,
+                "max_chat_id": c.max_chat_id,
+                "name": c.name,
+                "active": c.active,
+                "cv_work_type_enabled": c.cv_work_type_enabled,
+                "fixed_work_type_code": c.fixed_work_type_code,
+                "work_rule_version": c.work_rule_version,
+            }
             for c in db.scalars(select(Chat).order_by(Chat.name))
         ],
         "districts": [
@@ -214,6 +223,7 @@ def edit_photo(photo_id: int, body: PhotoEdit, db: Db, user: CurrentUser):
     audit(db, user.id, action, "photo", photo.id, before, after)
     enqueue(db, "SYNC", photo.id, f"sync:{photo.id}:{photo.version}")
     db.commit()
+    db.refresh(photo)
     return {
         "id": photo.id,
         "status": photo.status,
@@ -262,6 +272,9 @@ def chats(db: Db, user: AdminUser):
             "max_chat_id": c.max_chat_id,
             "name": c.name,
             "active": c.active,
+            "cv_work_type_enabled": c.cv_work_type_enabled,
+            "fixed_work_type_code": c.fixed_work_type_code,
+            "work_rule_version": c.work_rule_version,
             "created_at": c.created_at,
             "updated_at": c.updated_at,
         }
@@ -281,13 +294,25 @@ def create_chat(body: ChatInput, db: Db, user: AdminUser):
 
 @app.put("/api/chats/{chat_id}")
 def edit_chat(chat_id: int, body: ChatInput, db: Db, user: AdminUser):
-    chat = db.get(Chat, chat_id)
+    chat = db.scalar(select(Chat).where(Chat.id == chat_id).with_for_update())
     if not chat:
         raise HTTPException(404, "Чат не найден")
     if chat.max_chat_id != body.max_chat_id:
         raise HTTPException(422, "Для другого MAX chat ID создайте новый чат")
-    old = {"name": chat.name, "active": chat.active}
+    old = {
+        key: getattr(chat, key)
+        for key in ("name", "active", "cv_work_type_enabled", "fixed_work_type_code", "work_rule_version")
+    }
     chat.name, chat.active = body.name, body.active
+    # Old API clients editing only the name must not reset a fixed rule.
+    if {"cv_work_type_enabled", "fixed_work_type_code"} & body.model_fields_set:
+        if (chat.cv_work_type_enabled, chat.fixed_work_type_code) != (
+            body.cv_work_type_enabled,
+            body.fixed_work_type_code,
+        ):
+            chat.work_rule_version += 1
+        chat.cv_work_type_enabled = body.cv_work_type_enabled
+        chat.fixed_work_type_code = body.fixed_work_type_code
     audit(db, user.id, "CHAT_UPDATED", "chat", chat.id, old, body.model_dump())
     db.commit()
     return {"ok": True}
@@ -502,3 +527,71 @@ def ml_train(db: Db, user: AdminUser):
     audit(db, user.id, "MODEL_TRAINING_REQUESTED", "model", 0, None, {"sample_count": plan["sample_count"]})
     db.commit()
     return {"ok": True}
+
+
+@app.get("/api/exchange")
+def exchange_status(db: Db, user: AdminUser):
+    from app.exchange import exchange_root
+
+    state = db.get(ExchangeState, 1)
+    counts = dict(db.execute(select(Photo.cohort, func.count()).group_by(Photo.cohort)).all())
+    return {
+        "intake_cohort": state.intake_cohort,
+        "production_started_at": state.production_started_at,
+        "source_timezone": state.source_timezone,
+        "roots": {c: exchange_root(state, c) for c in ("test", "production")},
+        "counts": {c: counts.get(c, 0) for c in ("test", "production")},
+        "publications": [
+            {
+                key: getattr(p, key)
+                for key in (
+                    "id",
+                    "cohort",
+                    "status",
+                    "created_at",
+                    "as_of",
+                    "finished_at",
+                    "photo_count",
+                    "index_path",
+                    "last_error",
+                )
+            }
+            for p in db.scalars(select(Publication).order_by(Publication.id.desc()).limit(30))
+        ],
+    }
+
+
+@app.put("/api/exchange/mode")
+def exchange_mode(body: ExchangeModeInput, db: Db, user: AdminUser):
+    state = db.scalar(select(ExchangeState).where(ExchangeState.id == 1).with_for_update())
+    before = state.intake_cohort
+    state.intake_cohort = body.cohort
+    if body.cohort == "production" and state.production_started_at is None:
+        state.production_started_at = now()
+    audit(
+        db, user.id, "EXCHANGE_MODE_CHANGED", "exchange_state", 1, {"cohort": before}, {"cohort": body.cohort}
+    )
+    db.commit()
+    return {"intake_cohort": body.cohort}
+
+
+@app.post("/api/exchange/publish", status_code=202)
+def exchange_publish(body: ExchangeModeInput, db: Db, user: AdminUser):
+    # Prevent double clicks/concurrent requests from creating duplicate pending jobs.
+    db.execute(text("SELECT pg_advisory_xact_lock(7009, 1)"))
+    pub = db.scalar(
+        select(Publication)
+        .where(Publication.cohort == body.cohort, Publication.status.in_(["PENDING", "UPLOADING", "RETRY"]))
+        .order_by(Publication.id.desc())
+        .limit(1)
+    )
+    if pub is None:
+        pub = Publication(cohort=body.cohort, requested_by=user.id)
+        db.add(pub)
+        db.flush()
+        enqueue(db, "PUBLISH", pub.id, f"publish:{pub.id}")
+        audit(
+            db, user.id, "EXCHANGE_PUBLICATION_REQUESTED", "publication", pub.id, None, {"cohort": pub.cohort}
+        )
+    db.commit()
+    return {"id": pub.id, "status": pub.status, "cohort": pub.cohort}

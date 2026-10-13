@@ -32,6 +32,7 @@ def test_existing_labels_models_and_remote_paths_migrate(db, monkeypatch):
     for i, code in enumerate(codes):
         old_path = f"disk:/MAX_PHOTOS/2026-04-20/Чат_1/старое_имя_{i}.jpg"
         photo = Photo(
+            archive_layout="legacy",
             inbox_id=inbox.id, attachment_index=i, max_chat_id=123, chat_name="Чат 1",
             max_message_id="migration", work_type=code, work_type_source="OPERATOR" if code else None,
             ai_alternatives=["PLAYGROUND_SNOW", "MAF_INSPECTION", "BIN_EMPTYING"],
@@ -116,6 +117,7 @@ def test_api_and_export_use_only_short_labels(admin, db):
     db.add(inbox)
     db.flush()
     photo = Photo(
+            archive_layout="legacy",
         inbox_id=inbox.id, attachment_index=0, max_chat_id=123, chat_name="Чат 1",
         max_message_id="short-labels", status="NEEDS_REVIEW", work_type="BIN_EMPTYING",
     )

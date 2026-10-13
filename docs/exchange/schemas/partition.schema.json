@@ -1,0 +1,391 @@
+{
+  "$defs": {
+    "PhotoRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "source_photo_id": {
+          "title": "Source Photo Id",
+          "type": "string"
+        },
+        "source_version": {
+          "minimum": 1,
+          "title": "Source Version",
+          "type": "integer"
+        },
+        "received_at": {
+          "format": "date-time",
+          "title": "Received At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "photo_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Photo Date"
+        },
+        "photo_time": {
+          "anyOf": [
+            {
+              "format": "time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Photo Time"
+        },
+        "max_chat_id": {
+          "title": "Max Chat Id",
+          "type": "string"
+        },
+        "max_message_id": {
+          "title": "Max Message Id",
+          "type": "string"
+        },
+        "district_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "District Id"
+        },
+        "district_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "District Name"
+        },
+        "district_geometry_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "District Geometry Version"
+        },
+        "source_work_type_code": {
+          "anyOf": [
+            {
+              "pattern": "^(?:DEICING_MANUAL|SNOW_MANUAL|BIN_EMPTYING|LAWN_LITTER|DRAIN_CLEANING|METAL_CUTTING|PLAYGROUND_MAINTENANCE|UNPAVED_LITTER|SWEEPING|BIN_WASHING|LAWN_RAKING|GREEN_CLEANING|GRASS_MOWING|PAVING_WASHING|SNOW_MECHANICAL|SNOW_REMOVAL)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Work Type Code"
+        },
+        "classification_mode": {
+          "enum": [
+            "AI",
+            "CHAT_FIXED",
+            "LEGACY_UNKNOWN",
+            "REVIEW"
+          ],
+          "title": "Classification Mode",
+          "type": "string"
+        },
+        "work_rule_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Work Rule Version"
+        },
+        "fixed_work_type_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^(?:DEICING_MANUAL|SNOW_MANUAL|BIN_EMPTYING|LAWN_LITTER|DRAIN_CLEANING|METAL_CUTTING|PLAYGROUND_MAINTENANCE|UNPAVED_LITTER|SWEEPING|BIN_WASHING|LAWN_RAKING|GREEN_CLEANING|GRASS_MOWING|PAVING_WASHING|SNOW_MECHANICAL|SNOW_REMOVAL)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fixed Work Type Snapshot"
+        },
+        "work_type_source": {
+          "anyOf": [
+            {
+              "enum": [
+                "AI",
+                "OPERATOR",
+                "CHAT_FIXED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Work Type Source"
+        },
+        "classification_confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Classification Confidence"
+        },
+        "status": {
+          "$ref": "#/$defs/Status"
+        },
+        "review_reason": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Reason"
+        },
+        "storage_status": {
+          "enum": [
+            "PENDING",
+            "ERROR",
+            "SYNCED",
+            "NOT_REQUIRED"
+          ],
+          "title": "Storage Status",
+          "type": "string"
+        },
+        "duplicate_of": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Duplicate Of"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sha256"
+        },
+        "original_disk_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Original Disk Path"
+        },
+        "cohort": {
+          "enum": [
+            "test",
+            "production"
+          ],
+          "title": "Cohort",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Code"
+        },
+        "latitude": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Latitude"
+        },
+        "longitude": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Longitude"
+        }
+      },
+      "required": [
+        "source_photo_id",
+        "source_version",
+        "received_at",
+        "updated_at",
+        "photo_date",
+        "photo_time",
+        "max_chat_id",
+        "max_message_id",
+        "district_id",
+        "district_name",
+        "source_work_type_code",
+        "classification_mode",
+        "work_rule_version",
+        "fixed_work_type_snapshot",
+        "work_type_source",
+        "classification_confidence",
+        "status",
+        "review_reason",
+        "storage_status",
+        "duplicate_of",
+        "sha256",
+        "original_disk_path",
+        "cohort",
+        "error_code",
+        "latitude",
+        "longitude"
+      ],
+      "title": "PhotoRecord",
+      "type": "object"
+    },
+    "Status": {
+      "enum": [
+        "RECEIVED",
+        "PROCESSING",
+        "ACCEPTED",
+        "NEEDS_REVIEW",
+        "REJECTED",
+        "DUPLICATE",
+        "FORWARDED",
+        "ERROR",
+        "SPAM"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_system": {
+      "const": "max_bot_foto",
+      "default": "max_bot_foto",
+      "title": "Source System",
+      "type": "string"
+    },
+    "source_instance_id": {
+      "title": "Source Instance Id",
+      "type": "string"
+    },
+    "cohort": {
+      "enum": [
+        "test",
+        "production"
+      ],
+      "title": "Cohort",
+      "type": "string"
+    },
+    "source_timezone": {
+      "title": "Source Timezone",
+      "type": "string"
+    },
+    "partition_received_date": {
+      "format": "date",
+      "title": "Partition Received Date",
+      "type": "string"
+    },
+    "generation_id": {
+      "title": "Generation Id",
+      "type": "string"
+    },
+    "published_at": {
+      "format": "date-time",
+      "title": "Published At",
+      "type": "string"
+    },
+    "as_of": {
+      "format": "date-time",
+      "title": "As Of",
+      "type": "string"
+    },
+    "photo_count": {
+      "minimum": 0,
+      "title": "Photo Count",
+      "type": "integer"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/PhotoRecord"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "source_instance_id",
+    "cohort",
+    "source_timezone",
+    "partition_received_date",
+    "generation_id",
+    "published_at",
+    "as_of",
+    "photo_count",
+    "items"
+  ],
+  "title": "Partition",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,1 @@
+{"features":[{"geometry":{"coordinates":[[[[72.6,61.08],[72.64,61.08],[72.64,61.1],[72.6,61.1],[72.6,61.08]]]],"type":"MultiPolygon"},"id":"12","properties":{"active":true,"geometry_sha256":"166b17426d9a831136a5a1afcf7bb516aecffa9ce015fdee91a951c9a23a0878","name":"Пример микрорайона","source_district_id":"12"},"type":"Feature"}],"type":"FeatureCollection"}

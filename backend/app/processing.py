@@ -5,7 +5,7 @@ import httpx
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.catalog import ACCEPTED_STATUSES, IMAGE_EXTENSIONS, REJECTED_STATUSES, Status
+from app.catalog import ACCEPTED_STATUSES, IMAGE_EXTENSIONS, REJECTED_STATUSES, WORK_TYPES, Status
 from app.config import settings
 from app.db import engine
 from app.domain import audit, bot_reply, enqueue, now, reassess, storage_path
@@ -92,7 +92,11 @@ def process_photo(
                 # Serialize competing hashes globally. Unique SHA-256 index is a second guard.
                 hash_lock = int.from_bytes(bytes.fromhex(digest)[:8], "big", signed=True)
                 db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": hash_lock})
-                existing = db.scalar(select(Photo.id).where(Photo.sha256 == digest, Photo.id != photo.id))
+                existing = db.scalar(
+                    select(Photo.id).where(
+                        Photo.sha256 == digest, Photo.cohort == photo.cohort, Photo.id != photo.id
+                    )
+                )
                 if existing:
                     photo.status, photo.duplicate_of, photo.storage_status = (
                         Status.DUPLICATE,
@@ -132,23 +136,34 @@ def process_photo(
                 except Exception as exc:
                     recognition_errors.append("OCR_" + error_code(exc))
                 try:
-                    result = classifier.classify(original)
-                    classification = result.classification
-                    photo.ai_result = {
-                        "raw": result.raw,
-                        "classification": classification.model_dump() if classification else {},
-                    }
-                    if classification:
-                        photo.ai_confidence, photo.ai_alternatives = (
-                            classification.confidence,
-                            classification.alternatives,
-                        )
-                        photo.work_type = classification.automatic_work_type(
-                            settings().work_type_confidence_threshold
-                        )
-                        photo.work_type_source = "AI" if photo.work_type else None
+                    if photo.classification_mode == "CHAT_FIXED":
+                        code = photo.fixed_work_type_snapshot
+                        photo.work_type = code if code in WORK_TYPES else None
+                        photo.work_type_source = "CHAT_FIXED" if photo.work_type else None
+                        photo.ai_confidence, photo.ai_alternatives = None, []
+                        photo.ai_result = {
+                            "provider": "chat_rule",
+                            "work_type": photo.work_type,
+                            "work_rule_version": photo.work_rule_version,
+                        }
                     else:
-                        recognition_errors.append("AI_INVALID_RESPONSE")
+                        result = classifier.classify(original)
+                        classification = result.classification
+                        photo.ai_result = {
+                            "raw": result.raw,
+                            "classification": classification.model_dump() if classification else {},
+                        }
+                        if classification:
+                            photo.ai_confidence, photo.ai_alternatives = (
+                                classification.confidence,
+                                classification.alternatives,
+                            )
+                            photo.work_type = classification.automatic_work_type(
+                                settings().work_type_confidence_threshold
+                            )
+                            photo.work_type_source = "AI" if photo.work_type else None
+                        else:
+                            recognition_errors.append("AI_INVALID_RESPONSE")
                 except Exception as exc:
                     recognition_errors.append("AI_" + error_code(exc))
                     photo.ai_result = {"error": error_code(exc)}

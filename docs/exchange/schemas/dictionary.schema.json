@@ -1,0 +1,61 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_instance_id": {
+      "title": "Source Instance Id",
+      "type": "string"
+    },
+    "cohort": {
+      "enum": [
+        "test",
+        "production"
+      ],
+      "title": "Cohort",
+      "type": "string"
+    },
+    "work_types": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Work Types",
+      "type": "array"
+    },
+    "statuses": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Statuses",
+      "type": "array"
+    },
+    "storage_statuses": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Storage Statuses",
+      "type": "array"
+    },
+    "districts_geojson": {
+      "additionalProperties": true,
+      "title": "Districts Geojson",
+      "type": "object"
+    }
+  },
+  "required": [
+    "source_instance_id",
+    "cohort",
+    "work_types",
+    "statuses",
+    "storage_statuses",
+    "districts_geojson"
+  ],
+  "title": "Dictionary",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

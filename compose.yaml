@@ -48,6 +48,13 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+  publisher:
+    <<: *app
+    command: [python, -m, app.publisher]
+    stop_grace_period: 3m
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
   trainer:
     <<: *app
     command: [python, -m, app.ml]

@@ -40,6 +40,20 @@ class ChatInput(StrictModel):
     max_chat_id: int
     name: str = Field(min_length=1, max_length=150)
     active: bool = True
+    cv_work_type_enabled: bool = True
+    fixed_work_type_code: str | None = None
+
+    @model_validator(mode="after")
+    def work_rule(self):
+        if self.fixed_work_type_code is not None and self.fixed_work_type_code not in WORK_TYPES:
+            raise ValueError("Вид работы отсутствует в справочнике")
+        if not self.cv_work_type_enabled and self.fixed_work_type_code is None:
+            raise ValueError("Выберите фиксированный вид работы при выключенном распознавании")
+        return self
+
+
+class ExchangeModeInput(StrictModel):
+    cohort: Literal["test", "production"]
 
 
 class DistrictInput(StrictModel):

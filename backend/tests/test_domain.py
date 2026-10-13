@@ -64,14 +64,16 @@ def test_reply_hides_review_and_no_work_without_district():
 def test_storage_paths_and_sanitization():
     p = photo()
     assert storage_path(p, None) == (
-        "disk:/MAX_PHOTOS/2026-10-01/Чат_1/МР_НЕ_ОПРЕДЕЛЕН/МР_НЕ_ОПРЕДЕЛЕН_НЕ_ОПРЕДЕЛЕНО_3.jpg"
+        "disk:/MAX_PHOTOS/2026-10-01/МР_НЕ_ОПРЕДЕЛЕН/МР_НЕ_ОПРЕДЕЛЕН_НЕ_ОПРЕДЕЛЕНО_3.jpg"
     )
     assert storage_path(photo(work_type="BIN_EMPTYING"), "12 мкр") == (
-        "disk:/MAX_PHOTOS/2026-10-01/Чат_1/12_мкр/12_мкр_УРНЫ_3.jpg"
+        "disk:/MAX_PHOTOS/2026-10-01/12_мкр/12_мкр_УРНЫ_3.jpg"
     )
     assert storage_path(photo(is_spam=True), "12 мкр") == (
-        "disk:/MAX_PHOTOS/СПАМ/2026-10-01/Чат_1/12_мкр/Спам_3.jpg"
+        "disk:/MAX_PHOTOS/СПАМ/2026-10-01/12_мкр/Спам_3.jpg"
     )
+    assert '/Чат_1/' in storage_path(photo(archive_layout='legacy'), '12 мкр')
+    assert '/ТЕСТОВЫЕ/' in storage_path(photo(cohort='test'), '12 мкр')
     p.photo_date = None
     assert "ДАТА_НЕ_ОПРЕДЕЛЕНА" in storage_path(p, None)
     assert "/" not in safe_component("../../abc/def")

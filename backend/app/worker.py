@@ -42,7 +42,7 @@ def run_once(kinds: list[str] | None = None) -> bool:
                 .where(
                     Job.status.in_(["PENDING", "RUNNING"]),
                     Job.next_run_at <= now(),
-                    Job.kind.in_(kinds) if kinds else Job.kind != "TRAIN",
+                    Job.kind.in_(kinds) if kinds else Job.kind.not_in(["TRAIN", "PUBLISH"]),
                 )
                 .order_by(Job.next_run_at, Job.id)
                 .limit(30)
@@ -71,6 +71,10 @@ def run_once(kinds: list[str] | None = None) -> bool:
                         send_reply(object_id)
                     elif kind == "REGEO":
                         regeo_all()
+                    elif kind == "PUBLISH":
+                        from app.exchange import publish
+
+                        publish(object_id)
                     elif kind == "TRAIN":
                         from app.ml import train_model
 
@@ -95,7 +99,7 @@ def run_once(kinds: list[str] | None = None) -> bool:
     return False
 
 
-def main():
+def main(kinds: list[str] | None = None):
     global stop
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -108,7 +112,7 @@ def main():
     log.info("Worker started")
     while not stop:
         try:
-            if not run_once():
+            if not run_once(kinds):
                 time.sleep(settings().worker_idle_seconds)
         except Exception as exc:
             log.error("worker_error=%s", error_code(exc))

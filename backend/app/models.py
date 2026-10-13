@@ -64,6 +64,9 @@ class Chat(Timestamps, Base):
     name: Mapped[str] = mapped_column(String(150))
     active: Mapped[bool] = mapped_column(default=True)
     last_reply_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cv_work_type_enabled: Mapped[bool] = mapped_column(default=True, server_default="true")
+    fixed_work_type_code: Mapped[str | None] = mapped_column(String(60))
+    work_rule_version: Mapped[int] = mapped_column(default=1, server_default="1")
 
 
 class District(Timestamps, Base):
@@ -92,7 +95,7 @@ class Photo(Timestamps, Base):
     inbox_id: Mapped[int] = mapped_column(ForeignKey("inbox.id"), index=True)
     attachment_index: Mapped[int] = mapped_column(Integer)
     attachment: Mapped[dict] = mapped_column(JSONB, default=dict)
-    sha256: Mapped[str | None] = mapped_column(String(64), unique=True)
+    sha256: Mapped[str | None] = mapped_column(String(64))
     duplicate_of: Mapped[int | None] = mapped_column(ForeignKey("photos.id"))
     original_filename: Mapped[str | None] = mapped_column(String(500))
     stored_filename: Mapped[str | None] = mapped_column(String(255))
@@ -135,8 +138,21 @@ class Photo(Timestamps, Base):
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     version: Mapped[int] = mapped_column(default=1)
+    cohort: Mapped[str] = mapped_column(String(20), default="test", server_default="test")
+    archive_layout: Mapped[str] = mapped_column(
+        String(20), default="district_v1", server_default="district_v1"
+    )
+    classification_mode: Mapped[str] = mapped_column(
+        String(30), default="LEGACY_UNKNOWN", server_default="LEGACY_UNKNOWN"
+    )
+    fixed_work_type_snapshot: Mapped[str | None] = mapped_column(String(60))
+    work_rule_version: Mapped[int | None] = mapped_column(Integer)
+    district_name_snapshot: Mapped[str | None] = mapped_column(String(120))
     __table_args__ = (
         UniqueConstraint("inbox_id", "attachment_index"),
+        UniqueConstraint("cohort", "sha256", name="uq_photos_cohort_sha256"),
+        CheckConstraint("cohort IN ('test','production')", name="ck_photos_cohort"),
+        CheckConstraint("archive_layout IN ('legacy','district_v1')", name="ck_photos_archive_layout"),
         CheckConstraint("latitude BETWEEN -90 AND 90"),
         CheckConstraint("longitude BETWEEN -180 AND 180"),
         CheckConstraint("(latitude IS NULL) = (longitude IS NULL)"),
@@ -144,7 +160,10 @@ class Photo(Timestamps, Base):
             "status IN ('RECEIVED','PROCESSING','ACCEPTED','NEEDS_REVIEW','REJECTED','DUPLICATE','FORWARDED','ERROR','SPAM')",
             name="ck_photos_status",
         ),
-        CheckConstraint("work_type_source IS NULL OR work_type_source IN ('AI','OPERATOR')"),
+        CheckConstraint(
+            "work_type_source IS NULL OR work_type_source IN ('AI','OPERATOR','CHAT_FIXED')",
+            name="ck_photos_work_type_source",
+        ),
         Index("ix_photos_review_order", "status", "received_at", "id"),
     )
 
@@ -206,3 +225,33 @@ class MaxReceiverState(Base):
     last_error: Mapped[str | None] = mapped_column(String(100))
     events_received: Mapped[int] = mapped_column(BigInteger, default=0)
     inbox_received: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+class ExchangeState(Base):
+    __tablename__ = "exchange_state"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    instance_id: Mapped[str] = mapped_column(String(36))
+    source_timezone: Mapped[str] = mapped_column(String(60))
+    intake_cohort: Mapped[str] = mapped_column(String(20), default="test")
+    production_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_test_publication_id: Mapped[int | None] = mapped_column(Integer)
+    last_production_publication_id: Mapped[int | None] = mapped_column(Integer)
+    __table_args__ = (
+        CheckConstraint("id=1"),
+        CheckConstraint("intake_cohort IN ('test','production')"),
+    )
+
+
+class Publication(Base):
+    __tablename__ = "publications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cohort: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20), default="PENDING")
+    requested_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    as_of: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict | None] = mapped_column(JSONB)
+    index_path: Mapped[str | None] = mapped_column(Text)
+    photo_count: Mapped[int | None] = mapped_column(Integer)
+    last_error: Mapped[str | None] = mapped_column(String(100))

@@ -1,10 +1,11 @@
 export type User = { id: number; login: string; name: string; role: string; active: boolean };
-export type Chat = { id: number; max_chat_id: number; name: string; active: boolean };
+export type Chat = { id: number; max_chat_id: number; name: string; active: boolean; cv_work_type_enabled: boolean; fixed_work_type_code: string | null; work_rule_version: number };
 export type District = { id: number; name: string; active: boolean };
 export type Meta = { yandex_maps_api_key: string; today: string; timezone: string; work_types: { code: string; name: string }[]; statuses: string[]; chats: Chat[]; districts: District[]; operators: { id: number; name: string }[] };
 export type Filters = Record<string, string>;
 export type Audit = {id: number; user_id: number | null; at: string; action: string; object_type: string; object_id: number; old_value: unknown; new_value: unknown};
 export type Photo = {
+  cohort: 'test' | 'production';
   id: number; version: number; is_spam: boolean; status: string; storage_status: string; photo_date: string | null; photo_time: string | null;
   received_at: string; latitude: number | null; longitude: number | null; chat_name: string; district_id: number | null;
   district_name: string | null; work_type: string | null; work_type_name: string | null; ai_confidence: number | null;

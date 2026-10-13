@@ -64,6 +64,10 @@ def db(database_url, monkeypatch):
         tables = ", ".join('"' + table.name + '"' for table in reversed(Base.metadata.sorted_tables))
         conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
     with Session(engine(), expire_on_commit=False) as session:
+        from app.models import ExchangeState
+        session.add(ExchangeState(id=1, instance_id="11111111-1111-4111-8111-111111111111",
+                                  source_timezone="Asia/Yekaterinburg", intake_cohort="test"))
+        session.commit()
         yield session
     engine().dispose()
     engine.cache_clear()

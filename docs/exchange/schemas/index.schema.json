@@ -1,0 +1,135 @@
+{
+  "$defs": {
+    "FileRef": {
+      "additionalProperties": false,
+      "properties": {
+        "file_ref": {
+          "title": "File Ref",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_ref",
+        "sha256"
+      ],
+      "title": "FileRef",
+      "type": "object"
+    },
+    "PartitionRef": {
+      "additionalProperties": false,
+      "properties": {
+        "file_ref": {
+          "title": "File Ref",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "received_date": {
+          "format": "date",
+          "title": "Received Date",
+          "type": "string"
+        },
+        "generation_id": {
+          "title": "Generation Id",
+          "type": "string"
+        },
+        "photo_count": {
+          "minimum": 0,
+          "title": "Photo Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "file_ref",
+        "sha256",
+        "received_date",
+        "generation_id",
+        "photo_count"
+      ],
+      "title": "PartitionRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_system": {
+      "const": "max_bot_foto",
+      "default": "max_bot_foto",
+      "title": "Source System",
+      "type": "string"
+    },
+    "source_instance_id": {
+      "title": "Source Instance Id",
+      "type": "string"
+    },
+    "cohort": {
+      "enum": [
+        "test",
+        "production"
+      ],
+      "title": "Cohort",
+      "type": "string"
+    },
+    "source_timezone": {
+      "title": "Source Timezone",
+      "type": "string"
+    },
+    "published_at": {
+      "format": "date-time",
+      "title": "Published At",
+      "type": "string"
+    },
+    "as_of": {
+      "format": "date-time",
+      "title": "As Of",
+      "type": "string"
+    },
+    "index_generation_id": {
+      "title": "Index Generation Id",
+      "type": "string"
+    },
+    "photo_count": {
+      "minimum": 0,
+      "title": "Photo Count",
+      "type": "integer"
+    },
+    "partitions": {
+      "items": {
+        "$ref": "#/$defs/PartitionRef"
+      },
+      "title": "Partitions",
+      "type": "array"
+    },
+    "dictionaries": {
+      "$ref": "#/$defs/FileRef"
+    }
+  },
+  "required": [
+    "source_instance_id",
+    "cohort",
+    "source_timezone",
+    "published_at",
+    "as_of",
+    "index_generation_id",
+    "photo_count",
+    "partitions",
+    "dictionaries"
+  ],
+  "title": "Index",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
