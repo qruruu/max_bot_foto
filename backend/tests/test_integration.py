@@ -303,7 +303,28 @@ def test_review_version_audit_sync_and_dataset(admin, db, monkeypatch):
     assert p.ai_result == initial_ai  # Operator ground truth does not overwrite AI prediction.
     assert p.yandex_disk_path != old_path and "/2026-10-01/" in p.yandex_disk_path
     assert old_path not in disk.files
-    assert db.scalar(select(func.count()).select_from(Audit).where(Audit.photo_id == p.id)) == 1
+    assert (
+        db.scalar(
+            select(func.count())
+            .select_from(Audit)
+            .where(
+                Audit.photo_id == p.id,
+                Audit.action == "PHOTO_REVIEWED",
+            )
+        )
+        == 1
+    )
+    assert (
+        db.scalar(
+            select(func.count())
+            .select_from(Audit)
+            .where(
+                Audit.photo_id == p.id,
+                Audit.action == "STORAGE_TRANSFER_PLANNED",
+            )
+        )
+        == 2
+    )  # initial upload and correction both have durable recovery destinations
 
 
 def test_spam_archive_restore_reports_and_training(admin, db, monkeypatch):
@@ -360,6 +381,7 @@ def test_spam_archive_restore_reports_and_training(admin, db, monkeypatch):
     assert set(db.scalars(select(Audit.action).where(Audit.photo_id == photo.id))) == {
         "PHOTO_SPAMMED",
         "PHOTO_RESTORED",
+        "STORAGE_TRANSFER_PLANNED",
     }
 
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpRight, Camera, Check, ChevronRight, MapPin, RefreshCw } from 'lucide-react';
@@ -10,8 +10,32 @@ export default function PhotoDetail() {
   const {id}=useParams();const [params]=useSearchParams();const navigate=useNavigate();const {meta,notify}=useApp();
   const [photo,setPhoto]=useState<Photo|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[form,setForm]=useState<Record<string,string>>({});
   const review=params.get('review')==='1';
-  function load(){setError('');return api<Photo>('/photos/'+id).then(p=>{setPhoto(p);setForm({photo_date:p.photo_date||'',photo_time:p.photo_time||'',latitude:p.latitude===null?'':String(p.latitude),longitude:p.longitude===null?'':String(p.longitude),work_type:p.is_spam?'SPAM':p.work_type||'',detected_address:p.detected_address||'',detected_city:p.detected_city||''});}).catch(e=>setError(e.message));}
-  useEffect(()=>{setPhoto(null);void load();},[id]);
+  const loadRevision = useRef(0);
+  async function load() {
+    const revision = ++loadRevision.current;
+    setError('');
+    try {
+      const value = await api<Photo>('/photos/' + id);
+      if (revision !== loadRevision.current) return;
+      setPhoto(value);
+      setForm({
+        photo_date: value.photo_date || '',
+        photo_time: value.photo_time || '',
+        latitude: value.latitude === null ? '' : String(value.latitude),
+        longitude: value.longitude === null ? '' : String(value.longitude),
+        work_type: value.is_spam ? 'SPAM' : value.work_type || '',
+        detected_address: value.detected_address || '',
+        detected_city: value.detected_city || '',
+      });
+    } catch (e) {
+      if (revision === loadRevision.current) setError((e as Error).message);
+    }
+  }
+  useEffect(() => {
+    setPhoto(null);
+    void load();
+    return () => { loadRevision.current++; };
+  }, [id]);
   const back=()=>{const q=new URLSearchParams(params);q.delete('review');q.delete('spam');navigate((review?'/review':params.get('spam')==='1'?'/spam':'/photos')+'?'+q.toString());};
   const field=(name:string,value:string)=>setForm(f=>({...f,[name]:value}));
   async function save(e:FormEvent){e.preventDefault();if(!photo)return;setBusy(true);setError('');try{

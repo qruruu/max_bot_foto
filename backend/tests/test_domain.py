@@ -29,8 +29,22 @@ def photo(**kwargs):
 
 def test_catalog_matches_short_markings_in_sheet_order():
     markings = [
-        "ПГМ", "ПОДХОДЫ", "УРНЫ", "МУСОР_ГАЗОН", "КОЛОДЦЫ", "АРМАТУРА", "ПЛОЩАДКИ", "СЛУЧ_МУСОР",
-        "ПОДМЕТАНИЕ", "МОЙКА_УРН", "ГРАБЛИ", "ГАЗОН", "ПОКОС", "БРУСЧ_МОЙКА", "МЕХ_СНЕГ", "ВЫВОЗ_СНЕГА",
+        "ПГМ",
+        "ПОДХОДЫ",
+        "УРНЫ",
+        "МУСОР_ГАЗОН",
+        "КОЛОДЦЫ",
+        "АРМАТУРА",
+        "ПЛОЩАДКИ",
+        "СЛУЧ_МУСОР",
+        "ПОДМЕТАНИЕ",
+        "МОЙКА_УРН",
+        "ГРАБЛИ",
+        "ГАЗОН",
+        "ПОКОС",
+        "БРУСЧ_МОЙКА",
+        "МЕХ_СНЕГ",
+        "ВЫВОЗ_СНЕГА",
     ]
     assert list(WORK_TYPES.values()) == [(label, label) for label in markings]
 
@@ -42,6 +56,7 @@ def test_catalog_matches_short_markings_in_sheet_order():
         (Status.DUPLICATE, "❌ Не принято: фотография уже была отправлена."),
         (Status.NEEDS_REVIEW, "✅ Принято"),
         (Status.REJECTED, "❌ Не принято: файл изображения повреждён или не читается."),
+        (Status.ERROR, "⚠️ Фотография требует проверки оператором: ошибка обработки или хранения."),
     ],
 )
 def test_exact_replies(status, text):
@@ -72,8 +87,8 @@ def test_storage_paths_and_sanitization():
     assert storage_path(photo(is_spam=True), "12 мкр") == (
         "disk:/MAX_PHOTOS/СПАМ/2026-10-01/12_мкр/Спам_3.jpg"
     )
-    assert '/Чат_1/' in storage_path(photo(archive_layout='legacy'), '12 мкр')
-    assert '/MAX_PHOTOS_TRAINING/' in storage_path(photo(cohort='test'), '12 мкр')
+    assert "/Чат_1/" in storage_path(photo(archive_layout="legacy"), "12 мкр")
+    assert "/MAX_PHOTOS_TRAINING/" in storage_path(photo(cohort="test"), "12 мкр")
     p.photo_date = None
     assert "ДАТА_НЕ_ОПРЕДЕЛЕНА" in storage_path(p, None)
     assert "/" not in safe_component("../../abc/def")

@@ -7,6 +7,12 @@ export class ApiError extends Error {
 export function query(filters: Filters): string {
   return new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== '')).toString();
 }
+export function photoLink(id: number, filters: Filters, review = false, spam = false): string {
+  const params: Filters = { ...filters, review: review ? '1' : '0', spam: spam ? '1' : '0' };
+  // Preserve an explicit all-dates choice when returning from a photo to the list.
+  if (!filters.date_from && !filters.date_to) params.all_dates = '1';
+  return `/photos/${id}?${query(params)}`;
+}
 export async function api<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
   const csrf = document.cookie.split('; ').find(x => x.startsWith('csrf='))?.slice(5) || '';
   const response = await fetch('/api' + path, { method, credentials: 'same-origin', signal,

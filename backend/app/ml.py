@@ -59,7 +59,8 @@ def changed_labels(current: dict, previous: dict) -> int:
 
 def collect_examples(db: Session) -> tuple[list[Example], int]:
     rows = db.execute(
-        select(Photo.id, Photo.sha256, Photo.work_type).where(
+        select(Photo.id, Photo.sha256, Photo.work_type)
+        .where(
             Photo.work_type_source == "OPERATOR",
             Photo.is_spam.is_(False),
             Photo.reviewed_by.is_not(None),
@@ -68,15 +69,19 @@ def collect_examples(db: Session) -> tuple[list[Example], int]:
             Photo.analyzed_at.is_not(None),
             Photo.status.in_(["ACCEPTED", "NEEDS_REVIEW", "ERROR"]),
         )
+        .order_by(Photo.id)
     )
-    examples, missing = [], 0
+    examples, missing, labels_by_hash = {}, 0, {}
     for photo_id, sha256, label in rows:
+        labels_by_hash.setdefault(sha256, set()).add(label)
         path = media_path(photo_id, preview=True)
         if label not in WORK_TYPES or not path.is_file():
             missing += 1
             continue
-        examples.append(Example(photo_id, sha256, label, path))
-    return examples, missing
+        examples.setdefault(sha256, Example(photo_id, sha256, label, path))
+    # A test/production copy is still one training example. Conflicting operator labels
+    # must not teach the same image two classes or inflate validation counts.
+    return [example for sha, example in examples.items() if len(labels_by_hash[sha]) == 1], missing
 
 
 def training_plan(examples: list[Example]) -> dict:

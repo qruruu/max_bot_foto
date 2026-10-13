@@ -41,6 +41,26 @@ class Disk(FakeDisk):
             if path.startswith(source + "/"):
                 self.files[target + path[len(source) :]] = self.files.pop(path)
 
+    def folder_items(self, path):
+        return [
+            {"path": p, "type": "file", "sha256": hashlib.sha256(data).hexdigest()}
+            for p, data in self.files.items()
+            if p.startswith(path + "/")
+        ] or None
+
+    def trash_legacy_exchange_folder(self, path, expected_files):
+        files = [p for p in self.files if p.startswith(path + "/")]
+        for file in files:
+            if not file.endswith(".json") or file not in expected_files:
+                raise RuntimeError("LEGACY_EXCHANGE_UNMANAGED_FILE")
+            assert self.matches(file, expected_files[file])
+        for file in files:
+            self.files.pop(file)
+            self.deleted.append(file)
+        if self.fail_delete:
+            self.fail_delete = False
+            raise RuntimeError("network after delete")
+
 
 def generations(db, count=5):
     setup_chat(db)
@@ -135,7 +155,13 @@ def test_archive_organization_moves_existing_test_materials_and_updates_refs(db)
     legacy_index = legacy_root + "/indexes/1.json"
     disk.files[legacy_index] = b"legacy-json"
     pub = Publication(
-        cohort="test", status="DONE", index_path=legacy_index, payload={"root": legacy_root, "files": []}
+        cohort="test",
+        status="DONE",
+        index_path=legacy_index,
+        payload={
+            "root": legacy_root,
+            "files": [{"file_ref": "indexes/1.json", "sha256": hashlib.sha256(b"legacy-json").hexdigest()}],
+        },
     )
     db.add(pub)
     db.commit()
@@ -147,8 +173,9 @@ def test_archive_organization_moves_existing_test_materials_and_updates_refs(db)
     assert photo.version > before_version and photo.sha256 == digest
     assert old not in disk.files and photo.yandex_disk_path in disk.files
     assert working_path in disk.files
-    assert pub.index_path.startswith("disk:/MAX_PHOTOS_ARM_EXCHANGE/legacy/")
-    assert disk.files[pub.index_path] == b"legacy-json"
+    assert pub.index_path is None and pub.payload is None and pub.status == "RETIRED"
+    assert legacy_index not in disk.files
+    assert not any("/legacy/ARM_EXCHANGE/" in p for p in disk.files)
     assert not any("/MAX_PHOTOS/ARM_EXCHANGE/" in p or "/MAX_PHOTOS/ТЕСТОВЫЕ/" in p for p in disk.files)
     before = dict(disk.files)
     organize_archive(disk)
@@ -212,5 +239,92 @@ def test_relocation_journal_recovers_after_remote_move_and_later_metadata_edit(d
     organize_archive(disk)
     db.refresh(photo)
     assert photo.yandex_disk_path in disk.files
-    assert "/2026-09-30/" in photo.yandex_disk_path  # recovered persisted destination
-    assert photo.storage_status == "PENDING"  # SYNC will then move to the newly corrected date
+    assert "/2026-10-02/" in photo.yandex_disk_path  # recover old move, then apply the correction
+    assert photo.storage_status == "SYNCED"
+    assert len(disk.files) == 1
+
+
+def seed_old_exchange(db, disk, *, copied=False):
+    root = (
+        "disk:/MAX_PHOTOS_ARM_EXCHANGE/legacy/ARM_EXCHANGE" if copied else "disk:/MAX_PHOTOS/ARM_EXCHANGE"
+    ) + "/test/old-source"
+    index = root + "/indexes/1.json"
+    data = b'{"old_snapshot":true}'
+    disk.files[index] = data
+    pub = Publication(
+        cohort="test",
+        status="DONE",
+        index_path=index,
+        payload={
+            "root": root,
+            "files": [{"file_ref": "indexes/1.json", "sha256": hashlib.sha256(data).hexdigest()}],
+        },
+    )
+    db.add(pub)
+    db.commit()
+    return pub, root
+
+
+def test_old_legacy_copy_is_retired_but_live_json_stays_on_disk(db):
+    disk, current = generations(db, 1)
+    pub, root = seed_old_exchange(db, disk, copied=True)
+    live = dict(disk.files)
+    live.pop(pub.index_path)
+    organize_archive(disk)
+    db.refresh(pub)
+    assert pub.status == "RETIRED"
+    assert disk.files == live
+    assert current[0].index_path in disk.files
+    assert not any(p.startswith(root) for p in disk.files)
+
+
+def test_unmanaged_file_blocks_cleanup_before_any_json_is_removed(db):
+    disk = Disk()
+    pub, root = seed_old_exchange(db, disk)
+    disk.files[root + "/original.jpg"] = b"photo"
+    before = dict(disk.files)
+    with pytest.raises(RuntimeError, match="UNMANAGED"):
+        organize_archive(disk)
+    assert disk.files == before and not disk.deleted
+    db.refresh(pub)
+    assert pub.status == "DONE"
+
+
+def test_old_json_cleanup_is_resumable_after_trash_before_commit(db):
+    disk = Disk()
+    pub, _ = seed_old_exchange(db, disk)
+    old_index = pub.index_path
+    disk.fail_delete = True
+    with pytest.raises(RuntimeError, match="network"):
+        organize_archive(disk)
+    db.refresh(pub)
+    assert pub.status == "DONE" and pub.index_path == old_index
+    assert old_index not in disk.files
+    organize_archive(disk)
+    db.refresh(pub)
+    assert pub.status == "RETIRED" and pub.payload is None
+
+
+def test_original_reference_under_service_tree_is_never_removed(db):
+    from app.models import Inbox, Photo
+
+    disk = Disk()
+    pub, root = seed_old_exchange(db, disk)
+    inbox = Inbox(max_chat_id=123, message_id="reference", payload={})
+    db.add(inbox)
+    db.flush()
+    db.add(
+        Photo(
+            inbox_id=inbox.id,
+            attachment_index=0,
+            max_chat_id=123,
+            chat_name="chat",
+            max_message_id="reference",
+            cohort="production",
+            yandex_disk_path=root + "/original.jpg",
+        )
+    )
+    db.commit()
+    with pytest.raises(RuntimeError, match="ORIGINAL_REFERENCE"):
+        organize_archive(disk)
+    assert pub.index_path in disk.files and not disk.deleted

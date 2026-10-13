@@ -1,5 +1,6 @@
 import logging
 from contextlib import contextmanager
+from pathlib import PurePosixPath
 
 import httpx
 from sqlalchemy import select, text, update
@@ -12,7 +13,7 @@ from app.domain import audit, bot_reply, enqueue, now, reassess, storage_path
 from app.integrations import DownloadRejected, MaxClient, OriginalMissing, YandexDisk
 from app.media import InvalidImage, digest_file, inspect_image, media_path, write_preview
 from app.ml import LocalClassifier
-from app.models import District, Inbox, Job, Photo
+from app.models import Audit, District, Inbox, Job, Photo
 from app.parsers import CoordinateParser, DateTimeParser, parse_address
 from app.recognition import OCRService, TesseractOCR, WorkTypeClassifier
 
@@ -41,10 +42,51 @@ def error_code(exc: Exception) -> str:
     return type(exc).__name__
 
 
-def synchronize(db: Session, photo: Photo, disk: YandexDisk):
-    district = db.get(District, photo.district_id) if photo.district_id else None
-    target = storage_path(photo, district.name if district else None)
+def transfer_target(db: Session, photo: Photo, desired: str) -> str:
+    """Resume the last durable transfer before applying a later operator correction."""
+    plan = db.scalar(
+        select(Audit)
+        .where(
+            Audit.photo_id == photo.id,
+            Audit.action.in_(["STORAGE_TRANSFER_PLANNED", "TRAINING_RELOCATION_PLANNED"]),
+        )
+        .order_by(Audit.id.desc())
+        .limit(1)
+    )
+    if (
+        plan
+        and plan.old_value.get("path") == photo.yandex_disk_path
+        and plan.new_value.get("sha256") == photo.sha256
+    ):
+        target = plan.new_value.get("path", "")
+        roots = (settings().yandex_disk_root, settings().training_folder)
+        if ".." in PurePosixPath(target).parts or not any(
+            target.startswith(f"disk:/{root}/") for root in roots
+        ):
+            raise RuntimeError("INVALID_STORAGE_TRANSFER_PATH")
+        return target
+    if photo.yandex_disk_path != desired:
+        audit(
+            db,
+            None,
+            "STORAGE_TRANSFER_PLANNED",
+            "photo",
+            photo.id,
+            {"path": photo.yandex_disk_path},
+            {"path": desired, "sha256": photo.sha256},
+        )
+        db.commit()  # The remote operation must never precede its recovery journal.
+    return desired
+
+
+def transfer_original(db: Session, photo: Photo, disk: YandexDisk, target: str):
     original = media_path(photo.id)
+
+    def upload_original():
+        if digest_file(original) != photo.sha256:
+            raise RuntimeError("LOCAL_ORIGINAL_HASH_MISMATCH")
+        disk.upload(original, target, photo.sha256)
+
     if photo.yandex_disk_path:
         try:
             disk.move(photo.yandex_disk_path, target, photo.sha256)
@@ -52,22 +94,30 @@ def synchronize(db: Session, photo: Photo, disk: YandexDisk):
             # A preview is never a replacement for the original. Recover only exact original bytes.
             if not original.is_file():
                 raise
-            if digest_file(original) != photo.sha256:
-                raise RuntimeError("LOCAL_ORIGINAL_HASH_MISMATCH") from None
-            disk.upload(original, target, photo.sha256)
+            upload_original()
     elif not original.is_file():
         if not disk.matches(target, photo.sha256):
             raise OriginalMissing("ORIGINAL_MISSING")
     else:
-        disk.upload(original, target, photo.sha256)
+        upload_original()
     photo.yandex_disk_path = target
     photo.stored_filename = target.rsplit("/", 1)[-1]
+    db.commit()
+
+
+def synchronize(db: Session, photo: Photo, disk: YandexDisk):
+    district = db.get(District, photo.district_id) if photo.district_id else None
+    desired = storage_path(photo, district.name if district else None)
+    target = transfer_target(db, photo, desired)
+    transfer_original(db, photo, disk, target)
+    if target != desired:
+        transfer_original(db, photo, disk, transfer_target(db, photo, desired))
     photo.storage_status = "SYNCED"
     photo.processing_error = None
     photo.version += 1
     db.commit()
     # Original only removed after remote hash confirmation AND database commit.
-    original.unlink(missing_ok=True)
+    media_path(photo.id).unlink(missing_ok=True)
 
 
 def process_photo(

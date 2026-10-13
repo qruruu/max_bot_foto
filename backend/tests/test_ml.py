@@ -89,9 +89,13 @@ def test_old_catalog_model_is_never_loaded_and_does_not_block_retraining(db, mon
     seed_dataset(db, per_class=60)
     examples, _ = ml.collect_examples(db)
     old_model = ModelVersion(
-        status="ACTIVE", dataset_fingerprint=ml.fingerprint(ml.snapshot(examples)), sample_count=120,
-        labels_snapshot=ml.snapshot(examples), metrics={"architecture": "resnet18-local-v1"},
-        supported_classes=ml.CODES[:2], model_path="old-22-class-weights.pt",
+        status="ACTIVE",
+        dataset_fingerprint=ml.fingerprint(ml.snapshot(examples)),
+        sample_count=120,
+        labels_snapshot=ml.snapshot(examples),
+        metrics={"architecture": "resnet18-local-v1"},
+        supported_classes=ml.CODES[:2],
+        model_path="old-22-class-weights.pt",
     )
     db.add(old_model)
     db.commit()
@@ -150,6 +154,37 @@ def test_dataset_uses_only_explicit_operator_work_labels(db):
     data, missing = ml.collect_examples(db)
     assert len(data) == 45 and missing == 1
     assert not {p.id for p in photos[:5]} & {e.photo_id for e in data}
+
+
+def test_training_deduplicates_cross_cohort_copies_and_omits_conflicting_labels(db):
+    seed_dataset(db)
+    original = db.scalar(select(Photo).order_by(Photo.id))
+    copy = Photo(
+        inbox_id=original.inbox_id,
+        attachment_index=100,
+        max_chat_id=original.max_chat_id,
+        chat_name=original.chat_name,
+        max_message_id=original.max_message_id,
+        cohort="production",
+        sha256=original.sha256,
+        analyzed_at=now(),
+        status="NEEDS_REVIEW",
+        work_type=original.work_type,
+        work_type_source="OPERATOR",
+        reviewed_by=original.reviewed_by,
+    )
+    db.add(copy)
+    db.flush()
+    media_path(copy.id, True).write_bytes(media_path(original.id, True).read_bytes())
+    db.commit()
+    data, missing = ml.collect_examples(db)
+    assert len(data) == 50 and missing == 0
+    assert len({example.sha256 for example in data}) == len(data)
+    copy.work_type = ml.CODES[1]
+    db.commit()
+    data, _ = ml.collect_examples(db)
+    assert len(data) == 49
+    assert all(example.sha256 != original.sha256 for example in data)
 
 
 def test_train_save_activate_classify_and_queue_isolation(db, monkeypatch):

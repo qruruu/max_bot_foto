@@ -209,21 +209,7 @@ class YandexDisk:
                 return
             if self.metadata(source) is None:
                 raise OriginalMissing("ORIGINAL_MISSING")
-        response.raise_for_status()
-        if response.status_code == 202:
-            url = response.json()["href"]
-            prefix = self.API + "/operations/"
-            if not url.startswith(prefix):
-                raise RuntimeError("YANDEX_INVALID_OPERATION_URL")
-            for _ in range(15):
-                operation = self.request("GET", url.removeprefix(self.API))
-                operation.raise_for_status()
-                status = operation.json()["status"]
-                if status == "success":
-                    break
-                if status == "failed":
-                    raise RuntimeError("YANDEX_MOVE_FAILED")
-                time.sleep(1)
+        self.wait_operation(response)
         self.wait_for_file(target, digest)
 
     def wait_operation(self, response: httpx.Response):
@@ -251,12 +237,99 @@ class YandexDisk:
         if src.get("type") != "dir" or dst is not None:
             raise RuntimeError("YANDEX_FOLDER_MOVE_CONFLICT")
         self.mkdirs(target.rsplit("/", 1)[0])
-        response = self.request("POST", "/resources/move",
-                                params={"from": source, "path": target, "overwrite": "false"})
+        response = self.request(
+            "POST", "/resources/move", params={"from": source, "path": target, "overwrite": "false"}
+        )
         self.wait_operation(response)
         dst = self.metadata(target)
         if self.metadata(source) is not None or not dst or dst.get("type") != "dir":
             raise RuntimeError("YANDEX_FOLDER_MOVE_NOT_READY")
+
+    def folder_items(self, path: str) -> list[dict] | None:
+        """Read all pages before mutating a directory. None means it is already absent."""
+        result, offset, expected_total = [], 0, None
+        while True:
+            response = self.request(
+                "GET",
+                "/resources",
+                params={
+                    "path": path,
+                    "limit": 1000,
+                    "offset": offset,
+                    "fields": "type,_embedded.total,_embedded.items.path,_embedded.items.type,_embedded.items.sha256",
+                },
+            )
+            if response.status_code == 404:
+                if offset:
+                    raise RuntimeError("YANDEX_FOLDER_CHANGED_DURING_LISTING")
+                return None
+            response.raise_for_status()
+            document = response.json()
+            if document.get("type") != "dir":
+                raise RuntimeError("YANDEX_EXPECTED_SERVICE_FOLDER")
+            embedded = document.get("_embedded", {})
+            items, total = embedded.get("items"), embedded.get("total")
+            if not isinstance(items, list) or type(total) is not int or total < 0:
+                raise RuntimeError("YANDEX_INVALID_FOLDER_LISTING")
+            if expected_total is not None and total != expected_total:
+                raise RuntimeError("YANDEX_FOLDER_CHANGED_DURING_LISTING")
+            expected_total = total
+            result.extend(items)
+            offset += len(items)
+            if offset > total:
+                raise RuntimeError("YANDEX_INVALID_FOLDER_LISTING")
+            if offset == total:
+                return result
+            if not items:
+                raise RuntimeError("YANDEX_INCOMPLETE_FOLDER_LISTING")
+
+    def trash_legacy_exchange_folder(self, path: str, expected_files: dict[str, str]):
+        """Retire only the two obsolete service trees; no active JSON or photo root is eligible."""
+        from pathlib import PurePosixPath
+
+        cfg = settings()
+        allowed = {
+            f"disk:/{cfg.yandex_disk_root}/ARM_EXCHANGE",
+            f"disk:/{cfg.exchange_folder}/legacy/ARM_EXCHANGE",
+            f"disk:/{cfg.exchange_folder}/legacy",
+        }
+        if path not in allowed:
+            raise ValueError("LEGACY_EXCHANGE_ROOT_NOT_ALLOWED")
+        folders, files = [path], []
+        for folder in folders:
+            items = self.folder_items(folder)
+            if items is None:
+                continue
+            for item in items:
+                child = item.get("path", "")
+                if (
+                    not child.startswith(folder + "/")
+                    or ".." in PurePosixPath(child).parts
+                    or child in folders
+                    or child in files
+                ):
+                    raise RuntimeError("YANDEX_INVALID_SERVICE_PATH")
+                if item.get("type") == "dir":
+                    folders.append(child)
+                elif (
+                    item.get("type") == "file"
+                    and child.endswith(".json")
+                    and expected_files.get(child)
+                    and item.get("sha256") == expected_files[child]
+                ):
+                    files.append(child)
+                else:
+                    raise RuntimeError("LEGACY_EXCHANGE_UNMANAGED_FILE")
+        # Check the bytes again after the full inventory, before retiring any part of the tree.
+        for file in files:
+            if not self.matches(file, expected_files[file]):
+                raise RuntimeError("LEGACY_EXCHANGE_FILE_CHANGED")
+        response = self.request("DELETE", "/resources", params={"path": path, "permanently": "false"})
+        if response.status_code == 404:
+            return
+        self.wait_operation(response)
+        if self.metadata(path) is not None:
+            raise RuntimeError("YANDEX_DELETE_NOT_READY")
 
     def trash_exchange_file(self, path: str, digest: str):
         if not self.matches(path, digest):

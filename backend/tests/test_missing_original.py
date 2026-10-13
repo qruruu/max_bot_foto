@@ -2,6 +2,7 @@
 
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from threading import Event
 
 import httpx
@@ -48,6 +49,14 @@ def stored_photo(db, monkeypatch):
     db.commit()
     monkeypatch.setattr("app.processing.YandexDisk", lambda: disk)
     return photo, disk
+
+
+@pytest.mark.parametrize("upstream, expected", [(404, 409), (401, 502), (429, 502), (503, 502)])
+def test_open_original_handles_disk_failure_without_server_error(db, monkeypatch, admin, upstream, expected):
+    photo, _ = stored_photo(db, monkeypatch)
+    monkeypatch.setattr(YandexDisk, "request", lambda *_a, **_k: httpx.Response(upstream))
+    response = admin.get(f"/api/photos/{photo.id}/original", follow_redirects=False)
+    assert response.status_code == expected and "Яндекс.Диск" in response.json()["detail"]
 
 
 @respx.mock
@@ -214,3 +223,54 @@ def test_unexplained_move_404_is_retryable_when_source_still_exists(monkeypatch)
     respx.post(YandexDisk.API + "/resources/move").mock(return_value=httpx.Response(404))
     with pytest.raises(httpx.HTTPStatusError):
         YandexDisk().move("disk:/old", "disk:/new", "digest")
+
+
+def test_move_recovers_after_remote_success_then_another_operator_edit(db, monkeypatch, admin):
+    photo, disk = stored_photo(db, monkeypatch)
+    original_path = photo.yandex_disk_path
+    move = disk.move
+
+    def crash_after_move(*args):
+        move(*args)
+        raise RuntimeError("lost connection after successful move")
+
+    photo.photo_date = date(2026, 10, 1)
+    db.commit()
+    monkeypatch.setattr(disk, "move", crash_after_move)
+    with pytest.raises(RuntimeError):
+        sync_photo(photo.id)
+    db.refresh(photo)
+    assert photo.yandex_disk_path == original_path and original_path not in disk.files
+    response = admin.patch(
+        f"/api/photos/{photo.id}", json={"version": photo.version, "photo_date": "2026-10-02"}
+    )
+    assert response.status_code == 200
+    monkeypatch.setattr(disk, "move", move)
+    sync_photo(photo.id)
+    db.refresh(photo)
+    assert photo.storage_status == "SYNCED" and photo.processing_error is None
+    assert "/2026-10-02/" in photo.yandex_disk_path
+    assert list(disk.files) == [photo.yandex_disk_path]
+    assert disk.files[photo.yandex_disk_path] == FakeMax().content
+
+
+def test_upload_recovers_old_destination_before_applying_a_correction(db, monkeypatch):
+    from app.processing import process_photo
+
+    setup_chat(db)
+    setup_district(db)
+    photo, disk = intake_photo(db), Storage()
+    disk.fail = True
+    with pytest.raises(RuntimeError):
+        process_photo(photo.id, FakeMax(), disk, GoodOCR(), GoodAI())
+    db.refresh(photo)
+    assert photo.yandex_disk_path is None and len(disk.files) == 1
+    photo.photo_date = date(2026, 10, 3)
+    db.commit()
+    disk.fail = False
+    monkeypatch.setattr("app.processing.YandexDisk", lambda: disk)
+    sync_photo(photo.id)
+    db.refresh(photo)
+    assert "/2026-10-03/" in photo.yandex_disk_path
+    assert list(disk.files) == [photo.yandex_disk_path]
+    assert not media_path(photo.id).exists()

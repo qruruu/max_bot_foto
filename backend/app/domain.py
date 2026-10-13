@@ -124,6 +124,8 @@ def bot_reply(photos: list[Photo], district_names: dict[int, str]) -> str:
         if "UNSUPPORTED_FORMAT" in photo.review_reason:
             return "❌ Не принято: неподдерживаемый формат файла."
         return "❌ Не принято: файл изображения повреждён или не читается."
+    if photo.status == Status.ERROR:
+        return "⚠️ Фотография требует проверки оператором: ошибка обработки или хранения."
     text = "✅ Принято"
     if photo.district_id in district_names:
         text += f"\nМикрорайон: {district_names[photo.district_id]}"

@@ -28,6 +28,17 @@ def publication(db, cohort="test"):
     return pub
 
 
+@pytest.mark.parametrize("status", ["RETIRED", "PRUNED", "PRUNING", "SUPERSEDED", "DONE"])
+def test_finished_publications_cannot_be_recreated_by_a_stale_job(db, status):
+    pub, disk = publication(db), FakeDisk()
+    pub.status = status
+    db.commit()
+    publish(pub.id, disk)
+    db.refresh(pub)
+    assert pub.status == status and pub.payload is None
+    assert not disk.files and disk.upload_calls == 0
+
+
 def index_and_items(disk, pub, db):
     db.refresh(pub)
     doc = Index.model_validate_json(disk.files[pub.index_path])

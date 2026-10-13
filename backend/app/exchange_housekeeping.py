@@ -9,11 +9,11 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import engine
-from app.domain import audit, enqueue, now, storage_path
+from app.domain import audit, now, reassess
 from app.exchange import Dictionary, Index, Partition, exchange_root, json_bytes
 from app.integrations import OriginalMissing, YandexDisk
-from app.models import Audit, ExchangeState, Photo, Publication
-from app.processing import photo_lock
+from app.models import ExchangeState, Photo, Publication
+from app.processing import photo_lock, synchronize
 
 
 @contextmanager
@@ -137,35 +137,8 @@ def organize_archive(disk=None):
                 source = photo.yandex_disk_path
                 if photo.cohort != "test" or not source or not source.startswith(old_root):
                     continue
-                desired = storage_path(photo, photo.district_name_snapshot)
-                plan = db.scalar(
-                    select(Audit)
-                    .where(Audit.photo_id == photo.id, Audit.action == "TRAINING_RELOCATION_PLANNED")
-                    .order_by(Audit.id.desc())
-                    .limit(1)
-                )
-                if (
-                    plan
-                    and plan.old_value.get("path") == source
-                    and plan.new_value.get("sha256") == photo.sha256
-                    and plan.new_value.get("path", "").startswith(f"disk:/{cfg.training_folder}/")
-                ):
-                    target = plan.new_value["path"]
-                else:
-                    target = desired
-                    audit(
-                        db,
-                        None,
-                        "TRAINING_RELOCATION_PLANNED",
-                        "photo",
-                        photo.id,
-                        {"path": source},
-                        {"path": target, "sha256": photo.sha256},
-                    )
-                    # Persist the destination before moving bytes; a later operator edit cannot hide it.
-                    db.commit()
                 try:
-                    disk.move(source, target, photo.sha256)
+                    synchronize(db, photo, disk)
                 except OriginalMissing:
                     # There are no original bytes to relocate; preserve the existing missing-file state.
                     audit(
@@ -179,10 +152,7 @@ def organize_archive(disk=None):
                     )
                     db.commit()
                     continue
-                photo.yandex_disk_path, photo.stored_filename = target, target.rsplit("/", 1)[-1]
-                if target != desired:
-                    photo.storage_status = "PENDING"
-                    enqueue(db, "SYNC", photo.id, f"organize-sync:{photo.id}:{photo.version}")
+                reassess(db, photo)
                 audit(
                     db,
                     None,
@@ -190,20 +160,55 @@ def organize_archive(disk=None):
                     "photo",
                     photo.id,
                     {"path": source},
-                    {"path": target},
+                    {"path": photo.yandex_disk_path},
                 )
                 db.commit()
-        # Old JSON retains its legacy bytes outside both the customer archive and the new ARM stream.
-        source = old_root + "ARM_EXCHANGE"
-        target = f"disk:/{cfg.exchange_folder}/legacy/ARM_EXCHANGE"
-        disk.move_folder(source, target)
-        with Session(engine()) as db:
-            for pub in db.scalars(
-                select(Publication).where(Publication.index_path.startswith(source + "/", autoescape=True))
-            ):
-                pub.index_path = target + pub.index_path[len(source) :]
-                if pub.payload:
-                    pub.payload = {**pub.payload, "root": target + pub.payload["root"][len(source) :]}
-            db.commit()
+        # Obsolete JSON is disposable source output, not another archive to preserve on Disk.
+        # Keep the live training/production JSON in its separate root, and retire old service trees.
+        for source in (old_root + "ARM_EXCHANGE", f"disk:/{cfg.exchange_folder}/legacy/ARM_EXCHANGE"):
+            with Session(engine()) as db:
+                if db.scalar(
+                    select(Photo.id)
+                    .where(Photo.yandex_disk_path.startswith(source + "/", autoescape=True))
+                    .limit(1)
+                ):
+                    raise RuntimeError("LEGACY_EXCHANGE_CONTAINS_ORIGINAL_REFERENCE")
+                publications = list(
+                    db.scalars(
+                        select(Publication).where(
+                            Publication.index_path.startswith(source + "/", autoescape=True)
+                        )
+                    )
+                )
+                expected = {}
+                for pub in publications:
+                    payload = pub.payload or {}
+                    root = payload.get("root", "")
+                    if not root.startswith(source + "/"):
+                        continue
+                    for item in payload.get("files", []):
+                        ref = PurePosixPath(item["file_ref"])
+                        if ref.is_absolute() or ".." in ref.parts:
+                            raise RuntimeError("INVALID_LEGACY_EXCHANGE_REFERENCE")
+                        file = root + "/" + str(ref)
+                        if file in expected and expected[file] != item["sha256"]:
+                            raise RuntimeError("INVALID_LEGACY_EXCHANGE_CHECKSUM")
+                        expected[file] = item["sha256"]
+                disk.trash_legacy_exchange_folder(source, expected)
+                for pub in publications:
+                    audit(
+                        db,
+                        None,
+                        "LEGACY_EXCHANGE_RETIRED",
+                        "publication",
+                        pub.id,
+                        {"index_path": pub.index_path},
+                        {"status": "RETIRED"},
+                    )
+                    pub.status, pub.index_path, pub.payload = "RETIRED", None, None
+                db.commit()
+        legacy_parent = f"disk:/{cfg.exchange_folder}/legacy"
+        if disk.folder_items(legacy_parent) == []:
+            disk.trash_legacy_exchange_folder(legacy_parent, {})
         # Moves empty directories and any untracked test files as a tree, never deletes originals.
         disk.move_folder(old_root + "ТЕСТОВЫЕ", f"disk:/{cfg.training_folder}/legacy_test_tree")

@@ -201,3 +201,114 @@ def test_folder_move_refuses_overwrite(monkeypatch):
     with pytest.raises(RuntimeError, match="CONFLICT"):
         YandexDisk().move_folder("disk:/MAX_PHOTOS/ARM_EXCHANGE", "disk:/MAX_PHOTOS_ARM_EXCHANGE/legacy")
     assert not route.called
+
+
+@respx.mock
+def test_disk_folder_inventory_reads_all_pages(monkeypatch):
+    monkeypatch.setenv("YANDEX_DISK_TOKEN", "test-token")
+    settings.cache_clear()
+    root = "disk:/MAX_PHOTOS/ARM_EXCHANGE"
+    paths = [{"path": f"{root}/{i}.json", "type": "file", "sha256": "a" * 64} for i in range(1001)]
+
+    def page(request):
+        offset = int(request.url.params["offset"])
+        return httpx.Response(
+            200,
+            json={"type": "dir", "_embedded": {"items": paths[offset : offset + 1000], "total": len(paths)}},
+        )
+
+    route = respx.get(YandexDisk.API + "/resources").mock(side_effect=page)
+    assert YandexDisk().folder_items(root) == paths
+    assert [r.request.url.params["offset"] for r in route.calls] == ["0", "1000"]
+
+
+@pytest.mark.parametrize(
+    "second_page",
+    [
+        httpx.Response(404),
+        httpx.Response(
+            200,
+            json={
+                "type": "dir",
+                "_embedded": {"items": [], "total": 0},
+            },
+        ),
+    ],
+)
+@respx.mock
+def test_changing_folder_inventory_never_proceeds_to_delete(monkeypatch, second_page):
+    monkeypatch.setenv("YANDEX_DISK_TOKEN", "test-token")
+    settings.cache_clear()
+    root = "disk:/MAX_PHOTOS/ARM_EXCHANGE"
+    respx.get(YandexDisk.API + "/resources").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "type": "dir",
+                    "_embedded": {
+                        "total": 2,
+                        "items": [
+                            {"type": "file", "path": root + "/1.json", "sha256": "a" * 64},
+                        ],
+                    },
+                },
+            ),
+            second_page,
+        ]
+    )
+    delete = respx.delete(YandexDisk.API + "/resources").mock(return_value=httpx.Response(204))
+    with pytest.raises(RuntimeError, match="CHANGED_DURING_LISTING"):
+        YandexDisk().trash_legacy_exchange_folder(root, {root + "/1.json": "a" * 64})
+    assert not delete.called
+
+
+@pytest.mark.parametrize("unexpected", [False, True])
+@respx.mock
+def test_legacy_tree_removal_verifies_contents_and_never_copies(monkeypatch, unexpected):
+    monkeypatch.setenv("YANDEX_DISK_TOKEN", "test-token")
+    settings.cache_clear()
+    root, digest = "disk:/MAX_PHOTOS/ARM_EXCHANGE", "a" * 64
+    file = root + "/test/snapshot.json"
+    deleted = False
+
+    def resource(request):
+        path = request.url.params["path"]
+        if deleted:
+            return httpx.Response(404)
+        if path == root:
+            items = [{"type": "dir", "path": root + "/test"}]
+        elif path == root + "/test":
+            items = [{"type": "file", "path": file, "sha256": digest}]
+            if unexpected:
+                items.append({"type": "file", "path": root + "/test/original.jpg", "sha256": "b" * 64})
+        else:
+            return httpx.Response(200, json={"type": "file", "sha256": digest})
+        return httpx.Response(200, json={"type": "dir", "_embedded": {"items": items, "total": len(items)}})
+
+    def remove(request):
+        nonlocal deleted
+        assert request.url.params["path"] == root
+        assert request.url.params["permanently"] == "false"
+        deleted = True
+        return httpx.Response(204)
+
+    respx.get(YandexDisk.API + "/resources").mock(side_effect=resource)
+    delete = respx.delete(YandexDisk.API + "/resources").mock(side_effect=remove)
+    move = respx.post(YandexDisk.API + "/resources/move").mock(return_value=httpx.Response(201))
+    if unexpected:
+        with pytest.raises(RuntimeError, match="UNMANAGED"):
+            YandexDisk().trash_legacy_exchange_folder(root, {file: digest})
+        assert not delete.called
+    else:
+        YandexDisk().trash_legacy_exchange_folder(root, {file: digest})
+        assert delete.called
+    assert not move.called
+
+
+@pytest.mark.parametrize(
+    "path", ["disk:/MAX_PHOTOS", "disk:/MAX_PHOTOS_ARM_EXCHANGE", "disk:/MAX_PHOTOS_ARM_EXCHANGE/production"]
+)
+def test_legacy_cleanup_refuses_live_data_roots(path):
+    with pytest.raises(ValueError, match="NOT_ALLOWED"):
+        YandexDisk().trash_legacy_exchange_folder(path, {})

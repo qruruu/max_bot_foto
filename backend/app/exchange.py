@@ -245,7 +245,7 @@ def publish(publication_id: int, disk: YandexDisk | None = None):
         try:
             with Session(engine()) as db:
                 pub = db.get(Publication, publication_id)
-                if pub.status in {"DONE", "SUPERSEDED"}:
+                if pub.status in {"DONE", "SUPERSEDED", "PRUNING", "PRUNED", "RETIRED"}:
                     return
                 state = db.get(ExchangeState, 1)
                 attr = f"last_{pub.cohort}_publication_id"
