@@ -14,7 +14,7 @@ from app.schemas import PhotoFilters
 
 
 def filtered(filters: PhotoFilters):
-    stmt = select(Photo)
+    stmt = select(Photo).where(Photo.preview_removed_at.is_(None))
     # Spam is an explicit archive view; normal lists, work reports and exports omit it.
     if filters.status != Status.SPAM:
         stmt = stmt.where(Photo.is_spam.is_(False))

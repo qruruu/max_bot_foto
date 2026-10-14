@@ -4,3 +4,5 @@
 .map-tools{display:flex;flex-direction:column;gap:8px;margin:15px 0}.map-tools button{font-size:11px}
 
 .spam-option{width:100%;margin:12px 0;text-align:left;justify-content:flex-start}.spam-option.selected{background:#fff0e6;border-color:#d69c76;color:#874424}.status-SPAM{background:#eee9e3;color:#76604a}
+
+.remove-preview-button{color:#9c3737;border-color:#e9c9c9;margin-top:12px}.remove-preview-button:hover{background:#fff3f3;border-color:#c88888}.remove-preview-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:18px}.remove-preview-actions .remove-preview-button{margin-top:0}

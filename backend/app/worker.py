@@ -10,7 +10,7 @@ from app.config import settings
 from app.db import engine
 from app.domain import now
 from app.integrations import MaxClient, OriginalMissing
-from app.models import Chat, Inbox, Job
+from app.models import Chat, Inbox, Job, Photo
 from app.processing import error_code, process_batch, regeo_all, sync_photo
 
 log = logging.getLogger(__name__)
@@ -21,6 +21,10 @@ def send_reply(inbox_id: int):
     with Session(engine()) as db:
         inbox = db.get(Inbox, inbox_id)
         if inbox.reply_sent_at or not inbox.reply_text:
+            return
+        if not db.scalar(select(Photo.id).where(
+            Photo.inbox_id == inbox_id, Photo.preview_removed_at.is_(None)
+        ).limit(1)):
             return
         # Serialize per-chat replies across all workers and respect the MAX 2 messages/s limit.
         chat = db.scalar(select(Chat).where(Chat.max_chat_id == inbox.max_chat_id).with_for_update())
@@ -67,6 +71,10 @@ def run_once(kinds: list[str] | None = None) -> bool:
                         process_batch(object_id)
                     elif kind == "SYNC":
                         sync_photo(object_id, job_id=job_id)
+                    elif kind == "REMOVE_PREVIEW":
+                        from app.preview_cleanup import remove_missing_preview
+
+                        remove_missing_preview(object_id)
                     elif kind == "REPLY":
                         send_reply(object_id)
                     elif kind == "REGEO":

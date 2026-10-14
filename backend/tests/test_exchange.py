@@ -383,8 +383,12 @@ def test_trigger_versions_exported_changes_but_not_attachment_cleanup(db):
 
 def test_migration_preserves_old_paths_labels_and_defaults_to_test(db):
     migration = runpy.run_path(str(Path(__file__).parents[1] / "alembic/versions/0006_manual_exchange.py"))
+    preview_migration = runpy.run_path(
+        str(Path(__file__).parents[1] / "alembic/versions/0009_remove_missing_preview.py")
+    )
     db.commit()
     with Operations.context(MigrationContext.configure(db.connection())):
+        preview_migration["downgrade"]()
         migration["downgrade"]()
         db.execute(text("INSERT INTO chats(max_chat_id,name,active) VALUES (123,'legacy',true)"))
         inbox_id = db.scalar(
@@ -398,6 +402,7 @@ def test_migration_preserves_old_paths_labels_and_defaults_to_test(db):
             {"inbox": inbox_id},
         )
         migration["upgrade"]()
+        preview_migration["upgrade"]()
     db.commit()
     db.expire_all()
     photo = db.scalar(select(Photo))

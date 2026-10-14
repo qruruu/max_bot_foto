@@ -126,7 +126,9 @@ def organize_archive(disk=None):
                 db.scalars(
                     select(Photo.id)
                     .where(
-                        Photo.cohort == "test", Photo.yandex_disk_path.startswith(old_root, autoescape=True)
+                        Photo.cohort == "test",
+                        Photo.preview_removed_at.is_(None),
+                        Photo.yandex_disk_path.startswith(old_root, autoescape=True),
                     )
                     .order_by(Photo.id)
                 )
@@ -135,7 +137,12 @@ def organize_archive(disk=None):
             with photo_lock(photo_id), Session(engine()) as db:
                 photo = db.get(Photo, photo_id)
                 source = photo.yandex_disk_path
-                if photo.cohort != "test" or not source or not source.startswith(old_root):
+                if (
+                    photo.preview_removed_at is not None
+                    or photo.cohort != "test"
+                    or not source
+                    or not source.startswith(old_root)
+                ):
                     continue
                 try:
                     synchronize(db, photo, disk)

@@ -69,6 +69,8 @@ def resolve_district(db: Session, latitude: float | None, longitude: float | Non
 
 
 def reassess(db: Session, photo: Photo):
+    if photo.preview_removed_at is not None:
+        return
     if photo.is_spam:
         photo.status = Status.SPAM
         photo.review_reason = []

@@ -148,9 +148,16 @@ class Photo(Timestamps, Base):
     fixed_work_type_snapshot: Mapped[str | None] = mapped_column(String(60))
     work_rule_version: Mapped[int | None] = mapped_column(Integer)
     district_name_snapshot: Mapped[str | None] = mapped_column(String(120))
+    preview_removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (
         UniqueConstraint("inbox_id", "attachment_index"),
-        UniqueConstraint("cohort", "sha256", name="uq_photos_cohort_sha256"),
+        Index(
+            "uq_photos_active_cohort_sha256",
+            "cohort",
+            "sha256",
+            unique=True,
+            postgresql_where=text("preview_removed_at IS NULL"),
+        ),
         CheckConstraint("cohort IN ('test','production')", name="ck_photos_cohort"),
         CheckConstraint("archive_layout IN ('legacy','district_v1')", name="ck_photos_archive_layout"),
         CheckConstraint("latitude BETWEEN -90 AND 90"),

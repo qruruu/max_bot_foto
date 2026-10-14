@@ -63,6 +63,10 @@ class DistrictInput(StrictModel):
     confirm_overlap: bool = False
 
 
+class PhotoVersionInput(StrictModel):
+    version: int = Field(ge=1)
+
+
 class PhotoEdit(StrictModel):
     version: int = Field(ge=1)
     is_spam: bool = False

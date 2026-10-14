@@ -141,7 +141,7 @@ def record(photo: Photo) -> PhotoRecord:
         storage_status=photo.storage_status,
         duplicate_of=str(photo.duplicate_of) if photo.duplicate_of else None,
         sha256=photo.sha256,
-        original_disk_path=photo.yandex_disk_path,
+        original_disk_path=None if photo.preview_removed_at is not None else photo.yandex_disk_path,
         cohort="training" if photo.cohort == "test" else photo.cohort,
         error_code=photo.processing_error,
         latitude=photo.latitude,

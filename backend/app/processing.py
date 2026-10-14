@@ -106,6 +106,8 @@ def transfer_original(db: Session, photo: Photo, disk: YandexDisk, target: str):
 
 
 def synchronize(db: Session, photo: Photo, disk: YandexDisk):
+    if photo.preview_removed_at is not None:
+        return
     district = db.get(District, photo.district_id) if photo.district_id else None
     desired = storage_path(photo, district.name if district else None)
     target = transfer_target(db, photo, desired)
@@ -157,7 +159,10 @@ def process_photo(
                 db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": hash_lock})
                 existing = db.scalar(
                     select(Photo.id).where(
-                        Photo.sha256 == digest, Photo.cohort == photo.cohort, Photo.id != photo.id
+                        Photo.sha256 == digest,
+                        Photo.cohort == photo.cohort,
+                        Photo.id != photo.id,
+                        Photo.preview_removed_at.is_(None),
                     )
                 )
                 if existing:
@@ -291,7 +296,15 @@ def process_batch(inbox_id: int):
         raise RuntimeError("BATCH_RETRY_REQUIRED")
     with Session(engine()) as db:
         inbox = db.get(Inbox, inbox_id)
-        photos = list(db.scalars(select(Photo).where(Photo.inbox_id == inbox_id).order_by(Photo.id)))
+        photos = list(
+            db.scalars(
+                select(Photo)
+                .where(Photo.inbox_id == inbox_id, Photo.preview_removed_at.is_(None))
+                .order_by(Photo.id)
+            )
+        )
+        if not photos:
+            return
         districts = dict(db.execute(select(District.id, District.name)).all())
         if not inbox.reply_text:
             inbox.reply_text = bot_reply(photos, districts)
@@ -304,7 +317,7 @@ def process_batch(inbox_id: int):
 def sync_photo(photo_id: int, job_id: int | None = None):
     with photo_lock(photo_id), Session(engine(), expire_on_commit=False) as db:
         photo = db.get(Photo, photo_id)
-        if not photo or not photo.sha256 or not photo.analyzed_at:
+        if not photo or photo.preview_removed_at is not None or not photo.sha256 or not photo.analyzed_at:
             return
         if job_id is not None:
             job = db.get(Job, job_id)
@@ -348,6 +361,7 @@ def regeo_all():
                     select(Photo.id)
                     .where(
                         Photo.id > last_id,
+                        Photo.preview_removed_at.is_(None),
                         Photo.analyzed_at.is_not(None),
                         Photo.status.in_(list(ACCEPTED_STATUSES)),
                     )
@@ -360,6 +374,8 @@ def regeo_all():
         for photo_id in ids:
             with photo_lock(photo_id), Session(engine()) as db:
                 photo = db.get(Photo, photo_id)
+                if photo.preview_removed_at is not None:
+                    continue
                 before = {
                     "district_id": photo.district_id,
                     "status": photo.status,

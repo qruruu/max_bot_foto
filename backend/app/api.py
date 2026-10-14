@@ -4,11 +4,12 @@ from datetime import timedelta
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
+import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from geoalchemy2.shape import from_shape
 from shapely.geometry import mapping
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from app.auth import AdminUser, CurrentUser, Db, hasher, user_dict
@@ -28,6 +29,7 @@ from app.schemas import (
     ExchangeModeInput,
     PhotoEdit,
     PhotoFilters,
+    PhotoVersionInput,
     UserCreate,
     UserUpdate,
     validate_polygon,
@@ -150,7 +152,7 @@ def photos(db: Db, user: CurrentUser, filters: Filters):
 
 def require_photo(db, photo_id):
     photo = db.get(Photo, photo_id)
-    if not photo:
+    if not photo or photo.preview_removed_at is not None:
         raise HTTPException(404, "Фотография не найдена")
     return photo
 
@@ -244,6 +246,81 @@ def edit_photo(photo_id: int, body: PhotoEdit, db: Db, user: CurrentUser):
         "review_reason": photo.review_reason,
         "storage_status": photo.storage_status,
     }
+
+
+@app.post("/api/photos/{photo_id}/remove-missing-preview", status_code=202)
+def remove_missing_preview(photo_id: int, body: PhotoVersionInput, db: Db, user: CurrentUser):
+    from app.preview_cleanup import known_original_paths
+
+    db.execute(text("SELECT pg_advisory_xact_lock(7002, :id)"), {"id": photo_id})
+    photo = db.get(Photo, photo_id)
+    if not photo:
+        raise HTTPException(404, "Фотография не найдена")
+    if photo.preview_removed_at is not None:
+        return {"id": photo.id, "removed": True}
+    if photo.version != body.version:
+        raise HTTPException(409, "Фото изменилось. Обновите карточку.")
+    if photo.processing_error != "ORIGINAL_MISSING" or photo.storage_status != "ERROR":
+        raise HTTPException(
+            409, "Убрать можно только превью с подтверждённой ошибкой отсутствующего оригинала."
+        )
+    if media_path(photo.id).is_file():
+        raise HTTPException(409, "На сервере ещё есть исходный файл. Сначала повторите синхронизацию.")
+    try:
+        disk = YandexDisk()
+        if any(disk.metadata(path) is not None for path in sorted(known_original_paths(db, photo))):
+            raise HTTPException(409, "Файл найден на Диске. Повторите синхронизацию вместо удаления превью.")
+    except (httpx.HTTPError, RuntimeError) as exc:
+        raise HTTPException(502, "Не удалось проверить наличие оригинала на Диске. Повторите позже.") from exc
+    before = {
+        "status": photo.status,
+        "storage_status": photo.storage_status,
+        "processing_error": photo.processing_error,
+        "version": photo.version,
+    }
+    photo.preview_removed_at = now()
+    photo.status, photo.storage_status = Status.REJECTED, "NOT_REQUIRED"
+    photo.review_reason, photo.processing_error = ["PREVIEW_REMOVED_ORIGINAL_MISSING"], None
+    photo.attachment = {}
+    photo.version += 1
+    db.execute(
+        update(Job)
+        .where(
+            Job.kind == "SYNC",
+            Job.object_id == photo.id,
+            Job.status.in_(["PENDING", "RUNNING", "BLOCKED"]),
+        )
+        .values(status="DONE", last_error="PREVIEW_REMOVED")
+    )
+    if not db.scalar(
+        select(Photo.id)
+        .where(
+            Photo.inbox_id == photo.inbox_id,
+            Photo.preview_removed_at.is_(None),
+        )
+        .limit(1)
+    ):
+        db.execute(
+            update(Job)
+            .where(
+                Job.kind.in_(["BATCH", "REPLY"]),
+                Job.object_id == photo.inbox_id,
+                Job.status.in_(["PENDING", "RUNNING", "BLOCKED"]),
+            )
+            .values(status="DONE", last_error="PREVIEW_REMOVED")
+        )
+    audit(
+        db,
+        user.id,
+        "PHOTO_PREVIEW_REMOVED",
+        "photo",
+        photo.id,
+        before,
+        {"status": photo.status, "review_reason": photo.review_reason, "version": photo.version},
+    )
+    enqueue(db, "REMOVE_PREVIEW", photo.id, f"remove-preview:{photo.id}")
+    db.commit()
+    return {"id": photo.id, "removed": True}
 
 
 @app.post("/api/photos/{photo_id}/retry")
