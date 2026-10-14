@@ -33,6 +33,20 @@ def photo_lock(photo_id: int):
             conn.commit()
 
 
+@contextmanager
+def storage_lock(*, shared=True):
+    # Allow parallel transfers, but keep service writes out of the empty-folder cleanup window.
+    suffix = "_shared" if shared else ""
+    with engine().connect() as conn:
+        conn.execute(text(f"SELECT pg_advisory_lock{suffix}(7010, 1)"))
+        conn.commit()
+        try:
+            yield
+        finally:
+            conn.execute(text(f"SELECT pg_advisory_unlock{suffix}(7010, 1)"))
+            conn.commit()
+
+
 def error_code(exc: Exception) -> str:
     # No URLs, query signatures, tokens or upstream response bodies in logs/UI.
     if isinstance(exc, OriginalMissing):
@@ -59,7 +73,7 @@ def transfer_target(db: Session, photo: Photo, desired: str) -> str:
         and plan.new_value.get("sha256") == photo.sha256
     ):
         target = plan.new_value.get("path", "")
-        roots = (settings().yandex_disk_root, settings().training_folder)
+        roots = (settings().yandex_disk_root, settings().training_folder, settings().spam_folder)
         if ".." in PurePosixPath(target).parts or not any(
             target.startswith(f"disk:/{root}/") for root in roots
         ):
@@ -106,6 +120,11 @@ def transfer_original(db: Session, photo: Photo, disk: YandexDisk, target: str):
 
 
 def synchronize(db: Session, photo: Photo, disk: YandexDisk):
+    with storage_lock():
+        _synchronize(db, photo, disk)
+
+
+def _synchronize(db: Session, photo: Photo, disk: YandexDisk):
     if photo.preview_removed_at is not None:
         return
     district = db.get(District, photo.district_id) if photo.district_id else None

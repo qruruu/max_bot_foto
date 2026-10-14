@@ -34,7 +34,7 @@ def known_original_paths(db: Session, photo: Photo) -> set[str]:
         and (plan.new_value or {}).get("sha256") == photo.sha256
     ):
         path = (plan.new_value or {}).get("path", "")
-        roots = (settings().yandex_disk_root, settings().training_folder)
+        roots = (settings().yandex_disk_root, settings().training_folder, settings().spam_folder)
         if ".." in PurePosixPath(path).parts or not any(path.startswith(f"disk:/{root}/") for root in roots):
             raise RuntimeError("INVALID_STORAGE_TRANSFER_PATH")
         paths.add(path)

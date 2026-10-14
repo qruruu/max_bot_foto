@@ -17,6 +17,7 @@ from app.auth import router as auth_router
 from app.catalog import WORK_TYPES, Role, Status
 from app.config import settings
 from app.domain import audit, enqueue, now, reassess
+from app.exchange_housekeeping import ARCHIVE_JOB_KEY
 from app.intake import ingest
 from app.integrations import YandexDisk, safe_url
 from app.media import media_path
@@ -637,7 +638,8 @@ def exchange_status(db: Db, user: AdminUser):
         "roots": {c: exchange_root(state, c) for c in ("test", "production")},
         "photo_root": f"disk:/{settings().yandex_disk_root}",
         "training_root": f"disk:/{settings().training_folder}",
-        "organizing": db.scalar(select(Job.status).where(Job.dedupe_key == "archive-organize:v3")),
+        "spam_root": f"disk:/{settings().spam_folder}",
+        "organizing": db.scalar(select(Job.status).where(Job.dedupe_key == ARCHIVE_JOB_KEY)),
         "counts": {c: counts.get(c, 0) for c in ("test", "production")},
         "publications": [
             {
@@ -698,9 +700,9 @@ def exchange_publish(body: ExchangeModeInput, db: Db, user: AdminUser):
 @app.post("/api/exchange/organize", status_code=202)
 def exchange_organize(db: Db, user: AdminUser):
     db.execute(text("SELECT pg_advisory_xact_lock(7009, 1)"))
-    job = db.scalar(select(Job).where(Job.dedupe_key == "archive-organize:v3"))
+    job = db.scalar(select(Job).where(Job.dedupe_key == ARCHIVE_JOB_KEY))
     if job is None:
-        enqueue(db, "ARCHIVE_ORGANIZE", 1, "archive-organize:v3")
+        enqueue(db, "ARCHIVE_ORGANIZE", 1, ARCHIVE_JOB_KEY)
     elif job.status != "RUNNING":
         job.status, job.last_error, job.next_run_at = "PENDING", None, now()
     audit(db, user.id, "ARCHIVE_ORGANIZATION_REQUESTED", "exchange_state", 1, None, {})

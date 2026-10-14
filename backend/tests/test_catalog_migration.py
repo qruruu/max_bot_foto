@@ -102,7 +102,8 @@ def test_existing_labels_models_and_remote_paths_migrate(db, monkeypatch):
     db.expire_all()
     for photo in photos:
         assert photo.storage_status == "SYNCED"
-        assert "/Чат_1/МР_НЕ_ОПРЕДЕЛЕН/" in photo.yandex_disk_path
+        assert "/Чат_1/" not in photo.yandex_disk_path
+        assert "/МР_НЕ_ОПРЕДЕЛЕН/" in photo.yandex_disk_path
         assert photo.yandex_disk_path in files and old_paths[photo.id] not in files
         assert photo.stored_filename == photo.yandex_disk_path.rsplit("/", 1)[-1]
     assert "ПЛОЩАДКИ" in photos[0].stored_filename

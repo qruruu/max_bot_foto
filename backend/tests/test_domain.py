@@ -85,9 +85,12 @@ def test_storage_paths_and_sanitization():
         "disk:/MAX_PHOTOS/2026-10-01/12_мкр/12_мкр_УРНЫ_3.jpg"
     )
     assert storage_path(photo(is_spam=True), "12 мкр") == (
-        "disk:/MAX_PHOTOS/СПАМ/2026-10-01/12_мкр/Спам_3.jpg"
+        "disk:/MAX_PHOTOS_SPAM/production/2026-10-01/12_мкр/Спам_3.jpg"
     )
-    assert "/Чат_1/" in storage_path(photo(archive_layout="legacy"), "12 мкр")
+    assert storage_path(photo(archive_layout="legacy"), "12 мкр") == storage_path(photo(), "12 мкр")
+    assert storage_path(photo(is_spam=True, cohort="test", archive_layout="legacy"), "12 мкр") == (
+        "disk:/MAX_PHOTOS_SPAM/training/2026-10-01/12_мкр/Спам_3.jpg"
+    )
     assert "/MAX_PHOTOS_TRAINING/" in storage_path(photo(cohort="test"), "12 мкр")
     p.photo_date = None
     assert "ДАТА_НЕ_ОПРЕДЕЛЕНА" in storage_path(p, None)

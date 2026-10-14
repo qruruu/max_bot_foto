@@ -1,12 +1,13 @@
 import hashlib
 from datetime import timedelta
+from pathlib import PurePosixPath
 
 import pytest
 from test_exchange import publication
 from test_integration import FakeDisk, FakeMax, GoodAI, GoodOCR, intake_photo, setup_chat, setup_district
 
 from app.config import Settings, settings
-from app.domain import now
+from app.domain import now, storage_path
 from app.exchange import Partition, publish
 from app.exchange_housekeeping import collect_generations, organize_archive
 from app.models import ExchangeState, Publication
@@ -19,7 +20,26 @@ class Disk(FakeDisk):
     def __init__(self):
         super().__init__()
         self.deleted = []
+        self.folders = set()
+        self.deleted_folders = []
         self.fail_delete = False
+
+    def remember_parents(self, path):
+        self.folders.update(str(p) for p in PurePosixPath(path).parents if str(p) != "disk:")
+
+    def upload(self, original, target, digest):
+        self.remember_parents(target)
+        super().upload(original, target, digest)
+
+    def move(self, source, target, digest):
+        from app.integrations import OriginalMissing
+
+        self.remember_parents(source)
+        self.remember_parents(target)
+        if not self.matches(target, digest):
+            if not self.matches(source, digest):
+                raise OriginalMissing("ORIGINAL_MISSING")
+            super().move(source, target, digest)
 
     def matches(self, path, digest):
         if path not in self.files:
@@ -37,16 +57,28 @@ class Disk(FakeDisk):
             raise RuntimeError("network after delete")
 
     def move_folder(self, source, target):
+        self.folders.update(target + p[len(source) :] for p in list(self.folders) if p == source or p.startswith(source + "/"))
+        self.folders.difference_update(p for p in list(self.folders) if p == source or p.startswith(source + "/"))
         for path in list(self.files):
             if path.startswith(source + "/"):
                 self.files[target + path[len(source) :]] = self.files.pop(path)
+                self.remember_parents(target + path[len(source) :])
 
     def folder_items(self, path):
+        for file in self.files:
+            self.remember_parents(file)
+        if path not in self.folders:
+            return None
         return [
             {"path": p, "type": "file", "sha256": hashlib.sha256(data).hexdigest()}
             for p, data in self.files.items()
-            if p.startswith(path + "/")
-        ] or None
+            if str(PurePosixPath(p).parent) == path
+        ] + [{"path": p, "type": "dir"} for p in sorted(self.folders) if str(PurePosixPath(p).parent) == path]
+
+    def trash_empty_photo_folder(self, path):
+        if self.folder_items(path) == []:
+            self.folders.remove(path)
+            self.deleted_folders.append(path)
 
     def trash_legacy_exchange_folder(self, path, expected_files):
         files = [p for p in self.files if p.startswith(path + "/")]
@@ -57,6 +89,7 @@ class Disk(FakeDisk):
         for file in files:
             self.files.pop(file)
             self.deleted.append(file)
+        self.folders.difference_update(p for p in list(self.folders) if p == path or p.startswith(path + "/"))
         if self.fail_delete:
             self.fail_delete = False
             raise RuntimeError("network after delete")
@@ -244,6 +277,34 @@ def test_relocation_journal_recovers_after_remote_move_and_later_metadata_edit(d
     assert len(disk.files) == 1
 
 
+def test_organizer_resumes_transfer_when_correction_restores_the_old_path(db):
+    from datetime import date
+
+    from app.domain import audit
+
+    setup_chat(db)
+    district = setup_district(db)
+    photo = intake_photo(db)
+    disk = Disk()
+    process_photo(photo.id, FakeMax(), disk, GoodOCR(), GoodAI())
+    db.refresh(photo)
+    source = photo.yandex_disk_path
+    photo.photo_date = date(2026, 10, 2)
+    intermediate = storage_path(photo, district.name)
+    audit(db, None, "STORAGE_TRANSFER_PLANNED", "photo", photo.id,
+          {"path": source}, {"path": intermediate, "sha256": photo.sha256})
+    db.commit()
+    # Remote move succeeded; DB path did not commit, and the operator then restored the date.
+    disk.move(source, intermediate, photo.sha256)
+    photo.photo_date = date(2026, 9, 30)
+    db.commit()
+    assert storage_path(photo, district.name) == source
+    organize_archive(disk)
+    db.refresh(photo)
+    assert photo.yandex_disk_path == source and disk.matches(source, photo.sha256)
+    assert intermediate not in disk.files and len(disk.files) == 1
+
+
 def seed_old_exchange(db, disk, *, copied=False):
     root = (
         "disk:/MAX_PHOTOS_ARM_EXCHANGE/legacy/ARM_EXCHANGE" if copied else "disk:/MAX_PHOTOS/ARM_EXCHANGE"
@@ -328,3 +389,142 @@ def test_original_reference_under_service_tree_is_never_removed(db):
     with pytest.raises(RuntimeError, match="ORIGINAL_REFERENCE"):
         organize_archive(disk)
     assert pub.index_path in disk.files and not disk.deleted
+
+
+@pytest.mark.parametrize("cohort", ["test", "production"])
+@pytest.mark.parametrize("spam", [False, True])
+def test_all_legacy_photos_move_without_chat_and_keep_identity_and_metadata(db, cohort, spam):
+    from app.media import media_path
+
+    setup_chat(db)
+    district = setup_district(db)
+    state = db.get(ExchangeState, 1)
+    state.intake_cohort = cohort
+    db.commit()
+    photo = intake_photo(db)
+    disk = Disk()
+    process_photo(photo.id, FakeMax(), disk, GoodOCR(), GoodAI())
+    db.refresh(photo)
+    old_root = "MAX_PHOTOS_TRAINING" if cohort == "test" else "MAX_PHOTOS"
+    old = f"disk:/{old_root}/{'СПАМ/' if spam else ''}2026-09-30/Чат_1/12_мкр/old_{photo.id}.png"
+    disk.files[old] = disk.files.pop(photo.yandex_disk_path)
+    photo.archive_layout = "legacy"
+    photo.yandex_disk_path = old
+    if spam:
+        photo.is_spam, photo.status = True, "SPAM"
+    db.commit()
+    saved = (photo.id, photo.sha256, photo.cohort, photo.work_type, photo.ai_result, photo.photo_date)
+    before_version = photo.version
+    preview_bytes = media_path(photo.id, preview=True).read_bytes()
+
+    organize_archive(disk)
+    db.refresh(photo)
+    desired = storage_path(photo, district.name)
+    assert photo.yandex_disk_path == desired and "/Чат_1/" not in desired
+    assert old not in disk.files and desired in disk.files
+    assert hashlib.sha256(disk.files[desired]).hexdigest() == photo.sha256
+    assert (photo.id, photo.sha256, photo.cohort, photo.work_type, photo.ai_result, photo.photo_date) == saved
+    assert photo.version > before_version
+    assert media_path(photo.id, preview=True).read_bytes() == preview_bytes
+    assert old.rsplit("/", 1)[0] in disk.deleted_folders
+    assert all(root not in disk.deleted_folders for root in ("disk:/MAX_PHOTOS", "disk:/MAX_PHOTOS_TRAINING", "disk:/MAX_PHOTOS_SPAM"))
+    if spam:
+        expected_cohort = "training" if cohort == "test" else "production"
+        assert desired.startswith(f"disk:/MAX_PHOTOS_SPAM/{expected_cohort}/")
+    version = photo.version
+    organize_archive(disk)
+    db.refresh(photo)
+    assert photo.version == version and len(disk.files) == 1
+
+    pub = publication(db, cohort)
+    publish(pub.id, disk)
+    db.refresh(pub)
+    record = pub.payload["files"][0]["document"]["items"][0]
+    assert record["source_photo_id"] == str(photo.id)
+    assert record["source_version"] == photo.version and record["original_disk_path"] == desired
+
+
+def test_organizer_preserves_untracked_files_and_only_prunes_empty_directories(db):
+    disk = Disk()
+    empty = "disk:/MAX_PHOTOS_TRAINING/2026-04-20/ручная/12_мкр"
+    disk.remember_parents(empty + "/removed.jpg")
+    file = "disk:/MAX_PHOTOS_TRAINING/2026-04-21/ручная/keep.jpg"
+    disk.files[file] = b"unknown file"
+    organize_archive(disk)
+    assert disk.files[file] == b"unknown file"
+    assert empty in disk.deleted_folders
+    assert "disk:/MAX_PHOTOS_TRAINING/2026-04-20/ручная" in disk.deleted_folders
+    assert "disk:/MAX_PHOTOS_TRAINING/2026-04-21/ручная" not in disk.deleted_folders
+    assert "disk:/MAX_PHOTOS_TRAINING" not in disk.deleted_folders
+
+
+def test_missing_legacy_original_is_reported_without_losing_preview_or_blocking_other_moves(db):
+    from app.media import media_path
+
+    setup_chat(db)
+    photos = [intake_photo(db, mid) for mid in ("missing", "available")]
+    disk = Disk()
+    for photo, color in zip(photos, ("green", "blue"), strict=True):
+        process_photo(photo.id, FakeMax(color), disk, GoodOCR(), GoodAI())
+        db.refresh(photo)
+        source = f"disk:/MAX_PHOTOS/2026-09-30/ручная/old_{photo.id}.png"
+        disk.files[source] = disk.files.pop(photo.yandex_disk_path)
+        photo.yandex_disk_path = source
+    db.commit()
+    missing, available = photos
+    disk.files.pop(missing.yandex_disk_path)
+    organize_archive(disk)
+    db.refresh(missing)
+    db.refresh(available)
+    assert missing.processing_error == "ORIGINAL_MISSING" and missing.storage_status == "ERROR"
+    assert media_path(missing.id, preview=True).is_file()
+    assert available.storage_status == "SYNCED" and available.yandex_disk_path in disk.files
+    assert "/ручная/" not in available.yandex_disk_path
+
+
+@pytest.mark.parametrize("root", ["MAX_PHOTOS", "MAX_PHOTOS_TRAINING", "MAX_PHOTOS_ARM_EXCHANGE", "MAX_PHOTOS/SPAM", ".."])
+def test_spam_root_is_separate_and_customizable(root):
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, app_env="test", yandex_spam_root=root)
+    assert Settings(_env_file=None, app_env="test", yandex_spam_root="SPAM").spam_folder == "SPAM"
+
+
+def test_archive_api_queues_current_layout_once_and_reports_spam_root(admin, db):
+    from sqlalchemy import select
+
+    from app.exchange_housekeeping import ARCHIVE_JOB_KEY
+    from app.models import Job
+
+    assert admin.post("/api/exchange/organize").status_code == 202
+    assert admin.post("/api/exchange/organize").status_code == 202
+    jobs = list(db.scalars(select(Job).where(Job.dedupe_key == ARCHIVE_JOB_KEY)))
+    assert len(jobs) == 1 and jobs[0].status == "PENDING"
+    state = admin.get("/api/exchange").json()
+    assert state["spam_root"] == "disk:/MAX_PHOTOS_SPAM" and state["organizing"] == "PENDING"
+
+
+def test_layout_migration_updates_legacy_flag_and_schedules_one_resumable_job(db):
+    import runpy
+    from pathlib import Path
+
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import select
+
+    from app.exchange_housekeeping import ARCHIVE_JOB_KEY
+    from app.models import Job
+
+    setup_chat(db)
+    photo = intake_photo(db)
+    photo.archive_layout = "legacy"
+    db.commit()
+    version, cohort = photo.version, photo.cohort
+    migration = runpy.run_path(str(Path(__file__).parents[1] / "alembic/versions/0010_unified_archive_layout.py"))
+    with Operations.context(MigrationContext.configure(db.connection())):
+        migration["upgrade"]()
+        migration["upgrade"]()
+    db.commit()
+    db.refresh(photo)
+    assert photo.archive_layout == "district_v1" and photo.yandex_disk_path is None
+    assert photo.version == version and photo.cohort == cohort
+    assert len(list(db.scalars(select(Job).where(Job.dedupe_key == ARCHIVE_JOB_KEY)))) == 1

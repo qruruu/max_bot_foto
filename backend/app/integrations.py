@@ -5,7 +5,7 @@ import os
 import socket
 import ssl
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -324,6 +324,23 @@ class YandexDisk:
         for file in files:
             if not self.matches(file, expected_files[file]):
                 raise RuntimeError("LEGACY_EXCHANGE_FILE_CHANGED")
+        response = self.request("DELETE", "/resources", params={"path": path, "permanently": "false"})
+        if response.status_code == 404:
+            return
+        self.wait_operation(response)
+        if self.metadata(path) is not None:
+            raise RuntimeError("YANDEX_DELETE_NOT_READY")
+
+    def trash_empty_photo_folder(self, path: str):
+        """Only empty descendants of the managed photo roots can go to the recoverable trash."""
+        cfg = settings()
+        roots = (cfg.yandex_disk_root, cfg.training_folder, cfg.spam_folder)
+        if str(PurePosixPath(path)) != path or ".." in PurePosixPath(path).parts or not any(
+            path.startswith(f"disk:/{root}/") for root in roots
+        ):
+            raise ValueError("PHOTO_FOLDER_NOT_ALLOWED")
+        if self.folder_items(path) != []:
+            return  # A missing directory or any remaining file/subdirectory is never deleted.
         response = self.request("DELETE", "/resources", params={"path": path, "permanently": "false"})
         if response.status_code == 404:
             return

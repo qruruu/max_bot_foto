@@ -360,7 +360,7 @@ def test_spam_archive_restore_reports_and_training(admin, db, monkeypatch):
     sync_photo(photo.id)
     db.refresh(photo)
     assert photo.status == "SPAM" and photo.storage_status == "SYNCED"
-    assert "/СПАМ/" in photo.yandex_disk_path and original_path not in disk.files
+    assert "/MAX_PHOTOS_SPAM/training/" in photo.yandex_disk_path and original_path not in disk.files
     assert photo.sha256 == original_hash
     regeo_all()
     process_photo(photo.id, FakeMax(), disk, BrokenOCR(), BrokenAI())
@@ -373,7 +373,7 @@ def test_spam_archive_restore_reports_and_training(admin, db, monkeypatch):
     assert result.status_code == 200 and result.json()["status"] == "ACCEPTED"
     sync_photo(photo.id)
     db.refresh(photo)
-    assert not photo.is_spam and "/СПАМ/" not in photo.yandex_disk_path
+    assert not photo.is_spam and "/MAX_PHOTOS_SPAM/" not in photo.yandex_disk_path
     assert spam_path not in disk.files and len(disk.files) == 1
     assert len(collect_examples(db)[0]) == 1
     assert admin.get("/api/reports").json()["accepted"] == 1
@@ -414,7 +414,7 @@ def test_spam_without_metadata_survives_disk_outage(admin, db, monkeypatch):
     sync_photo(photo.id)
     db.refresh(photo)
     assert photo.status == "SPAM" and photo.storage_status == "SYNCED"
-    assert "/СПАМ/ДАТА_НЕ_ОПРЕДЕЛЕНА/" in photo.yandex_disk_path
+    assert "/MAX_PHOTOS_SPAM/training/ДАТА_НЕ_ОПРЕДЕЛЕНА/" in photo.yandex_disk_path
     assert (
         admin.patch(
             f"/api/photos/{photo.id}",

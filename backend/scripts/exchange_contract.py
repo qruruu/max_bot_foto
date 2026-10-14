@@ -139,7 +139,7 @@ def generate(root: Path):
                 status="SPAM",
                 source_work_type_code=None,
                 work_type_source="OPERATOR",
-                original_disk_path="disk:/MAX_PHOTOS/СПАМ/2026-10-12/Пример/Спам_107.jpg",
+                original_disk_path="disk:/MAX_PHOTOS_SPAM/production/2026-10-12/Пример/Спам_107.jpg",
             ),
         ),
         (

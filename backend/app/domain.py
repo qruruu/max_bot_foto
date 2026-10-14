@@ -100,15 +100,14 @@ def storage_path(photo: Photo, district_name: str | None):
     folder_date = photo.photo_date.isoformat() if photo.photo_date else "ДАТА_НЕ_ОПРЕДЕЛЕНА"
     district = safe_component(district_name, 35) if district_name else "МР_НЕ_ОПРЕДЕЛЕН"
     root = f"disk:/{settings().yandex_disk_root}"
-    legacy = getattr(photo, "archive_layout", "district_v1") == "legacy"
     if getattr(photo, "cohort", "production") == "test":
         root = f"disk:/{settings().training_folder}"
-    chat_folder = f"{safe_component(photo.chat_name)}/" if legacy else ""
     if photo.is_spam:
-        return f"{root}/СПАМ/{folder_date}/{chat_folder}{district}/Спам_{photo.id}{photo.extension}"
+        cohort = "training" if getattr(photo, "cohort", "production") == "test" else "production"
+        return f"disk:/{settings().spam_folder}/{cohort}/{folder_date}/{district}/Спам_{photo.id}{photo.extension}"
     work = WORK_TYPES[photo.work_type][1] if photo.work_type else "НЕ_ОПРЕДЕЛЕНО"
     filename = f"{district}_{work}_{photo.id}{photo.extension}"
-    return f"{root}/{folder_date}/{chat_folder}{district}/{filename}"
+    return f"{root}/{folder_date}/{district}/{filename}"
 
 
 def bot_reply(photos: list[Photo], district_names: dict[int, str]) -> str:

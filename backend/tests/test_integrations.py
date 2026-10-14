@@ -192,6 +192,35 @@ def test_exchange_trash_checks_hash_and_uses_recoverable_delete(monkeypatch):
     assert route.calls.last.request.url.params["path"] == path
 
 
+@pytest.mark.parametrize("items", [[], [{"path": "disk:/MAX_PHOTOS/date/chat/keep.jpg", "type": "file"}]])
+@respx.mock
+def test_empty_photo_folder_cleanup_never_removes_a_remaining_file(monkeypatch, items):
+    monkeypatch.setenv("YANDEX_DISK_TOKEN", "test-token")
+    settings.cache_clear()
+    path = "disk:/MAX_PHOTOS/date/chat"
+    respx.get(YandexDisk.API + "/resources").mock(
+        side_effect=[
+            httpx.Response(200, json={"type": "dir", "_embedded": {"items": items, "total": len(items)}}),
+            httpx.Response(404),
+        ]
+    )
+    delete = respx.delete(YandexDisk.API + "/resources").mock(return_value=httpx.Response(204))
+    YandexDisk().trash_empty_photo_folder(path)
+    assert delete.called == (not items)
+    if delete.called:
+        assert delete.calls.last.request.url.params["permanently"] == "false"
+        assert delete.calls.last.request.url.params["path"] == path
+
+
+@pytest.mark.parametrize("path", ["disk:/MAX_PHOTOS", "disk:/MAX_PHOTOS_SPAM", "disk:/MAX_PHOTOS_ARM_EXCHANGE/date", "disk:/Other/date", "disk:/MAX_PHOTOS/../Other", "disk:/MAX_PHOTOS//date"])
+@respx.mock
+def test_photo_folder_cleanup_refuses_roots_and_unmanaged_paths(path):
+    route = respx.delete(YandexDisk.API + "/resources").mock(return_value=httpx.Response(204))
+    with pytest.raises(ValueError, match="NOT_ALLOWED"):
+        YandexDisk().trash_empty_photo_folder(path)
+    assert not route.called
+
+
 @respx.mock
 def test_folder_move_refuses_overwrite(monkeypatch):
     monkeypatch.setenv("YANDEX_DISK_TOKEN", "test-token")

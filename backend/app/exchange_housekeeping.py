@@ -9,11 +9,13 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import engine
-from app.domain import audit, now, reassess
+from app.domain import audit, now, reassess, storage_path
 from app.exchange import Dictionary, Index, Partition, exchange_root, json_bytes
 from app.integrations import OriginalMissing, YandexDisk
-from app.models import ExchangeState, Photo, Publication
-from app.processing import photo_lock, synchronize
+from app.models import District, ExchangeState, Photo, Publication
+from app.processing import photo_lock, storage_lock, synchronize, transfer_target
+
+ARCHIVE_JOB_KEY = "archive-organize:v4"
 
 
 @contextmanager
@@ -120,15 +122,16 @@ def organize_archive(disk=None):
     disk = disk or YandexDisk()
     cfg = settings()
     old_root = f"disk:/{cfg.yandex_disk_root}/"
+    photo_roots = (cfg.yandex_disk_root, cfg.training_folder, cfg.spam_folder)
     with publisher_lock():
         with Session(engine()) as db:
             ids = list(
                 db.scalars(
                     select(Photo.id)
                     .where(
-                        Photo.cohort == "test",
                         Photo.preview_removed_at.is_(None),
-                        Photo.yandex_disk_path.startswith(old_root, autoescape=True),
+                        Photo.yandex_disk_path.is_not(None),
+                        Photo.sha256.is_not(None),
                     )
                     .order_by(Photo.id)
                 )
@@ -139,19 +142,24 @@ def organize_archive(disk=None):
                 source = photo.yandex_disk_path
                 if (
                     photo.preview_removed_at is not None
-                    or photo.cohort != "test"
                     or not source
-                    or not source.startswith(old_root)
+                    or not any(source.startswith(f"disk:/{root}/") for root in photo_roots)
+                    or source.startswith(old_root + "ARM_EXCHANGE/")
                 ):
+                    continue
+                district = db.get(District, photo.district_id) if photo.district_id else None
+                desired = storage_path(photo, district.name if district else None)
+                if source == desired and transfer_target(db, photo, desired) == source:
                     continue
                 try:
                     synchronize(db, photo, disk)
                 except OriginalMissing:
-                    # There are no original bytes to relocate; preserve the existing missing-file state.
+                    # Missing bytes cannot be recovered from a preview. Do not retry them endlessly.
+                    photo.storage_status, photo.processing_error = "ERROR", "ORIGINAL_MISSING"
                     audit(
                         db,
                         None,
-                        "TRAINING_RELOCATION_MISSING",
+                        "ARCHIVE_RELOCATION_MISSING",
                         "photo",
                         photo.id,
                         {"path": source},
@@ -163,7 +171,7 @@ def organize_archive(disk=None):
                 audit(
                     db,
                     None,
-                    "TRAINING_ORIGINAL_RELOCATED",
+                    "ARCHIVE_ORIGINAL_RELOCATED",
                     "photo",
                     photo.id,
                     {"path": source},
@@ -218,4 +226,32 @@ def organize_archive(disk=None):
         if disk.folder_items(legacy_parent) == []:
             disk.trash_legacy_exchange_folder(legacy_parent, {})
         # Moves empty directories and any untracked test files as a tree, never deletes originals.
-        disk.move_folder(old_root + "ТЕСТОВЫЕ", f"disk:/{cfg.training_folder}/legacy_test_tree")
+        with storage_lock(shared=False):
+            disk.move_folder(old_root + "ТЕСТОВЫЕ", f"disk:/{cfg.training_folder}/legacy_test_tree")
+        prune_empty_photo_folders(disk)
+
+
+def prune_empty_photo_folders(disk):
+    # Service transfers hold the shared lock. Cleanup runs only once they have committed their paths.
+    # The complete inventory is validated before the first empty directory is retired.
+    cfg = settings()
+    roots = [f"disk:/{root}" for root in (cfg.yandex_disk_root, cfg.training_folder, cfg.spam_folder)]
+    with storage_lock(shared=False):
+        folders = list(roots)
+        seen = set(folders)
+        for folder in folders:
+            for item in disk.folder_items(folder) or []:
+                child = item.get("path", "")
+                if (
+                    str(PurePosixPath(child)) != child
+                    or str(PurePosixPath(child).parent) != folder
+                    or ".." in PurePosixPath(child).parts
+                    or child in seen
+                    or item.get("type") not in {"dir", "file"}
+                ):
+                    raise RuntimeError("YANDEX_INVALID_PHOTO_FOLDER_LISTING")
+                seen.add(child)
+                if item["type"] == "dir":
+                    folders.append(child)
+        for folder in reversed(folders[len(roots) :]):
+            disk.trash_empty_photo_folder(folder)
