@@ -1,10 +1,12 @@
 """Verified JSON retention and resumable relocation out of the customer's photo folder."""
 
+import logging
+import re
 from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import PurePosixPath
 
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -12,10 +14,12 @@ from app.db import engine
 from app.domain import audit, now, reassess, storage_path
 from app.exchange import Dictionary, Index, Partition, exchange_root, json_bytes
 from app.integrations import OriginalMissing, YandexDisk
+from app.legacy_exchange import recover_manifest
 from app.models import District, ExchangeState, Photo, Publication
-from app.processing import photo_lock, storage_lock, synchronize, transfer_target
+from app.processing import error_code, photo_lock, storage_lock, synchronize, transfer_target
 
 ARCHIVE_JOB_KEY = "archive-organize:v4"
+log = logging.getLogger(__name__)
 
 
 @contextmanager
@@ -124,6 +128,7 @@ def organize_archive(disk=None):
     old_root = f"disk:/{cfg.yandex_disk_root}/"
     photo_roots = (cfg.yandex_disk_root, cfg.training_folder, cfg.spam_folder)
     with publisher_lock():
+        failures = []
         with Session(engine()) as db:
             ids = list(
                 db.scalars(
@@ -149,7 +154,12 @@ def organize_archive(disk=None):
                     continue
                 district = db.get(District, photo.district_id) if photo.district_id else None
                 desired = storage_path(photo, district.name if district else None)
-                if source == desired and transfer_target(db, photo, desired) == source:
+                if (
+                    source == desired
+                    and photo.storage_status == "SYNCED"
+                    and photo.processing_error is None
+                    and transfer_target(db, photo, desired) == source
+                ):
                     continue
                 try:
                     synchronize(db, photo, disk)
@@ -167,6 +177,14 @@ def organize_archive(disk=None):
                     )
                     db.commit()
                     continue
+                except Exception as exc:
+                    db.rollback()
+                    photo = db.get(Photo, photo_id)
+                    photo.storage_status, photo.processing_error = "ERROR", error_code(exc)
+                    db.commit()
+                    failures.append(exc)
+                    log.warning("archive_photo=%s error=%s", photo_id, error_code(exc))
+                    continue
                 reassess(db, photo)
                 audit(
                     db,
@@ -178,57 +196,109 @@ def organize_archive(disk=None):
                     {"path": photo.yandex_disk_path},
                 )
                 db.commit()
-        # Obsolete JSON is disposable source output, not another archive to preserve on Disk.
-        # Keep the live training/production JSON in its separate root, and retire old service trees.
-        for source in (old_root + "ARM_EXCHANGE", f"disk:/{cfg.exchange_folder}/legacy/ARM_EXCHANGE"):
-            with Session(engine()) as db:
-                if db.scalar(
-                    select(Photo.id)
-                    .where(Photo.yandex_disk_path.startswith(source + "/", autoescape=True))
-                    .limit(1)
-                ):
-                    raise RuntimeError("LEGACY_EXCHANGE_CONTAINS_ORIGINAL_REFERENCE")
-                publications = list(
-                    db.scalars(
-                        select(Publication).where(
-                            Publication.index_path.startswith(source + "/", autoescape=True)
-                        )
+        # Independent stages still complete when one obsolete service folder is blocked.
+        for stage, operation in (
+            ("legacy_test_tree", lambda: move_legacy_test_tree(disk)),
+            ("legacy_exchange", lambda: retire_legacy_exchange(disk)),
+            ("empty_photo_folders", lambda: prune_empty_photo_folders(disk)),
+            ("empty_archive_copies", lambda: prune_empty_archive_copies(disk)),
+        ):
+            try:
+                log.info("archive_stage=%s started", stage)
+                operation()
+                log.info("archive_stage=%s completed", stage)
+            except Exception as exc:
+                failures.append(exc)
+                log.warning("archive_stage=%s error=%s", stage, error_code(exc))
+        if failures:
+            raise failures[0]
+
+
+def move_legacy_test_tree(disk):
+    cfg = settings()
+    source = f"disk:/{cfg.yandex_disk_root}/ТЕСТОВЫЕ"
+    with storage_lock(shared=False):
+        with Session(engine()) as db:
+            if db.scalar(
+                select(Photo.id)
+                .where(
+                    Photo.preview_removed_at.is_(None),
+                    Photo.yandex_disk_path.startswith(source + "/", autoescape=True),
+                )
+                .limit(1)
+            ):
+                # A failed photo transfer must not lose its source to a later bulk folder move.
+                raise RuntimeError("LEGACY_TEST_TREE_HAS_PENDING_PHOTOS")
+        disk.move_folder(source, f"disk:/{cfg.training_folder}/legacy_test_tree")
+
+
+def retire_legacy_exchange(disk):
+    cfg = settings()
+    roots = (f"disk:/{cfg.yandex_disk_root}/ARM_EXCHANGE", f"disk:/{cfg.exchange_folder}/legacy/ARM_EXCHANGE")
+    with Session(engine()) as db:
+        state = db.get(ExchangeState, 1)
+        publications = list(
+            db.scalars(
+                select(Publication).where(
+                    or_(
+                        *[
+                            condition
+                            for root in roots
+                            for condition in (
+                                Publication.index_path.startswith(root + "/", autoescape=True),
+                                Publication.payload["root"]
+                                .as_string()
+                                .startswith(root + "/", autoescape=True),
+                            )
+                        ]
                     )
                 )
-                expected = {}
-                for pub in publications:
-                    payload = pub.payload or {}
-                    root = payload.get("root", "")
-                    if not root.startswith(source + "/"):
-                        continue
-                    for item in payload.get("files", []):
-                        ref = PurePosixPath(item["file_ref"])
-                        if ref.is_absolute() or ".." in ref.parts:
-                            raise RuntimeError("INVALID_LEGACY_EXCHANGE_REFERENCE")
-                        file = root + "/" + str(ref)
-                        if file in expected and expected[file] != item["sha256"]:
-                            raise RuntimeError("INVALID_LEGACY_EXCHANGE_CHECKSUM")
-                        expected[file] = item["sha256"]
-                disk.trash_legacy_exchange_folder(source, expected)
-                for pub in publications:
-                    audit(
-                        db,
-                        None,
-                        "LEGACY_EXCHANGE_RETIRED",
-                        "publication",
-                        pub.id,
-                        {"index_path": pub.index_path},
-                        {"status": "RETIRED"},
-                    )
-                    pub.status, pub.index_path, pub.payload = "RETIRED", None, None
-                db.commit()
-        legacy_parent = f"disk:/{cfg.exchange_folder}/legacy"
-        if disk.folder_items(legacy_parent) == []:
-            disk.trash_legacy_exchange_folder(legacy_parent, {})
-        # Moves empty directories and any untracked test files as a tree, never deletes originals.
-        with storage_lock(shared=False):
-            disk.move_folder(old_root + "ТЕСТОВЫЕ", f"disk:/{cfg.training_folder}/legacy_test_tree")
-        prune_empty_photo_folders(disk)
+            )
+        )
+        expected = {root: {} for root in roots}
+        for pub in publications:
+            payload = pub.payload or {}
+            original_root = payload.get("root", "")
+            old_base = next((root for root in roots if original_root.startswith(root + "/")), None)
+            if old_base is None:
+                continue
+            # The tree may have moved before its database transaction committed. Check both locations.
+            for item in payload.get("files", []):
+                ref = PurePosixPath(item["file_ref"])
+                if ref.is_absolute() or str(ref) != item["file_ref"] or ".." in ref.parts:
+                    raise RuntimeError("INVALID_LEGACY_EXCHANGE_REFERENCE")
+                for root in roots:
+                    file = root + original_root[len(old_base) :] + "/" + str(ref)
+                    if file in expected[root] and expected[root][file] != item["sha256"]:
+                        raise RuntimeError("INVALID_LEGACY_EXCHANGE_CHECKSUM")
+                    expected[root][file] = item["sha256"]
+        for root in roots:
+            if db.scalar(
+                select(Photo.id)
+                .where(Photo.yandex_disk_path.startswith(root + "/", autoescape=True))
+                .limit(1)
+            ):
+                raise RuntimeError("LEGACY_EXCHANGE_CONTAINS_ORIGINAL_REFERENCE")
+            # A previous version could already have discarded the DB payload of a copied generation.
+            expected[root] = recover_manifest(disk, root, expected[root], state.instance_id)
+        for root in roots:
+            disk.trash_legacy_exchange_folder(root, expected[root])
+        # Keep hashes until BOTH locations are gone; a crash/retry never loses its verification data.
+        for pub in publications:
+            audit(
+                db,
+                None,
+                "LEGACY_EXCHANGE_RETIRED",
+                "publication",
+                pub.id,
+                {"index_path": pub.index_path},
+                {"status": "RETIRED"},
+            )
+            pub.status, pub.index_path, pub.payload = "RETIRED", None, None
+        db.commit()
+    legacy_parent = f"disk:/{cfg.exchange_folder}/legacy"
+    if disk.folder_items(legacy_parent) == []:
+        disk.trash_legacy_exchange_folder(legacy_parent, {})
 
 
 def prune_empty_photo_folders(disk):
@@ -255,3 +325,14 @@ def prune_empty_photo_folders(disk):
                     folders.append(child)
         for folder in reversed(folders[len(roots) :]):
             disk.trash_empty_photo_folder(folder)
+
+
+def prune_empty_archive_copies(disk):
+    cfg = settings()
+    roots = (cfg.yandex_disk_root, cfg.training_folder, cfg.spam_folder, cfg.exchange_folder)
+    pattern = re.compile(r"disk:/(?:" + "|".join(re.escape(root) for root in roots) + r") \([1-9]\d*\)")
+    with storage_lock(shared=False):
+        for item in disk.folder_items("disk:/") or []:
+            path = item.get("path", "")
+            if item.get("type") == "dir" and pattern.fullmatch(path):
+                disk.trash_empty_photo_folder(path)  # Nonempty copies are always preserved.

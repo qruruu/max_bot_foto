@@ -31,5 +31,15 @@ export function shiftDate(value: string, days: number) { const d = new Date(valu
 
 export function processingErrorLabel(code: string | null): string {
   if(code==='ORIGINAL_MISSING')return 'Оригинал не найден на Яндекс.Диске. Автоматические повторы остановлены. Восстановите файл из корзины Диска по прежнему пути и нажмите «Проверить снова».';
+  const labels: Record<string, string> = {
+    LEGACY_TEST_TREE_HAS_PENDING_PHOTOS: 'В старой учебной папке остались фото с незавершённым переносом. Перенос всей папки отложен.',
+    LEGACY_EXCHANGE_UNMANAGED_FILE: 'В старой папке обмена есть файл, принадлежность которого сервису не подтверждена. Другие шаги очистки продолжаются.',
+    LEGACY_EXCHANGE_FILE_CHANGED: 'Содержимое старого JSON изменилось. Его удаление остановлено.',
+    LEGACY_EXCHANGE_INVALID_DOCUMENT: 'Не удалось подтвердить формат или источник старого JSON. Его удаление остановлено.',
+    LEGACY_EXCHANGE_CONTAINS_ORIGINAL_REFERENCE: 'В старой папке обмена найден путь к оригиналу фото. Удаление папки остановлено.',
+    YANDEX_FOLDER_MOVE_CONFLICT: 'Целевая папка переноса уже существует. Остальные шаги очистки продолжаются.',
+    YANDEX_OPERATION_PENDING: 'Яндекс.Диск ещё выполняет операцию. Сервис проверит результат при повторной попытке.',
+  };
+  if (code && labels[code]) return labels[code];
   return code||'—';
 }

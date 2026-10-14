@@ -130,6 +130,8 @@ def run_once(kinds: list[str] | None = None) -> bool:
 def main(kinds: list[str] | None = None):
     global stop
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # Storage downloads use signed URLs; keep them out of routine logs.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     def shutdown(*_):
         global stop

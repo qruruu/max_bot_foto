@@ -19,6 +19,32 @@ from app.recognition import OCRService, TesseractOCR, WorkTypeClassifier
 
 log = logging.getLogger(__name__)
 
+PUBLIC_ERROR_CODES = frozenset(
+    {
+        "LEGACY_TEST_TREE_HAS_PENDING_PHOTOS",
+        "LEGACY_EXCHANGE_UNMANAGED_FILE",
+        "LEGACY_EXCHANGE_FILE_CHANGED",
+        "LEGACY_EXCHANGE_INVALID_DOCUMENT",
+        "LEGACY_EXCHANGE_CONTAINS_ORIGINAL_REFERENCE",
+        "INVALID_LEGACY_EXCHANGE_REFERENCE",
+        "INVALID_LEGACY_EXCHANGE_CHECKSUM",
+        "YANDEX_INVALID_SERVICE_PATH",
+        "YANDEX_INVALID_PHOTO_FOLDER_LISTING",
+        "YANDEX_FOLDER_CHANGED_DURING_LISTING",
+        "YANDEX_FOLDER_MOVE_CONFLICT",
+        "YANDEX_FOLDER_MOVE_NOT_READY",
+        "YANDEX_DELETE_NOT_READY",
+        "YANDEX_DESTINATION_CONFLICT",
+        "YANDEX_FOLDER_CONFLICT",
+        "YANDEX_OPERATION_FAILED",
+        "YANDEX_OPERATION_PENDING",
+        "YANDEX_FILE_NOT_READY",
+        "YANDEX_DISK_NOT_CONFIGURED",
+        "LOCAL_ORIGINAL_HASH_MISMATCH",
+        "INVALID_STORAGE_TRANSFER_PATH",
+    }
+)
+
 
 @contextmanager
 def photo_lock(photo_id: int):
@@ -53,6 +79,8 @@ def error_code(exc: Exception) -> str:
         return "ORIGINAL_MISSING"
     if isinstance(exc, httpx.HTTPStatusError):
         return f"HTTP_{exc.response.status_code}"
+    if isinstance(exc, RuntimeError) and str(exc) in PUBLIC_ERROR_CODES:
+        return str(exc)
     return type(exc).__name__
 
 

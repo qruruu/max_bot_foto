@@ -31,6 +31,9 @@ class Disk(FakeDisk):
         self.remember_parents(target)
         super().upload(original, target, digest)
 
+    def download(self, source, target):
+        target.write_bytes(self.files[source])
+
     def move(self, source, target, digest):
         from app.integrations import OriginalMissing
 
@@ -57,8 +60,12 @@ class Disk(FakeDisk):
             raise RuntimeError("network after delete")
 
     def move_folder(self, source, target):
-        self.folders.update(target + p[len(source) :] for p in list(self.folders) if p == source or p.startswith(source + "/"))
-        self.folders.difference_update(p for p in list(self.folders) if p == source or p.startswith(source + "/"))
+        self.folders.update(
+            target + p[len(source) :] for p in list(self.folders) if p == source or p.startswith(source + "/")
+        )
+        self.folders.difference_update(
+            p for p in list(self.folders) if p == source or p.startswith(source + "/")
+        )
         for path in list(self.files):
             if path.startswith(source + "/"):
                 self.files[target + path[len(source) :]] = self.files.pop(path)
@@ -69,11 +76,16 @@ class Disk(FakeDisk):
             self.remember_parents(file)
         if path not in self.folders:
             return None
+        parent = "disk:" if path == "disk:/" else path
         return [
             {"path": p, "type": "file", "sha256": hashlib.sha256(data).hexdigest()}
             for p, data in self.files.items()
-            if str(PurePosixPath(p).parent) == path
-        ] + [{"path": p, "type": "dir"} for p in sorted(self.folders) if str(PurePosixPath(p).parent) == path]
+            if str(PurePosixPath(p).parent) == parent
+        ] + [
+            {"path": p, "type": "dir"}
+            for p in sorted(self.folders)
+            if str(PurePosixPath(p).parent) == parent and p != path
+        ]
 
     def trash_empty_photo_folder(self, path):
         if self.folder_items(path) == []:
@@ -291,8 +303,15 @@ def test_organizer_resumes_transfer_when_correction_restores_the_old_path(db):
     source = photo.yandex_disk_path
     photo.photo_date = date(2026, 10, 2)
     intermediate = storage_path(photo, district.name)
-    audit(db, None, "STORAGE_TRANSFER_PLANNED", "photo", photo.id,
-          {"path": source}, {"path": intermediate, "sha256": photo.sha256})
+    audit(
+        db,
+        None,
+        "STORAGE_TRANSFER_PLANNED",
+        "photo",
+        photo.id,
+        {"path": source},
+        {"path": intermediate, "sha256": photo.sha256},
+    )
     db.commit()
     # Remote move succeeded; DB path did not commit, and the operator then restored the date.
     disk.move(source, intermediate, photo.sha256)
@@ -427,7 +446,10 @@ def test_all_legacy_photos_move_without_chat_and_keep_identity_and_metadata(db, 
     assert photo.version > before_version
     assert media_path(photo.id, preview=True).read_bytes() == preview_bytes
     assert old.rsplit("/", 1)[0] in disk.deleted_folders
-    assert all(root not in disk.deleted_folders for root in ("disk:/MAX_PHOTOS", "disk:/MAX_PHOTOS_TRAINING", "disk:/MAX_PHOTOS_SPAM"))
+    assert all(
+        root not in disk.deleted_folders
+        for root in ("disk:/MAX_PHOTOS", "disk:/MAX_PHOTOS_TRAINING", "disk:/MAX_PHOTOS_SPAM")
+    )
     if spam:
         expected_cohort = "training" if cohort == "test" else "production"
         assert desired.startswith(f"disk:/MAX_PHOTOS_SPAM/{expected_cohort}/")
@@ -482,7 +504,9 @@ def test_missing_legacy_original_is_reported_without_losing_preview_or_blocking_
     assert "/ручная/" not in available.yandex_disk_path
 
 
-@pytest.mark.parametrize("root", ["MAX_PHOTOS", "MAX_PHOTOS_TRAINING", "MAX_PHOTOS_ARM_EXCHANGE", "MAX_PHOTOS/SPAM", ".."])
+@pytest.mark.parametrize(
+    "root", ["MAX_PHOTOS", "MAX_PHOTOS_TRAINING", "MAX_PHOTOS_ARM_EXCHANGE", "MAX_PHOTOS/SPAM", ".."]
+)
 def test_spam_root_is_separate_and_customizable(root):
     with pytest.raises(ValueError):
         Settings(_env_file=None, app_env="test", yandex_spam_root=root)
@@ -519,7 +543,9 @@ def test_layout_migration_updates_legacy_flag_and_schedules_one_resumable_job(db
     photo.archive_layout = "legacy"
     db.commit()
     version, cohort = photo.version, photo.cohort
-    migration = runpy.run_path(str(Path(__file__).parents[1] / "alembic/versions/0010_unified_archive_layout.py"))
+    migration = runpy.run_path(
+        str(Path(__file__).parents[1] / "alembic/versions/0010_unified_archive_layout.py")
+    )
     with Operations.context(MigrationContext.configure(db.connection())):
         migration["upgrade"]()
         migration["upgrade"]()

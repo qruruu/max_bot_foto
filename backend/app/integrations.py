@@ -2,6 +2,7 @@
 
 import ipaddress
 import os
+import re
 import socket
 import ssl
 import time
@@ -332,12 +333,18 @@ class YandexDisk:
             raise RuntimeError("YANDEX_DELETE_NOT_READY")
 
     def trash_empty_photo_folder(self, path: str):
-        """Only empty descendants of the managed photo roots can go to the recoverable trash."""
+        """Only empty photo descendants or numbered copies of our roots can go to trash."""
         cfg = settings()
         roots = (cfg.yandex_disk_root, cfg.training_folder, cfg.spam_folder)
-        if str(PurePosixPath(path)) != path or ".." in PurePosixPath(path).parts or not any(
-            path.startswith(f"disk:/{root}/") for root in roots
-        ):
+        copy_pattern = (
+            r"disk:/(?:"
+            + "|".join(re.escape(root) for root in (*roots, cfg.exchange_folder))
+            + r") \([1-9]\d*\)"
+        )
+        eligible = any(path.startswith(f"disk:/{root}/") for root in roots) or re.fullmatch(
+            copy_pattern, path
+        )
+        if str(PurePosixPath(path)) != path or ".." in PurePosixPath(path).parts or not eligible:
             raise ValueError("PHOTO_FOLDER_NOT_ALLOWED")
         if self.folder_items(path) != []:
             return  # A missing directory or any remaining file/subdirectory is never deleted.
