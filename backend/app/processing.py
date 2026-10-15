@@ -14,8 +14,9 @@ from app.integrations import DownloadRejected, MaxClient, OriginalMissing, Yande
 from app.media import InvalidImage, digest_file, inspect_image, media_path, write_preview
 from app.ml import LocalClassifier
 from app.models import Audit, District, Inbox, Job, Photo
+from app.ocr import LocalOCR
 from app.parsers import CoordinateParser, DateTimeParser, parse_address
-from app.recognition import OCRService, TesseractOCR, WorkTypeClassifier
+from app.recognition import OCRService, WorkTypeClassifier
 
 log = logging.getLogger(__name__)
 
@@ -177,7 +178,7 @@ def process_photo(
     classifier: WorkTypeClassifier | None = None,
 ):
     max_client, disk = max_client or MaxClient(), disk or YandexDisk()
-    ocr, classifier = ocr or TesseractOCR(), classifier or LocalClassifier()
+    ocr, classifier = ocr or LocalOCR(), classifier or LocalClassifier()
     with photo_lock(photo_id), Session(engine(), expire_on_commit=False) as db:
         photo = db.get(Photo, photo_id)
         if photo.status in REJECTED_STATUSES or (

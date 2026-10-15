@@ -550,7 +550,7 @@ def test_album_one_aggregate_outbox(db, monkeypatch):
     )
     monkeypatch.setattr("app.processing.MaxClient", FakeMax)
     monkeypatch.setattr("app.processing.YandexDisk", FakeDisk)
-    monkeypatch.setattr("app.processing.TesseractOCR", GoodOCR)
+    monkeypatch.setattr("app.processing.LocalOCR", GoodOCR)
     monkeypatch.setattr("app.processing.LocalClassifier", GoodAI)
     process_batch(p.inbox_id)
     process_batch(p.inbox_id)

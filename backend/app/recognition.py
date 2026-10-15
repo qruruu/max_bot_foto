@@ -32,16 +32,17 @@ class TesseractOCR:
             and coordinates.longitude is not None
         )
 
-    def recognize(self, path: Path) -> str:
+    def recognize(self, path: Path, *, timeout: float | None = None) -> str:
         # Sparse text recognition is suited to camera stamps in different corners.
         image = analysis_image(path, 4000)
         config = settings()
-        deadline = monotonic() + config.ocr_timeout
+        budget = min(config.ocr_timeout, timeout) if timeout is not None else config.ocr_timeout
+        deadline = monotonic() + budget
         text = pytesseract.image_to_string(
             image,
             lang=config.ocr_languages,
             config="--psm 11",
-            timeout=config.ocr_timeout,
+            timeout=budget,
         )
         # Retry any missing field, even when the date was readable on the first pass.
         # A block layout and enlargement help keep small timestamp/GPS lines together.

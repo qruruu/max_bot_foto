@@ -56,6 +56,21 @@ def test_normalized_month_still_detects_conflicting_dates():
 
 
 @pytest.mark.parametrize(
+    "text,expected",
+    [("10 нояб.2025 г.", date(2025, 11, 10)), ("20апр.2026г.", date(2026, 4, 20)),
+     ("20 apr. 2026г.", date(2026, 4, 20)), ("20\nапр.\n2026 г.", date(2026, 4, 20))],
+)
+def test_camera_months_without_spaces(text, expected):
+    assert DateTimeParser().parse(text).photo_date == expected
+
+
+@pytest.mark.parametrize("month", list(DateTimeParser.MONTHS))
+def test_all_russian_months_without_ocr_spaces(month):
+    expected = DateTimeParser.MONTHS[month]
+    assert DateTimeParser().parse(f"20{month}.2026г.").photo_date == date(2026, expected, 20)
+
+
+@pytest.mark.parametrize(
     "value",
     [
         "31 апр. 2026", "29 февраля 2026", "0 января 2026", "120 апр. 2026",
@@ -98,6 +113,9 @@ def test_seconds_and_invalid_time():
         "61°06′21.6″N 72°34′40.8″E",
         "E72.5780 N61.1060",
         "N 61.1060\nE 72.5780",
+        "61.1060N72.5780E",
+        "N61.1060E72.5780",
+        "72.5780E61.1060N",
         "30.09.2026 11:43\n61.1060 72.5780\nНефтеюганск",
     ],
 )
@@ -136,6 +154,9 @@ def test_hemispheres(value, lat, lon):
         "61.1060N 72.5780E\n62.1060N 72.5780E",
         "91.0 181.0",
         "NaN Infinity",
+        "61.106072.5780",
+        "61.1060N72.57З0E",
+        "61.1060N\n\n--- OCR ---\n\n72.5780E",
     ],
 )
 def test_invalid_coordinates_not_used(value):

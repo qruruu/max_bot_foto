@@ -47,8 +47,11 @@ class Settings(BaseSettings):
     ml_download_backbone: bool = True
     ml_backbone_path: Path | None = None
     work_type_confidence_threshold: float = Field(default=0.8, ge=0, le=1)
+    ocr_backend: Literal["paddle", "tesseract"] = "paddle"
+    ocr_model_dir: Path = Path("/opt/ocr-models")
+    ocr_threads: int = Field(default=2, ge=1, le=8)
     ocr_languages: str = "rus+eng"
-    ocr_timeout: int = 60
+    ocr_timeout: int = Field(default=60, ge=1, le=300)
     data_dir: Path = Path("/data")
     max_file_bytes: int = 52_428_800
     max_image_pixels: int = 60_000_000

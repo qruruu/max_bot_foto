@@ -36,8 +36,11 @@ class DateTimeParser:
         "a": "а", "c": "с", "e": "е", "k": "к", "m": "м", "n": "п",
         "o": "о", "p": "р", "t": "т", "x": "х", "y": "у",
     })
+    ENGLISH_MONTHS = dict(zip(
+        "jan feb mar apr may jun jul aug sep oct nov dec".split(), range(1, 13), strict=True
+    ))
     TEXT_DATE = re.compile(
-        r"(?<!\w)(\d{1,2})\s+([a-zа-яё]{3,9})\.?\s+(\d{4})(?!\w)",
+        r"(?<!\w)(\d{1,2})\s*([a-zа-яё]{3,9})\.?\s*(\d{4})(?=$|[^\w]|г(?:\.|\s|$))",
         re.IGNORECASE,
     )
     TIME = re.compile(r"(?<![\d:])(\d{1,2}):(\d{2})(?::(\d{2}))?(?![\d:])")
@@ -56,7 +59,8 @@ class DateTimeParser:
             except ValueError:
                 continue
         for m in self.TEXT_DATE.finditer(text):
-            month = self.MONTHS.get(m[2].lower().translate(self.MONTH_LOOKALIKES))
+            token = m[2].lower()
+            month = self.MONTHS.get(token.translate(self.MONTH_LOOKALIKES)) or self.ENGLISH_MONTHS.get(token)
             if month is None:
                 continue
             try:
@@ -119,7 +123,8 @@ class CoordinateParser:
         for prefix in (True, False):
             lat = rf"(?P<ns>[NS])\s*(?P<lat>{ANGLE})" if prefix else rf"(?P<lat>{ANGLE})\s*(?P<ns>[NS])"
             lon = rf"(?P<ew>[EW])\s*(?P<lon>{ANGLE})" if prefix else rf"(?P<lon>{ANGLE})\s*(?P<ew>[EW])"
-            for pattern in (lat + r"[\s;|/]+" + lon, lon + r"[\s;|/]+" + lat):
+            # Explicit hemisphere letters separate the numbers even if OCR omits the space.
+            for pattern in (lat + r"[\s;|/]*" + lon, lon + r"[\s;|/]*" + lat):
                 for m in re.finditer(r"(?<![\w.])" + pattern + r"(?![\w.])", normalized):
                     try:
                         latitude, fmt1 = self._angle(m["lat"], m["ns"])

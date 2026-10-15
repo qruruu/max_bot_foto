@@ -1,0 +1,24 @@
+MAX Фото uses these pretrained PaddleOCR PP-OCRv5 model artifacts:
+
+  ch_PP-OCRv5_det_mobile.onnx
+  eslav_PP-OCRv5_rec_mobile.onnx
+
+Upstream model weights: copyright Baidu and/or the applicable PaddleOCR rights holders.
+Inference-format conversion and packaging: RapidOCR Authors (RapidAI).
+The models are licensed under the Apache License, Version 2.0; a copy is included
+in PaddleOCR-LICENSE. MAX Фото does not modify the downloaded model weights.
+
+Sources and artifact identity:
+  https://github.com/PaddlePaddle/PaddleOCR
+  https://github.com/PaddlePaddle/PaddleOCR/blob/main/LICENSE
+  https://github.com/RapidAI/RapidOCR/blob/v3.10.0/python/rapidocr/default_models.yaml
+  https://rapidai.github.io/RapidOCRDocs/main/en/model_licenses/
+
+  ch_PP-OCRv5_det_mobile.onnx SHA256:
+    4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae
+  eslav_PP-OCRv5_rec_mobile.onnx SHA256:
+    08705d6721849b1347d26187f15a5e362c431963a2a62bfff4feac578c489aab
+
+The runtime library rapidocr and its dependencies retain their own licenses in
+their installed package metadata. The references above identify the upstream
+projects and do not imply their endorsement of MAX Фото.

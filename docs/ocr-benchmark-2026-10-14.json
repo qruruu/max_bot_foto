@@ -1,0 +1,572 @@
+{
+  "date": "2026-10-14",
+  "environment": {
+    "os": "Linux ARM64, Docker Desktop on Apple Silicon",
+    "python": "3.12",
+    "cpu_limit": 2,
+    "memory_limit_mib": 1024,
+    "network": "none",
+    "repeat": 3
+  },
+  "scope": "OCR only; no MAX downloads, work classification or Yandex.Disk uploads",
+  "engines": [
+    {
+      "engine": "paddle",
+      "platform": "linux",
+      "initialization_s": 0.509188207999955,
+      "correct_cases": 6,
+      "total_cases": 6,
+      "warm_median_s": 0.2202991665000127,
+      "process_peak_rss_mib": 386.0859375,
+      "container_peak_mib": 338.94921875,
+      "records": [
+        {
+          "file": "camera_stamp_bin_092405.png",
+          "correct": true,
+          "seconds": [
+            0.7035553339999296,
+            0.14105912499996975,
+            0.13648137500001667
+          ],
+          "readings": [
+            {
+              "date": "2026-04-20",
+              "time": "09:24:05",
+              "lat": 61.0839,
+              "lon": 72.6306
+            },
+            {
+              "date": "2026-04-20",
+              "time": "09:24:05",
+              "lat": 61.0839,
+              "lon": 72.6306
+            },
+            {
+              "date": "2026-04-20",
+              "time": "09:24:05",
+              "lat": 61.0839,
+              "lon": 72.6306
+            }
+          ]
+        },
+        {
+          "file": "camera_stamp_original_103007.png",
+          "correct": true,
+          "seconds": [
+            0.26092929100002493,
+            0.25229529199998524,
+            0.2485698750000438
+          ],
+          "readings": [
+            {
+              "date": "2026-04-20",
+              "time": "10:30:07",
+              "lat": 61.1024,
+              "lon": 72.5793
+            },
+            {
+              "date": "2026-04-20",
+              "time": "10:30:07",
+              "lat": 61.1024,
+              "lon": 72.5793
+            },
+            {
+              "date": "2026-04-20",
+              "time": "10:30:07",
+              "lat": 61.1024,
+              "lon": 72.5793
+            }
+          ]
+        },
+        {
+          "file": "camera_stamp_photo.png",
+          "correct": true,
+          "seconds": [
+            0.19012774999998783,
+            0.1850522089999913,
+            0.18006287499997597
+          ],
+          "readings": [
+            {
+              "date": "2026-04-20",
+              "time": "09:33:34",
+              "lat": 61.0863,
+              "lon": 72.6303
+            },
+            {
+              "date": "2026-04-20",
+              "time": "09:33:34",
+              "lat": 61.0863,
+              "lon": 72.6303
+            },
+            {
+              "date": "2026-04-20",
+              "time": "09:33:34",
+              "lat": 61.0863,
+              "lon": 72.6303
+            }
+          ]
+        },
+        {
+          "file": "camera_stamp_photo74.png",
+          "correct": true,
+          "seconds": [
+            0.19176354100000026,
+            0.19202845799998158,
+            0.18870679099995868
+          ],
+          "readings": [
+            {
+              "date": "2026-04-20",
+              "time": "09:24:37",
+              "lat": 61.084,
+              "lon": 72.631
+            },
+            {
+              "date": "2026-04-20",
+              "time": "09:24:37",
+              "lat": 61.084,
+              "lon": 72.631
+            },
+            {
+              "date": "2026-04-20",
+              "time": "09:24:37",
+              "lat": 61.084,
+              "lon": 72.631
+            }
+          ]
+        },
+        {
+          "file": "camera_stamp_photo87.png",
+          "correct": true,
+          "seconds": [
+            0.3015115840000817,
+            0.2973861670000133,
+            0.2886117089999516
+          ],
+          "readings": [
+            {
+              "date": "2025-11-10",
+              "time": "10:45:19",
+              "lat": 61.08588936666667,
+              "lon": 72.62705246666665
+            },
+            {
+              "date": "2025-11-10",
+              "time": "10:45:19",
+              "lat": 61.08588936666667,
+              "lon": 72.62705246666665
+            },
+            {
+              "date": "2025-11-10",
+              "time": "10:45:19",
+              "lat": 61.08588936666667,
+              "lon": 72.62705246666665
+            }
+          ]
+        },
+        {
+          "file": "russian_date_stamp.png",
+          "correct": true,
+          "seconds": [
+            0.356069375000061,
+            0.3142947500000446,
+            0.31809674999999515
+          ],
+          "readings": [
+            {
+              "date": "2026-04-20",
+              "time": null,
+              "lat": null,
+              "lon": null
+            },
+            {
+              "date": "2026-04-20",
+              "time": null,
+              "lat": null,
+              "lon": null
+            },
+            {
+              "date": "2026-04-20",
+              "time": null,
+              "lat": null,
+              "lon": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "engine": "tesseract",
+      "platform": "linux",
+      "initialization_s": 0.5163907500000278,
+      "correct_cases": 5,
+      "total_cases": 6,
+      "warm_median_s": 0.8932061459999545,
+      "process_peak_rss_mib": 76.01953125,
+      "container_peak_mib": 110.5234375,
+      "records": [
+        {
+          "file": "camera_stamp_bin_092405.png",
+          "correct": true,
+          "seconds": [
+            0.7893186249999644,
+            0.7388333339999917,
+            0.7369841249999354
+          ],
+          "readings": [
+            {
+              "date": "2026-04-20",
+              "time": "09:24:05",
+              "lat": 61.0839,
+              "lon": 72.6306
+            },
+            {
+              "date": "2026-04-20",
+              "time": "09:24:05",
+              "lat": 61.0839,
+              "lon": 72.6306
+            },
+            {
+              "date": "2026-04-20",
+              "time": "09:24:05",
+              "lat": 61.0839,
+              "lon": 72.6306
+            }
+          ]
+        },
+        {
+          "file": "camera_stamp_original_103007.png",
+          "correct": true,
+          "seconds": [
+            0.46779849999995804,
+            0.4620800000000145,
+            0.46427991699999893
+          ],
+          "readings": [
+            {
+              "date": "2026-04-20",
+              "time": "10:30:07",
+              "lat": 61.1024,
+              "lon": 72.5793
+            },
+            {
+              "date": "2026-04-20",
+              "time": "10:30:07",
+              "lat": 61.1024,
+              "lon": 72.5793
+            },
+            {
+              "date": "2026-04-20",
+              "time": "10:30:07",
+              "lat": 61.1024,
+              "lon": 72.5793
+            }
+          ]
+        },
+        {
+          "file": "camera_stamp_photo.png",
+          "correct": true,
+          "seconds": [
+            1.0435556669999642,
+            1.0475789579999173,
+            1.0530399589999888
+          ],
+          "readings": [
+            {
+              "date": "2026-04-20",
+              "time": "09:33:34",
+              "lat": 61.0863,
+              "lon": 72.6303
+            },
+            {
+              "date": "2026-04-20",
+              "time": "09:33:34",
+              "lat": 61.0863,
+              "lon": 72.6303
+            },
+            {
+              "date": "2026-04-20",
+              "time": "09:33:34",
+              "lat": 61.0863,
+              "lon": 72.6303
+            }
+          ]
+        },
+        {
+          "file": "camera_stamp_photo74.png",
+          "correct": true,
+          "seconds": [
+            1.1505256250000002,
+            1.1435334589999684,
+            1.1749681250000776
+          ],
+          "readings": [
+            {
+              "date": "2026-04-20",
+              "time": "09:24:37",
+              "lat": 61.084,
+              "lon": 72.631
+            },
+            {
+              "date": "2026-04-20",
+              "time": "09:24:37",
+              "lat": 61.084,
+              "lon": 72.631
+            },
+            {
+              "date": "2026-04-20",
+              "time": "09:24:37",
+              "lat": 61.084,
+              "lon": 72.631
+            }
+          ]
+        },
+        {
+          "file": "camera_stamp_photo87.png",
+          "correct": false,
+          "seconds": [
+            1.9138103340000043,
+            1.8383460009999908,
+            1.8195734179998908
+          ],
+          "readings": [
+            {
+              "date": "2025-11-10",
+              "time": "10:45:19",
+              "lat": null,
+              "lon": null
+            },
+            {
+              "date": "2025-11-10",
+              "time": "10:45:19",
+              "lat": null,
+              "lon": null
+            },
+            {
+              "date": "2025-11-10",
+              "time": "10:45:19",
+              "lat": null,
+              "lon": null
+            }
+          ]
+        },
+        {
+          "file": "russian_date_stamp.png",
+          "correct": true,
+          "seconds": [
+            0.22752941599992482,
+            0.21437929199998962,
+            0.2093217920000825
+          ],
+          "readings": [
+            {
+              "date": "2026-04-20",
+              "time": null,
+              "lat": null,
+              "lon": null
+            },
+            {
+              "date": "2026-04-20",
+              "time": null,
+              "lat": null,
+              "lon": null
+            },
+            {
+              "date": "2026-04-20",
+              "time": null,
+              "lat": null,
+              "lon": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "engine": "easyocr",
+      "platform": "linux",
+      "initialization_s": 5.875470544999985,
+      "correct_cases": 1,
+      "total_cases": 6,
+      "warm_median_s": 8.682443129000035,
+      "process_peak_rss_mib": 1145.3125,
+      "container_peak_mib": 1024.0,
+      "records": [
+        {
+          "file": "camera_stamp_bin_092405.png",
+          "correct": false,
+          "seconds": [
+            9.98176867099994,
+            8.453043503000004,
+            7.979624046000026
+          ],
+          "readings": [
+            {
+              "date": "2026-04-20",
+              "time": null,
+              "lat": null,
+              "lon": null
+            },
+            {
+              "date": "2026-04-20",
+              "time": null,
+              "lat": null,
+              "lon": null
+            },
+            {
+              "date": "2026-04-20",
+              "time": null,
+              "lat": null,
+              "lon": null
+            }
+          ]
+        },
+        {
+          "file": "camera_stamp_original_103007.png",
+          "correct": false,
+          "seconds": [
+            8.689029045999973,
+            8.205405711000026,
+            8.235976921000088
+          ],
+          "readings": [
+            {
+              "date": "2026-04-20",
+              "time": null,
+              "lat": 61.1024,
+              "lon": 72.5793
+            },
+            {
+              "date": "2026-04-20",
+              "time": null,
+              "lat": 61.1024,
+              "lon": 72.5793
+            },
+            {
+              "date": "2026-04-20",
+              "time": null,
+              "lat": 61.1024,
+              "lon": 72.5793
+            }
+          ]
+        },
+        {
+          "file": "camera_stamp_photo.png",
+          "correct": false,
+          "seconds": [
+            8.903729838000004,
+            8.911842755000066,
+            10.158393378999904
+          ],
+          "readings": [
+            {
+              "date": null,
+              "time": null,
+              "lat": null,
+              "lon": null
+            },
+            {
+              "date": null,
+              "time": null,
+              "lat": null,
+              "lon": null
+            },
+            {
+              "date": null,
+              "time": null,
+              "lat": null,
+              "lon": null
+            }
+          ]
+        },
+        {
+          "file": "camera_stamp_photo74.png",
+          "correct": false,
+          "seconds": [
+            8.955806379000023,
+            9.079341878999912,
+            10.513721171000043
+          ],
+          "readings": [
+            {
+              "date": null,
+              "time": null,
+              "lat": 61.084,
+              "lon": 72.631
+            },
+            {
+              "date": null,
+              "time": null,
+              "lat": 61.084,
+              "lon": 72.631
+            },
+            {
+              "date": null,
+              "time": null,
+              "lat": 61.084,
+              "lon": 72.631
+            }
+          ]
+        },
+        {
+          "file": "camera_stamp_photo87.png",
+          "correct": false,
+          "seconds": [
+            9.157641754999986,
+            9.503102254000055,
+            10.116773128999967
+          ],
+          "readings": [
+            {
+              "date": "2025-11-10",
+              "time": null,
+              "lat": null,
+              "lon": null
+            },
+            {
+              "date": "2025-11-10",
+              "time": null,
+              "lat": null,
+              "lon": null
+            },
+            {
+              "date": "2025-11-10",
+              "time": null,
+              "lat": null,
+              "lon": null
+            }
+          ]
+        },
+        {
+          "file": "russian_date_stamp.png",
+          "correct": true,
+          "seconds": [
+            0.5262098750000632,
+            0.2267674579999266,
+            0.21760441700007505
+          ],
+          "readings": [
+            {
+              "date": "2026-04-20",
+              "time": null,
+              "lat": null,
+              "lon": null
+            },
+            {
+              "date": "2026-04-20",
+              "time": null,
+              "lat": null,
+              "lon": null
+            },
+            {
+              "date": "2026-04-20",
+              "time": null,
+              "lat": null,
+              "lon": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
