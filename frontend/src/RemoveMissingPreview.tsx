@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Trash2, X } from 'lucide-react';
 import { api } from './api';
-import { ErrorBox } from './App';
+import { ErrorBox, useApp } from './App';
+import { hasPermission } from './permissions';
 import type { Photo } from './types';
 
 export function canRemoveMissingPreview(photo: Pick<Photo,'processing_error'|'storage_status'>): boolean {
@@ -14,11 +15,12 @@ type Props = { onRemoved: () => void; buttonLabel?: string } & (
 );
 
 export default function RemoveMissingPreview({photo,photoId,onRemoved,buttonLabel='Убрать недоступное превью'}:Props){
+  const {user} = useApp();
   const id = photo?.id ?? photoId;
   const [confirm,setConfirm]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const [loadedPhoto, setLoadedPhoto] = useState<RemovalPhoto | null>(null);
   useEffect(()=>{setConfirm(false);setError('');setLoadedPhoto(null);},[id]);
-  if(photo && !canRemoveMissingPreview(photo))return null;
+  if(!hasPermission(user,'previews_remove') || (photo && !canRemoveMissingPreview(photo)))return null;
   async function openConfirmation() {
     setBusy(true);
     setError('');

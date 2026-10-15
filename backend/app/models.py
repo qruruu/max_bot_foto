@@ -22,6 +22,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
+from app.permissions import DEFAULT_OPERATOR_PERMISSIONS
 
 
 class Timestamps:
@@ -39,7 +40,17 @@ class User(Timestamps, Base):
     password_hash: Mapped[str] = mapped_column(Text)
     role: Mapped[str] = mapped_column(String(30))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
-    __table_args__ = (CheckConstraint("role IN ('ADMIN_OPERATOR', 'OPERATOR')"),)
+    permissions: Mapped[list[str]] = mapped_column(
+        JSONB,
+        default=lambda: list(DEFAULT_OPERATOR_PERMISSIONS),
+        server_default=text(
+            '\'["reports_view","photos_view","originals_view","photos_edit","spam_view","reports_export","previews_remove","districts_view"]\'::jsonb'
+        ),
+    )
+    __table_args__ = (
+        CheckConstraint("role IN ('ADMIN_OPERATOR', 'OPERATOR')"),
+        CheckConstraint("jsonb_typeof(permissions)='array'", name="user_permissions_array"),
+    )
 
 
 class LoginSession(Base):

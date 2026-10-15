@@ -12,7 +12,27 @@ from shapely.geometry import mapping
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 
-from app.auth import AdminUser, CurrentUser, Db, hasher, user_dict
+from app.auth import (
+    AdminUser,
+    AuditReader,
+    ChatManager,
+    CurrentUser,
+    Db,
+    DistrictEditor,
+    DistrictReader,
+    ExchangeManager,
+    JobManager,
+    LearningManager,
+    OriginalsReader,
+    PhotoEditor,
+    PhotosReader,
+    PreviewRemover,
+    ReportsExporter,
+    ReportsReader,
+    check_permission,
+    hasher,
+    user_dict,
+)
 from app.auth import router as auth_router
 from app.catalog import WORK_TYPES, Role, Status
 from app.config import settings
@@ -32,6 +52,13 @@ from app.models import (
     Photo,
     Publication,
     User,
+)
+from app.permissions import (
+    DEFAULT_OPERATOR_PERMISSIONS,
+    Permission,
+    can_retry_job,
+    has_permission,
+    permission_catalog,
 )
 from app.receiver import connection_status, received
 from app.reports import export_excel, filtered, photo_dict, summarize
@@ -106,17 +133,21 @@ async def webhook(request: Request, db: Db):
 
 
 @app.get("/api/max/status")
-def max_status(db: Db, user: AdminUser):
+def max_status(db: Db, user: ChatManager):
     return connection_status(db)
 
 
 @app.get("/api/meta")
 def meta(db: Db, user: CurrentUser):
+    browse = has_permission(user, Permission.PHOTOS_VIEW) or has_permission(user, Permission.REPORTS_VIEW)
     return {
         "work_types": [{"code": k, "name": v[0]} for k, v in WORK_TYPES.items()],
         "statuses": list(Status),
         "timezone": settings().app_timezone,
-        "yandex_maps_api_key": settings().yandex_maps_api_key,
+        "yandex_maps_api_key": settings().yandex_maps_api_key
+        if has_permission(user, Permission.DISTRICTS_VIEW)
+        else "",
+        "permission_catalog": permission_catalog(),
         "today": now().astimezone(ZoneInfo(settings().app_timezone)).date(),
         "chats": [
             {
@@ -129,12 +160,18 @@ def meta(db: Db, user: CurrentUser):
                 "work_rule_version": c.work_rule_version,
             }
             for c in db.scalars(select(Chat).order_by(Chat.name))
+            if browse or has_permission(user, Permission.CHATS_MANAGE)
         ],
         "districts": [
             {"id": d.id, "name": d.name, "active": d.active}
             for d in db.scalars(select(District).order_by(District.name))
+            if browse or has_permission(user, Permission.DISTRICTS_VIEW)
         ],
-        "operators": [{"id": u.id, "name": u.name} for u in db.scalars(select(User).order_by(User.name))],
+        "operators": [
+            {"id": u.id, "name": u.name}
+            for u in db.scalars(select(User).order_by(User.name))
+            if browse or has_permission(user, Permission.AUDIT_VIEW) or user.role == Role.ADMIN_OPERATOR
+        ],
     }
 
 
@@ -145,7 +182,8 @@ def dictionaries(db):
 
 
 @app.get("/api/photos")
-def photos(db: Db, user: CurrentUser, filters: Filters):
+def photos(db: Db, user: PhotosReader, filters: Filters):
+    check_spam_filter(user, filters)
     stmt = filtered(filters)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     rows = db.scalars(
@@ -162,16 +200,28 @@ def photos(db: Db, user: CurrentUser, filters: Filters):
     }
 
 
-def require_photo(db, photo_id):
+def check_photo_access(user, photo):
+    check_permission(user, Permission.PHOTOS_VIEW)
+    if photo.is_spam:
+        check_permission(user, Permission.SPAM_VIEW)
+
+
+def check_spam_filter(user, filters):
+    if filters.status == Status.SPAM:
+        check_permission(user, Permission.SPAM_VIEW)
+
+
+def require_photo(db, photo_id, user):
     photo = db.get(Photo, photo_id)
     if not photo or photo.preview_removed_at is not None:
         raise HTTPException(404, "Фотография не найдена")
+    check_photo_access(user, photo)
     return photo
 
 
 @app.get("/api/photos/{photo_id}")
-def get_photo(photo_id: int, db: Db, user: CurrentUser):
-    photo = require_photo(db, photo_id)
+def get_photo(photo_id: int, db: Db, user: PhotosReader):
+    photo = require_photo(db, photo_id, user)
     districts, operators = dictionaries(db)
     result = photo_dict(photo, districts, operators, detail=True)
     result["history"] = [
@@ -184,8 +234,8 @@ def get_photo(photo_id: int, db: Db, user: CurrentUser):
 
 
 @app.get("/api/photos/{photo_id}/preview")
-def preview(photo_id: int, db: Db, user: CurrentUser):
-    require_photo(db, photo_id)
+def preview(photo_id: int, db: Db, user: PhotosReader):
+    require_photo(db, photo_id, user)
     path = media_path(photo_id, preview=True)
     if not path.is_file():
         raise HTTPException(404, "Превью пока недоступно")
@@ -193,8 +243,8 @@ def preview(photo_id: int, db: Db, user: CurrentUser):
 
 
 @app.get("/api/photos/{photo_id}/original")
-def original(photo_id: int, db: Db, user: CurrentUser):
-    photo = require_photo(db, photo_id)
+def original(photo_id: int, db: Db, user: OriginalsReader):
+    photo = require_photo(db, photo_id, user)
     if photo.processing_error == "ORIGINAL_MISSING":
         raise HTTPException(
             409, "Оригинал не найден на Диске. Восстановите файл и нажмите «Проверить снова»."
@@ -216,15 +266,16 @@ def original(photo_id: int, db: Db, user: CurrentUser):
 
 
 @app.patch("/api/photos/{photo_id}")
-def edit_photo(photo_id: int, body: PhotoEdit, db: Db, user: CurrentUser):
+def edit_photo(photo_id: int, body: PhotoEdit, db: Db, user: PhotoEditor):
     db.execute(text("SELECT pg_advisory_xact_lock(7002, :id)"), {"id": photo_id})
-    photo = require_photo(db, photo_id)
+    photo = require_photo(db, photo_id, user)
     if not photo.analyzed_at or photo.status in {Status.REJECTED, Status.DUPLICATE, Status.FORWARDED}:
         raise HTTPException(409, "Эту фотографию пока нельзя редактировать")
     if photo.version != body.version:
         raise HTTPException(409, "Фото изменено другим оператором. Обновите карточку.")
     changes = body.model_dump(exclude_unset=True, exclude={"version"})
     if changes.get("is_spam"):
+        check_permission(user, Permission.SPAM_VIEW)
         changes["work_type"] = None
     elif changes.get("work_type"):
         # Selecting a real work category restores a previously archived photo.
@@ -261,13 +312,14 @@ def edit_photo(photo_id: int, body: PhotoEdit, db: Db, user: CurrentUser):
 
 
 @app.post("/api/photos/{photo_id}/remove-missing-preview", status_code=202)
-def remove_missing_preview(photo_id: int, body: PhotoVersionInput, db: Db, user: CurrentUser):
+def remove_missing_preview(photo_id: int, body: PhotoVersionInput, db: Db, user: PreviewRemover):
     from app.preview_cleanup import known_original_paths
 
     db.execute(text("SELECT pg_advisory_xact_lock(7002, :id)"), {"id": photo_id})
     photo = db.get(Photo, photo_id)
     if not photo:
         raise HTTPException(404, "Фотография не найдена")
+    check_photo_access(user, photo)
     if photo.preview_removed_at is not None:
         return {"id": photo.id, "removed": True}
     if photo.version != body.version:
@@ -336,9 +388,9 @@ def remove_missing_preview(photo_id: int, body: PhotoVersionInput, db: Db, user:
 
 
 @app.post("/api/photos/{photo_id}/retry")
-def retry_photo(photo_id: int, db: Db, user: CurrentUser):
+def retry_photo(photo_id: int, db: Db, user: PhotoEditor):
     db.execute(text("SELECT pg_advisory_xact_lock(7002, :id)"), {"id": photo_id})
-    photo = require_photo(db, photo_id)
+    photo = require_photo(db, photo_id, user)
     kind, object_id = ("SYNC", photo.id) if photo.analyzed_at else ("BATCH", photo.inbox_id)
     if photo.status in {Status.REJECTED, Status.DUPLICATE, Status.FORWARDED}:
         raise HTTPException(409, "Повторная обработка не требуется")
@@ -349,12 +401,14 @@ def retry_photo(photo_id: int, db: Db, user: CurrentUser):
 
 
 @app.get("/api/reports")
-def reports(db: Db, user: CurrentUser, filters: Filters):
+def reports(db: Db, user: ReportsReader, filters: Filters):
+    check_spam_filter(user, filters)
     return summarize(db, filters)
 
 
 @app.get("/api/export.xlsx")
-def excel(db: Db, user: CurrentUser, filters: Filters):
+def excel(db: Db, user: ReportsExporter, filters: Filters):
+    check_spam_filter(user, filters)
     # One snapshot keeps detailed rows and the summary sheets consistent during concurrent review.
     db.commit()
     db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
@@ -367,7 +421,7 @@ def excel(db: Db, user: CurrentUser, filters: Filters):
 
 
 @app.get("/api/chats")
-def chats(db: Db, user: AdminUser):
+def chats(db: Db, user: ChatManager):
     return [
         {
             "id": c.id,
@@ -385,7 +439,7 @@ def chats(db: Db, user: AdminUser):
 
 
 @app.get("/api/chats/discovered")
-def discovered_chats(db: Db, user: AdminUser):
+def discovered_chats(db: Db, user: ChatManager):
     unknown = ~select(Chat.id).where(Chat.max_chat_id == DiscoveredChat.max_chat_id).exists()
     rows = db.scalars(
         select(DiscoveredChat)
@@ -409,7 +463,7 @@ def discovered_chats(db: Db, user: AdminUser):
 
 
 @app.post("/api/chats", status_code=201)
-def create_chat(body: ChatInput, db: Db, user: AdminUser):
+def create_chat(body: ChatInput, db: Db, user: ChatManager):
     chat = Chat(**body.model_dump())
     db.add(chat)
     db.flush()
@@ -419,7 +473,7 @@ def create_chat(body: ChatInput, db: Db, user: AdminUser):
 
 
 @app.put("/api/chats/{chat_id}")
-def edit_chat(chat_id: int, body: ChatInput, db: Db, user: AdminUser):
+def edit_chat(chat_id: int, body: ChatInput, db: Db, user: ChatManager):
     chat = db.scalar(select(Chat).where(Chat.id == chat_id).with_for_update())
     if not chat:
         raise HTTPException(404, "Чат не найден")
@@ -445,7 +499,7 @@ def edit_chat(chat_id: int, body: ChatInput, db: Db, user: AdminUser):
 
 
 @app.get("/api/districts")
-def districts(db: Db, user: CurrentUser):
+def districts(db: Db, user: DistrictReader):
     rows = db.execute(
         select(District.id, District.name, District.active, func.ST_AsGeoJSON(District.geometry))
     )
@@ -517,12 +571,12 @@ def save_district(db, user, body, district=None):
 
 
 @app.post("/api/districts", status_code=201)
-def create_district(body: DistrictInput, db: Db, user: AdminUser):
+def create_district(body: DistrictInput, db: Db, user: DistrictEditor):
     return save_district(db, user, body)
 
 
 @app.put("/api/districts/{district_id}")
-def edit_district(district_id: int, body: DistrictInput, db: Db, user: AdminUser):
+def edit_district(district_id: int, body: DistrictInput, db: Db, user: DistrictEditor):
     district = db.get(District, district_id)
     if not district:
         raise HTTPException(404, "Микрорайон не найден")
@@ -542,6 +596,7 @@ def create_user(body: UserCreate, db: Db, user: AdminUser):
         password_hash=hasher.hash(body.password),
         role=body.role,
         active=body.active,
+        permissions=[] if body.role == Role.ADMIN_OPERATOR else body.permissions,
     )
     db.add(record)
     db.flush()
@@ -558,6 +613,11 @@ def update_user(user_id: int, body: UserUpdate, db: Db, user: AdminUser):
         raise HTTPException(404, "Пользователь не найден")
     old = user_dict(record)
     updates = body.model_dump(exclude_unset=True, exclude_none=True)
+    target_role = updates.get("role", record.role)
+    if target_role == Role.ADMIN_OPERATOR and ("role" in updates or "permissions" in updates):
+        updates["permissions"] = []
+    elif record.role == Role.ADMIN_OPERATOR and target_role == Role.OPERATOR:
+        updates.setdefault("permissions", list(DEFAULT_OPERATOR_PERMISSIONS))
     for key, value in updates.items():
         if key == "password":
             record.password_hash = hasher.hash(value)
@@ -568,7 +628,8 @@ def update_user(user_id: int, body: UserUpdate, db: Db, user: AdminUser):
         select(func.count()).select_from(User).where(User.role == Role.ADMIN_OPERATOR, User.active)
     ):
         raise HTTPException(409, "Нельзя заблокировать или понизить последнего администратора")
-    if any(key in updates for key in ("password", "active", "role")):
+    permissions_changed = old["permissions"] != user_dict(record)["permissions"]
+    if permissions_changed or any(key in updates for key in ("password", "active", "role")):
         db.execute(delete(LoginSession).where(LoginSession.user_id == record.id))
     audit(
         db,
@@ -598,13 +659,13 @@ def audit_dict(a):
 
 
 @app.get("/api/audit")
-def audits(db: Db, user: AdminUser, page: int = Query(1, ge=1)):
+def audits(db: Db, user: AuditReader, page: int = Query(1, ge=1)):
     rows = db.scalars(select(Audit).order_by(Audit.id.desc()).offset((page - 1) * 100).limit(100))
     return {"items": [audit_dict(a) for a in rows], "page": page}
 
 
 @app.get("/api/jobs")
-def jobs(db: Db, user: AdminUser):
+def jobs(db: Db, user: JobManager):
     return [
         {
             "id": j.id,
@@ -614,16 +675,27 @@ def jobs(db: Db, user: AdminUser):
             "attempts": j.attempts,
             "last_error": j.last_error,
             "next_run_at": j.next_run_at,
+            "can_retry": can_retry_job(user, j.kind),
         }
         for j in db.scalars(select(Job).where(Job.status != "DONE").order_by(Job.next_run_at).limit(200))
     ]
 
 
 @app.post("/api/jobs/{job_id}/retry")
-def retry_job(job_id: int, db: Db, user: AdminUser):
+def retry_job(job_id: int, db: Db, user: JobManager):
     job = db.get(Job, job_id)
     if not job:
         raise HTTPException(404, "Задача не найдена")
+    if not can_retry_job(user, job.kind):
+        raise HTTPException(403, "Нет доступа к функции этой задачи")
+    if job.kind in {"SYNC", "REMOVE_PREVIEW", "BATCH", "REPLY"}:
+        condition = (
+            Photo.id == job.object_id
+            if job.kind in {"SYNC", "REMOVE_PREVIEW"}
+            else Photo.inbox_id == job.object_id
+        )
+        if db.scalar(select(Photo.id).where(condition, Photo.is_spam).limit(1)):
+            check_permission(user, Permission.SPAM_VIEW)
     if job.kind == "SYNC":
         db.execute(text("SELECT pg_advisory_xact_lock(7002, :id)"), {"id": job.object_id})
     db.refresh(job, with_for_update=True)
@@ -637,14 +709,14 @@ def retry_job(job_id: int, db: Db, user: AdminUser):
 
 
 @app.get("/api/ml")
-def ml_status(db: Db, user: AdminUser):
+def ml_status(db: Db, user: LearningManager):
     from app.ml import training_status
 
     return training_status(db)
 
 
 @app.post("/api/ml/train")
-def ml_train(db: Db, user: AdminUser):
+def ml_train(db: Db, user: LearningManager):
     from app.ml import collect_examples, training_plan
 
     db.execute(text("SELECT pg_advisory_xact_lock(7006, 1)"))
@@ -661,7 +733,7 @@ def ml_train(db: Db, user: AdminUser):
 
 
 @app.get("/api/exchange")
-def exchange_status(db: Db, user: AdminUser):
+def exchange_status(db: Db, user: ExchangeManager):
     from app.exchange import exchange_root
 
     state = db.get(ExchangeState, 1)
@@ -697,7 +769,7 @@ def exchange_status(db: Db, user: AdminUser):
 
 
 @app.put("/api/exchange/mode")
-def exchange_mode(body: ExchangeModeInput, db: Db, user: AdminUser):
+def exchange_mode(body: ExchangeModeInput, db: Db, user: ExchangeManager):
     state = db.scalar(select(ExchangeState).where(ExchangeState.id == 1).with_for_update())
     before = state.intake_cohort
     state.intake_cohort = body.cohort
@@ -711,7 +783,7 @@ def exchange_mode(body: ExchangeModeInput, db: Db, user: AdminUser):
 
 
 @app.post("/api/exchange/publish", status_code=202)
-def exchange_publish(body: ExchangeModeInput, db: Db, user: AdminUser):
+def exchange_publish(body: ExchangeModeInput, db: Db, user: ExchangeManager):
     # Prevent double clicks/concurrent requests from creating duplicate pending jobs.
     db.execute(text("SELECT pg_advisory_xact_lock(7009, 1)"))
     pub = db.scalar(
@@ -733,7 +805,7 @@ def exchange_publish(body: ExchangeModeInput, db: Db, user: AdminUser):
 
 
 @app.post("/api/exchange/organize", status_code=202)
-def exchange_organize(db: Db, user: AdminUser):
+def exchange_organize(db: Db, user: ExchangeManager):
     db.execute(text("SELECT pg_advisory_xact_lock(7009, 1)"))
     job = db.scalar(select(Job).where(Job.dedupe_key == ARCHIVE_JOB_KEY))
     if job is None:

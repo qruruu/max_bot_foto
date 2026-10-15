@@ -14,6 +14,7 @@ from app.config import settings
 from app.db import get_db
 from app.domain import audit, now
 from app.models import LoginAttempt, LoginSession, User
+from app.permissions import Permission, effective_permissions, has_permission
 from app.schemas import LoginInput, PasswordInput
 
 hasher = PasswordHasher()
@@ -61,8 +62,43 @@ def admin_user(user: CurrentUser):
 AdminUser = Annotated[User, Depends(admin_user)]
 
 
+def check_permission(user: User, code):
+    if not has_permission(user, code):
+        raise HTTPException(403, "Нет доступа к этой функции")
+
+
+def require_permission(code):
+    def allowed(user: CurrentUser):
+        check_permission(user, code)
+        return user
+
+    return allowed
+
+
+PhotosReader = Annotated[User, Depends(require_permission(Permission.PHOTOS_VIEW))]
+OriginalsReader = Annotated[User, Depends(require_permission(Permission.ORIGINALS_VIEW))]
+PhotoEditor = Annotated[User, Depends(require_permission(Permission.PHOTOS_EDIT))]
+ReportsReader = Annotated[User, Depends(require_permission(Permission.REPORTS_VIEW))]
+ReportsExporter = Annotated[User, Depends(require_permission(Permission.REPORTS_EXPORT))]
+PreviewRemover = Annotated[User, Depends(require_permission(Permission.PREVIEWS_REMOVE))]
+DistrictReader = Annotated[User, Depends(require_permission(Permission.DISTRICTS_VIEW))]
+DistrictEditor = Annotated[User, Depends(require_permission(Permission.DISTRICTS_EDIT))]
+ChatManager = Annotated[User, Depends(require_permission(Permission.CHATS_MANAGE))]
+AuditReader = Annotated[User, Depends(require_permission(Permission.AUDIT_VIEW))]
+JobManager = Annotated[User, Depends(require_permission(Permission.JOBS_MANAGE))]
+ExchangeManager = Annotated[User, Depends(require_permission(Permission.EXCHANGE_MANAGE))]
+LearningManager = Annotated[User, Depends(require_permission(Permission.LEARNING_MANAGE))]
+
+
 def user_dict(user: User):
-    return {"id": user.id, "login": user.login, "name": user.name, "role": user.role, "active": user.active}
+    return {
+        "id": user.id,
+        "login": user.login,
+        "name": user.name,
+        "role": user.role,
+        "active": user.active,
+        "permissions": effective_permissions(user),
+    }
 
 
 def verify_password(encoded: str, password: str):

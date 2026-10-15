@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.catalog import WORK_TYPES, Role, Status
+from app.permissions import DEFAULT_OPERATOR_PERMISSIONS, Permission, validate_permissions
 
 
 class StrictModel(BaseModel):
@@ -27,6 +28,14 @@ class UserCreate(StrictModel):
     password: str = Field(min_length=12, max_length=256)
     role: Role = Role.OPERATOR
     active: bool = True
+    permissions: list[Permission] = Field(
+        default_factory=lambda: [Permission(code) for code in DEFAULT_OPERATOR_PERMISSIONS]
+    )
+
+    @field_validator("permissions")
+    @classmethod
+    def permission_set(cls, value):
+        return validate_permissions(value)
 
 
 class UserUpdate(StrictModel):
@@ -34,6 +43,14 @@ class UserUpdate(StrictModel):
     password: str | None = Field(default=None, min_length=12, max_length=256)
     role: Role | None = None
     active: bool | None = None
+    permissions: list[Permission] | None = None
+
+    @field_validator("permissions")
+    @classmethod
+    def permission_set(cls, value):
+        if value is None:
+            raise ValueError("Укажите список прав; пустой список оставляет только личный аккаунт")
+        return validate_permissions(value)
 
 
 class ChatInput(StrictModel):
