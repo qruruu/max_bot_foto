@@ -1,3 +1,4 @@
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from io import BytesIO
@@ -85,6 +86,13 @@ class FakeDisk:
     def move(self, source, target, digest):
         if target not in self.files:
             self.files[target] = self.files.pop(source)
+
+    def matches(self, path, digest):
+        if path not in self.files:
+            return False
+        if hashlib.sha256(self.files[path]).hexdigest() != digest:
+            raise RuntimeError("HASH_CONFLICT")
+        return True
 
 
 class GoodOCR:

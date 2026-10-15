@@ -21,7 +21,18 @@ from app.exchange_housekeeping import ARCHIVE_JOB_KEY
 from app.intake import ingest
 from app.integrations import YandexDisk, safe_url
 from app.media import media_path
-from app.models import Audit, Chat, District, ExchangeState, Job, LoginSession, Photo, Publication, User
+from app.models import (
+    Audit,
+    Chat,
+    DiscoveredChat,
+    District,
+    ExchangeState,
+    Job,
+    LoginSession,
+    Photo,
+    Publication,
+    User,
+)
 from app.receiver import connection_status, received
 from app.reports import export_excel, filtered, photo_dict, summarize
 from app.schemas import (
@@ -110,7 +121,7 @@ def meta(db: Db, user: CurrentUser):
         "chats": [
             {
                 "id": c.id,
-                "max_chat_id": c.max_chat_id,
+                "max_chat_id": str(c.max_chat_id),
                 "name": c.name,
                 "active": c.active,
                 "cv_work_type_enabled": c.cv_work_type_enabled,
@@ -360,7 +371,7 @@ def chats(db: Db, user: AdminUser):
     return [
         {
             "id": c.id,
-            "max_chat_id": c.max_chat_id,
+            "max_chat_id": str(c.max_chat_id),
             "name": c.name,
             "active": c.active,
             "cv_work_type_enabled": c.cv_work_type_enabled,
@@ -370,6 +381,30 @@ def chats(db: Db, user: AdminUser):
             "updated_at": c.updated_at,
         }
         for c in db.scalars(select(Chat).order_by(Chat.name))
+    ]
+
+
+@app.get("/api/chats/discovered")
+def discovered_chats(db: Db, user: AdminUser):
+    unknown = ~select(Chat.id).where(Chat.max_chat_id == DiscoveredChat.max_chat_id).exists()
+    rows = db.scalars(
+        select(DiscoveredChat)
+        .where(unknown)
+        .order_by(
+            DiscoveredChat.last_seen_at.desc(),
+            DiscoveredChat.max_chat_id,
+        )
+        .limit(100)
+    )
+    return [
+        {
+            "max_chat_id": str(chat.max_chat_id),
+            "message_preview": chat.message_preview,
+            "last_message_at": chat.last_message_at,
+            "first_seen_at": chat.first_seen_at,
+            "last_seen_at": chat.last_seen_at,
+        }
+        for chat in rows
     ]
 
 

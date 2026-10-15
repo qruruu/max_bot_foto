@@ -2,6 +2,7 @@
 
 import logging
 import re
+from collections import defaultdict
 from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import PurePosixPath
@@ -12,10 +13,11 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import engine
 from app.domain import audit, now, reassess, storage_path
-from app.exchange import Dictionary, Index, Partition, exchange_root, json_bytes
+from app.exchange import exchange_root
+from app.exchange_files import checked_files, register_existing
 from app.integrations import OriginalMissing, YandexDisk
 from app.legacy_exchange import recover_manifest
-from app.models import District, ExchangeState, Photo, Publication
+from app.models import District, ExchangeFile, ExchangeState, Photo, Publication
 from app.processing import error_code, photo_lock, storage_lock, synchronize, transfer_target
 
 ARCHIVE_JOB_KEY = "archive-organize:v4"
@@ -34,28 +36,44 @@ def publisher_lock():
             conn.commit()
 
 
-def checked_files(pub, root):
-    """Never delete paths taken blindly from a stored payload; accept only this generation's JSON."""
-    if not pub.payload or pub.payload.get("root") != root:
-        raise ValueError("LEGACY_PUBLICATION")
-    files = pub.payload["files"]
-    generation = f"{pub.id:020d}"
-    for item in files:
-        ref = item["file_ref"]
-        path = PurePosixPath(ref)
-        if path.is_absolute() or ".." in path.parts or path.name != generation + ".json":
-            raise ValueError("INVALID_EXCHANGE_REFERENCE")
-        if path.parts[0] not in {"indexes", "snapshots", "dictionaries"}:
-            raise ValueError("INVALID_EXCHANGE_REFERENCE")
-        model = {"indexes": Index, "snapshots": Partition, "dictionaries": Dictionary}[path.parts[0]]
-        model.model_validate(item["document"])
-        import hashlib
+def verify_file(disk, root, ref, digest, verified):
+    if (ref, digest) not in verified:
+        if not disk.matches(f"{root}/{ref}", digest):
+            raise RuntimeError("RETENTION_GENERATION_NOT_HEALTHY")
+        verified.add((ref, digest))
 
-        if hashlib.sha256(json_bytes(item["document"])).hexdigest() != item["sha256"]:
-            raise ValueError("INVALID_EXCHANGE_CHECKSUM")
-    if files[-1]["file_ref"] != f"indexes/{generation}.json":
-        raise ValueError("INVALID_INDEX_ORDER")
-    return files
+
+def index_expired(db, pub, root, cutoff):
+    newer = list(
+        db.scalars(
+            select(Publication)
+            .where(
+                Publication.id > pub.id,
+                Publication.cohort == pub.cohort,
+                Publication.status.in_(["DONE", "PRUNING", "PRUNED"]),
+                Publication.index_path.startswith(root + "/indexes/", autoescape=True),
+            )
+            .order_by(Publication.id)
+            .limit(3)
+        )
+    )
+    return (
+        len(newer) == 3
+        and pub.finished_at is not None
+        and pub.finished_at <= cutoff
+        and newer[2].finished_at is not None
+        and newer[2].finished_at <= cutoff
+    )
+
+
+def remove_exchange_file(db, disk, item):
+    # Pending orphans cannot displace a published fallback, including after a crash.
+    if item.status != "PENDING":
+        item.status = "DELETING"
+        db.commit()
+    disk.trash_exchange_file(f"{item.root}/{item.file_ref}", item.sha256)
+    item.status, item.document = "DELETED", None
+    db.commit()
 
 
 def collect_generations(disk=None):
@@ -65,61 +83,93 @@ def collect_generations(disk=None):
         cutoff = now() - timedelta(hours=settings().exchange_read_window_hours)
         for cohort in ("test", "production"):
             root = exchange_root(state, cohort)
+            register_existing(db, root)
+            db.commit()
             publications = list(
                 db.scalars(
                     select(Publication)
                     .where(
                         Publication.cohort == cohort,
-                        Publication.status.in_(["DONE", "PRUNING", "SUPERSEDED"]),
+                        Publication.payload["root"].astext == root,
                     )
                     .order_by(Publication.id.desc())
                 )
             )
-            healthy, candidates = [], []
-            for pub in publications:
-                try:
-                    files = checked_files(pub, root)
-                except ValueError:
-                    continue  # old contract/unrelated root is not a deletion target
-                if pub.status in {"PRUNING", "SUPERSEDED"}:
-                    candidates.append((pub, files))
-                    continue
-                if len(healthy) < 3:
-                    if not all(disk.matches(f"{root}/{f['file_ref']}", f["sha256"]) for f in files):
-                        # An incomplete latest set never permits deletion of fallback generations.
-                        raise RuntimeError("RETENTION_GENERATION_NOT_HEALTHY")
-                    healthy.append(pub.id)
-                else:
-                    candidates.append((pub, files))
+            manifests = {pub.id: checked_files(pub, root) for pub in publications}
+            healthy = [pub.id for pub in publications if pub.status == "DONE"][:3]
             if len(healthy) < 3:
                 continue
-            for pub, files in candidates:
-                # Keep a full reading window after the publication that displaced this generation.
-                newer = list(
-                    db.scalars(
-                        select(Publication)
-                        .where(
-                            Publication.id > pub.id,
-                            Publication.cohort == cohort,
-                            Publication.status.in_(["DONE", "PRUNING", "PRUNED"]),
-                            Publication.index_path.startswith(root + "/indexes/", autoescape=True),
-                        )
-                        .order_by(Publication.id)
-                        .limit(3)
-                    )
+            verified = set()
+            for pub_id in healthy:
+                for item in manifests[pub_id]:
+                    verify_file(disk, root, item["file_ref"], item["sha256"], verified)
+            sections = defaultdict(list)
+            for item in db.scalars(
+                select(ExchangeFile)
+                .where(
+                    ExchangeFile.root == root,
+                    ExchangeFile.status.in_(["AVAILABLE", "DELETING"]),
                 )
-                if len(newer) < 3:
+                .order_by(ExchangeFile.publication_id.desc())
+            ):
+                sections[item.section].append(item)
+            # Keep three data generations per day/dictionary, even if their indexes are long retired.
+            for versions in sections.values():
+                for item in [v for v in versions if v.status == "AVAILABLE"][:3]:
+                    verify_file(disk, root, item.file_ref, item.sha256, verified)
+
+            for pub in publications:
+                if pub.id in healthy or pub.status not in {"DONE", "PRUNING", "SUPERSEDED"}:
                     continue
-                displaced_at = newer[2].finished_at
-                if not pub.finished_at or pub.finished_at > cutoff or displaced_at > cutoff:
+                if not index_expired(db, pub, root, cutoff):
                     continue
+                index = manifests[pub.id][-1]
                 pub.status = "PRUNING"
                 db.commit()
-                # Remove the discoverable index first; no new reader starts this retired generation.
-                for item in reversed(files):
-                    disk.trash_exchange_file(f"{root}/{item['file_ref']}", item["sha256"])
+                disk.trash_exchange_file(f"{root}/{index['file_ref']}", index["sha256"])
                 pub.status, pub.payload = "PRUNED", None
                 db.commit()
+
+            # Recent indexes and frozen/retrying publications may still depend on an older file.
+            referenced = {
+                item["file_ref"]
+                for pub in publications
+                if pub.payload is not None
+                for item in manifests[pub.id][:-1]
+            }
+
+            for versions in sections.values():
+                available = [v for v in versions if v.status == "AVAILABLE"]
+                keep = {v.id for v in available[:3]}
+                for item in reversed(versions):
+                    if item.id in keep or item.file_ref in referenced:
+                        continue
+                    newer = [v for v in reversed(available) if v.publication_id > item.publication_id][:3]
+                    creator = db.get(Publication, item.publication_id)
+                    displaced = db.get(Publication, newer[2].publication_id) if len(newer) == 3 else None
+                    if (
+                        not displaced
+                        or not displaced.finished_at
+                        or displaced.finished_at > cutoff
+                        or not creator.finished_at
+                        or creator.finished_at > cutoff
+                    ):
+                        continue
+                    remove_exchange_file(db, disk, item)
+
+            for item in db.scalars(
+                select(ExchangeFile).where(
+                    ExchangeFile.root == root,
+                    ExchangeFile.status == "PENDING",
+                )
+            ):
+                creator = db.get(Publication, item.publication_id)
+                if (
+                    item.file_ref not in referenced
+                    and creator.status == "PRUNED"
+                    and index_expired(db, creator, root, cutoff)
+                ):
+                    remove_exchange_file(db, disk, item)
 
 
 def organize_archive(disk=None):

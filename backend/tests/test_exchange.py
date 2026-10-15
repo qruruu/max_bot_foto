@@ -386,8 +386,12 @@ def test_migration_preserves_old_paths_labels_and_defaults_to_test(db):
     preview_migration = runpy.run_path(
         str(Path(__file__).parents[1] / "alembic/versions/0009_remove_missing_preview.py")
     )
+    files_migration = runpy.run_path(
+        str(Path(__file__).parents[1] / "alembic/versions/0011_shared_exchange_files.py")
+    )
     db.commit()
     with Operations.context(MigrationContext.configure(db.connection())):
+        files_migration["downgrade"]()
         preview_migration["downgrade"]()
         migration["downgrade"]()
         db.execute(text("INSERT INTO chats(max_chat_id,name,active) VALUES (123,'legacy',true)"))
@@ -403,6 +407,7 @@ def test_migration_preserves_old_paths_labels_and_defaults_to_test(db):
         )
         migration["upgrade"]()
         preview_migration["upgrade"]()
+        files_migration["upgrade"]()
     db.commit()
     db.expire_all()
     photo = db.scalar(select(Photo))

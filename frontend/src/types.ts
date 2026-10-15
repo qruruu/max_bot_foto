@@ -1,5 +1,6 @@
 export type User = { id: number; login: string; name: string; role: string; active: boolean };
-export type Chat = { id: number; max_chat_id: number; name: string; active: boolean; cv_work_type_enabled: boolean; fixed_work_type_code: string | null; work_rule_version: number };
+export type Chat = { id: number; max_chat_id: string; name: string; active: boolean; cv_work_type_enabled: boolean; fixed_work_type_code: string | null; work_rule_version: number };
+export type DiscoveredChat = { max_chat_id: string; message_preview: string | null; last_message_at: string; first_seen_at: string; last_seen_at: string };
 export type District = { id: number; name: string; active: boolean };
 export type Meta = { yandex_maps_api_key: string; today: string; timezone: string; work_types: { code: string; name: string }[]; statuses: string[]; chats: Chat[]; districts: District[]; operators: { id: number; name: string }[] };
 export type Filters = Record<string, string>;

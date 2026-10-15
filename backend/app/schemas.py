@@ -37,7 +37,7 @@ class UserUpdate(StrictModel):
 
 
 class ChatInput(StrictModel):
-    max_chat_id: int
+    max_chat_id: int = Field(ge=-(2**63), lt=2**63)
     name: str = Field(min_length=1, max_length=150)
     active: bool = True
     cv_work_type_enabled: bool = True

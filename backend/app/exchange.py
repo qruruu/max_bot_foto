@@ -17,8 +17,9 @@ from app.catalog import WORK_TYPES, Status
 from app.config import settings
 from app.db import engine
 from app.domain import enqueue, now
+from app.exchange_files import checked_files, content_hash, register_existing, register_manifest
 from app.integrations import YandexDisk
-from app.models import District, ExchangeState, Job, Photo, Publication
+from app.models import District, ExchangeFile, ExchangeState, Job, Photo, Publication
 from app.processing import error_code
 
 Cohort = Literal["training", "production"]
@@ -154,9 +155,22 @@ def prepare(publication_id: int):
     with Session(engine(), expire_on_commit=False) as db:
         db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
         pub = db.get(Publication, publication_id)
-        if pub.payload is not None:
-            return
         state = db.get(ExchangeState, 1)
+        root = exchange_root(state, pub.cohort)
+        register_existing(db, root)
+        if pub.payload is not None:
+            checked_files(pub, root)
+            db.commit()
+            return
+        previous = {
+            item.section: item
+            for item in db.scalars(
+                select(ExchangeFile)
+                .where(ExchangeFile.root == root, ExchangeFile.status == "AVAILABLE")
+                .distinct(ExchangeFile.section)
+                .order_by(ExchangeFile.section, ExchangeFile.publication_id.desc())
+            )
+        }
         instant = now()
         identity = f"{state.instance_id}-{pub.cohort}"
         external_cohort = "training" if pub.cohort == "test" else pub.cohort
@@ -167,8 +181,12 @@ def prepare(publication_id: int):
             groups[day].append(record(photo))
         files, refs = [], []
 
-        def add_file(path, document):
+        def add_file(path, document, reuse=False):
             value = document.model_dump(mode="json")
+            old = previous.get(str(Path(path).parent)) if reuse else None
+            if old and old.content_sha256 == content_hash(value):
+                files.append({"file_ref": old.file_ref, "sha256": old.sha256, "document": old.document})
+                return {"file_ref": old.file_ref, "sha256": old.sha256}
             digest = hashlib.sha256(json_bytes(value)).hexdigest()
             files.append({"file_ref": path, "sha256": digest, "document": value})
             return {"file_ref": path, "sha256": digest}
@@ -186,9 +204,13 @@ def prepare(publication_id: int):
                 photo_count=len(items),
                 items=items,
             )
+            file_ref = add_file(path, doc, reuse=True)
             refs.append(
                 PartitionRef(
-                    **add_file(path, doc), received_date=day, generation_id=generation, photo_count=len(items)
+                    **file_ref,
+                    received_date=day,
+                    generation_id=Path(file_ref["file_ref"]).stem,
+                    photo_count=len(items),
                 )
             )
         features = []
@@ -218,7 +240,7 @@ def prepare(publication_id: int):
             storage_statuses=["PENDING", "ERROR", "SYNCED", "NOT_REQUIRED"],
             districts_geojson={"type": "FeatureCollection", "features": features},
         )
-        dictionary_ref = FileRef(**add_file(f"dictionaries/{generation}.json", dictionary))
+        dictionary_ref = FileRef(**add_file(f"dictionaries/{generation}.json", dictionary, reuse=True))
         index = Index(
             source_instance_id=identity,
             cohort=external_cohort,
@@ -231,9 +253,10 @@ def prepare(publication_id: int):
             dictionaries=dictionary_ref,
         )
         index_ref = add_file(f"indexes/{generation}.json", index)
-        pub.payload = {"root": exchange_root(state, pub.cohort), "files": files}
+        pub.payload = {"root": root, "files": files}
         pub.index_path = f"{pub.payload['root']}/{index_ref['file_ref']}"
         pub.as_of, pub.photo_count, pub.status = instant, index.photo_count, "UPLOADING"
+        register_manifest(db, pub, root)
         db.commit()
 
 
@@ -265,11 +288,18 @@ def publish(publication_id: int, disk: YandexDisk | None = None):
                         data = json_bytes(item["document"])
                         if hashlib.sha256(data).hexdigest() != item["sha256"]:
                             raise RuntimeError("SNAPSHOT_CHECKSUM_MISMATCH")
+                        target = f"{payload['root']}/{item['file_ref']}"
+                        if int(Path(item["file_ref"]).stem) != publication_id and disk.matches(
+                            target, item["sha256"]
+                        ):
+                            continue
                         local.write_bytes(data)
-                        disk.upload(local, f"{payload['root']}/{item['file_ref']}", item["sha256"])
+                        disk.upload(local, target, item["sha256"])
                 with Session(engine()) as db:
                     pub = db.get(Publication, publication_id)
                     pub.status, pub.finished_at, pub.last_error = "DONE", now(), None
+                    for item in db.scalars(select(ExchangeFile).where(ExchangeFile.publication_id == pub.id)):
+                        item.status = "AVAILABLE"
                     state = db.get(ExchangeState, 1)
                     setattr(state, f"last_{pub.cohort}_publication_id", pub.id)
                     enqueue(db, "EXCHANGE_GC", pub.id, f"exchange-gc:{pub.id}")

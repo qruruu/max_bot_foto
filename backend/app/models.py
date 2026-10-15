@@ -69,6 +69,15 @@ class Chat(Timestamps, Base):
     work_rule_version: Mapped[int] = mapped_column(default=1, server_default="1")
 
 
+class DiscoveredChat(Base):
+    __tablename__ = "discovered_chats"
+    max_chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    message_preview: Mapped[str | None] = mapped_column(String(200))
+    last_message_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class District(Timestamps, Base):
     __tablename__ = "districts"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -262,3 +271,23 @@ class Publication(Base):
     index_path: Mapped[str | None] = mapped_column(Text)
     photo_count: Mapped[int | None] = mapped_column(Integer)
     last_error: Mapped[str | None] = mapped_column(String(100))
+
+
+class ExchangeFile(Base):
+    """Immutable data files can outlive, and be shared by, their publishing indexes."""
+
+    __tablename__ = "exchange_files"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    publication_id: Mapped[int] = mapped_column(ForeignKey("publications.id"))
+    root: Mapped[str] = mapped_column(Text)
+    file_ref: Mapped[str] = mapped_column(Text)
+    section: Mapped[str] = mapped_column(String(64))
+    sha256: Mapped[str] = mapped_column(String(64))
+    content_sha256: Mapped[str] = mapped_column(String(64))
+    document: Mapped[dict | None] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(20), default="PENDING")
+    __table_args__ = (
+        UniqueConstraint("root", "file_ref"),
+        CheckConstraint("status IN ('PENDING','AVAILABLE','DELETING','DELETED')"),
+        Index("ix_exchange_files_section", "root", "section", "publication_id"),
+    )

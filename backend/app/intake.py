@@ -1,14 +1,53 @@
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import PurePosixPath
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.catalog import IMAGE_EXTENSIONS, Status
 from app.domain import enqueue, now
-from app.models import Chat, ExchangeState, Inbox, Photo
+from app.models import Chat, DiscoveredChat, ExchangeState, Inbox, Photo
+
+
+def discover_chat(db: Session, chat_id: int, update: dict, message: dict):
+    """Store just enough to identify a new group; do not queue or retain its attachments."""
+    if (message.get("recipient") or {}).get("chat_type") == "dialog":
+        return
+    instant = now()
+    timestamp = update.get("timestamp")
+    message_at = instant
+    if type(timestamp) is int and 0 <= timestamp < 253402300800000:
+        message_at = datetime.fromtimestamp(timestamp / 1000, timezone.utc)
+    body = message.get("body") or {}
+    preview = body.get("text")
+    preview = " ".join(preview.split())[:200] if isinstance(preview, str) else None
+    if not preview and body.get("attachments"):
+        preview = "Сообщение с вложением"
+    statement = insert(DiscoveredChat).values(
+        max_chat_id=chat_id,
+        message_preview=preview,
+        last_message_at=message_at,
+        first_seen_at=instant,
+        last_seen_at=instant,
+    )
+    newer = statement.excluded.last_message_at >= DiscoveredChat.last_message_at
+    db.execute(
+        statement.on_conflict_do_update(
+            index_elements=[DiscoveredChat.max_chat_id],
+            set_={
+                "last_seen_at": instant,
+                "last_message_at": case(
+                    (newer, statement.excluded.last_message_at), else_=DiscoveredChat.last_message_at
+                ),
+                "message_preview": case(
+                    (newer, statement.excluded.message_preview), else_=DiscoveredChat.message_preview
+                ),
+            },
+        )
+    )
 
 
 def ingest(db: Session, update: dict) -> int | None:
@@ -19,10 +58,13 @@ def ingest(db: Session, update: dict) -> int | None:
     if sender.get("is_bot"):
         return None
     chat_id = (message.get("recipient") or {}).get("chat_id")
-    if not isinstance(chat_id, int):
+    if type(chat_id) is not int or not -(2**63) <= chat_id < 2**63:
         return None
-    chat = db.scalar(select(Chat).where(Chat.max_chat_id == chat_id, Chat.active).with_for_update(read=True))
+    chat = db.scalar(select(Chat).where(Chat.max_chat_id == chat_id).with_for_update(read=True))
     if chat is None:
+        discover_chat(db, chat_id, update, message)
+        return None
+    if not chat.active:
         return None
     body = message.get("body") or {}
     link = message.get("link") or {}
