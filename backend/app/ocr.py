@@ -78,7 +78,16 @@ def stamp_regions(image: Image.Image):
     for _, box in sorted(panels, reverse=True)[:2]:
         yield image.crop(box)
     if image.height > image.width * 0.6:
-        yield image.crop((0, round(image.height * 0.6), image.width, image.height))
+        footer = image.crop((0, round(image.height * 0.6), image.width, image.height))
+        yield footer
+        # Only reached for incomplete metadata. Isolate bright lettering from snow,
+        # paving and objects, recovering faint decimal points without guessing digits.
+        kernel_size = max(7, min(61, round(footer.width / 70))) | 1
+        highlighted = cv2.morphologyEx(
+            np.array(footer.convert("L")), cv2.MORPH_TOPHAT,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size)),
+        )
+        yield Image.fromarray(highlighted).convert("RGB")
     yield image
 
 

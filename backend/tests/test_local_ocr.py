@@ -62,6 +62,20 @@ def test_neural_passes_do_not_invent_coordinate_pair(monkeypatch):
     assert CoordinateParser().parse(LocalOCR().recognize(FIXTURES / "camera_stamp_photo.png")).latitude is None
 
 
+def test_photo88_saved_readings_recover_metadata_without_truncated_time_conflict(monkeypatch):
+    first = "14Hоя6.2025г.09:07.35\nC61 11892148333333N72.58083921666666E"
+    highlighted = "14 нO96.2025г.09:07:35\n61.11892148333333N72.58083921666666E"
+    recognize, fallback = setup_neural(monkeypatch, [first, highlighted])
+    result = LocalOCR().recognize(FIXTURES / "camera_stamp_photo88.png")
+    timestamp, coordinates = DateTimeParser().parse(result), CoordinateParser().parse(result)
+    assert timestamp.photo_date == date(2025, 11, 14)
+    assert timestamp.photo_time == time(9, 7, 35)
+    assert coordinates.latitude == 61.11892148333333
+    assert coordinates.longitude == 72.58083921666666
+    assert recognize.call_count == 2
+    fallback.assert_not_called()
+
+
 def test_no_new_pass_starts_after_timeout(monkeypatch):
     recognize, fallback = setup_neural(monkeypatch, ["20 апр.2026г."])
     monkeypatch.setenv("OCR_TIMEOUT", "1")
@@ -159,6 +173,7 @@ def test_engine_uses_explicit_local_models_and_cpu_limits(tmp_path, monkeypatch)
         ("camera_stamp_photo74.png", date(2026, 4, 20), time(9, 24, 37), 61.0840, 72.6310),
         ("camera_stamp_original_103007.png", date(2026, 4, 20), time(10, 30, 7), 61.1024, 72.5793),
         ("camera_stamp_photo87.png", date(2025, 11, 10), time(10, 45, 19), 61.08588936666667, 72.62705246666665),
+        ("camera_stamp_photo88.png", date(2025, 11, 14), time(9, 7, 35), 61.11892148333333, 72.58083921666666),
     ],
 )
 def test_real_camera_metadata(tmp_path, monkeypatch, width, filename, expected_date, expected_time, lat, lon):

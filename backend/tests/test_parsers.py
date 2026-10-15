@@ -99,6 +99,24 @@ def test_seconds_and_invalid_time():
     assert DateTimeParser().parse("25:78").photo_time is None
 
 
+@pytest.mark.parametrize("value", ["14Hоя6.2025г.09:07.35", "14 ноя6.2025г.09:07:35"])
+def test_camera_photo88_month_and_seconds(value):
+    result = DateTimeParser().parse(value)
+    assert result.photo_date == date(2025, 11, 14)
+    assert result.photo_time == time(9, 7, 35)
+
+
+@pytest.mark.parametrize("value", ["09:07.3", "09:07.350", "09:07.99", "09:07:35 09:07.36"])
+def test_invalid_or_conflicting_seconds_are_not_truncated(value):
+    assert DateTimeParser().parse(value).photo_time is None
+
+
+def test_month_letter_correction_never_changes_numeric_date_parts():
+    assert DateTimeParser().parse("14 ноя6.2026г.").photo_date == date(2026, 11, 14)
+    assert DateTimeParser().parse("14 н096.2025г.").photo_date is None
+    assert DateTimeParser().parse("31 ноя6.2025г.").photo_date is None
+
+
 @pytest.mark.parametrize(
     "value",
     [

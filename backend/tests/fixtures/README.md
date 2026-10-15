@@ -10,6 +10,8 @@ entered in the interface. They do not replace validation on the original camera 
 - `camera_stamp_photo74.png`: second comparison screenshot (#74), `20 апр. 2026 г. 09:24:37`.
 - `camera_stamp_photo87.png`: photo-only screenshot crop (#87), white text over the scene,
   `10 нояб. 2025 г. 10:45:19`, `61.08588936666667N 72.62705246666665E`.
+- `camera_stamp_photo88.png`: photo-only screenshot crop (#88), white text over paving/gym equipment,
+  `14 нояб. 2025 г. 09:07:35`, `61.11892148333333N 72.58083921666666E`.
 - `camera_stamp_original_103007.png`: supplied 960×1280 photo, black panel,
   `20 апр. 2026 г. 10:30:07`, `61,1024N 72,5793E`.
 

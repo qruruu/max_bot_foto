@@ -31,19 +31,22 @@ class DateTimeParser:
         r"(?<!\d)(?:(\d{4})-(\d{1,2})-(\d{1,2})|(\d{1,2})([./-])(\d{1,2})\5(\d{4}|\d{2}))(?!\d)"
     )
     # rus+eng OCR can render Cyrillic camera-stamp months with Latin lookalikes
-    # (e.g. "anp." for "апр."). Normalize only the month token, never date digits.
+    # (e.g. "anp." for "апр.", "ноя6." for "нояб."). Normalize only the
+    # month token against the known month names, never day/year/coordinate digits.
     MONTH_LOOKALIKES = str.maketrans({
         "a": "а", "c": "с", "e": "е", "k": "к", "m": "м", "n": "п",
-        "o": "о", "p": "р", "t": "т", "x": "х", "y": "у",
+        "o": "о", "p": "р", "t": "т", "x": "х", "y": "у", "h": "н", "6": "б",
     })
     ENGLISH_MONTHS = dict(zip(
         "jan feb mar apr may jun jul aug sep oct nov dec".split(), range(1, 13), strict=True
     ))
     TEXT_DATE = re.compile(
-        r"(?<!\w)(\d{1,2})\s*([a-zа-яё]{3,9})\.?\s*(\d{4})(?=$|[^\w]|г(?:\.|\s|$))",
+        r"(?<!\w)(\d{1,2})\s*([a-zа-яё6]{3,9})\.?\s*(\d{4})(?=$|[^\w]|г(?:\.|\s|$))",
         re.IGNORECASE,
     )
-    TIME = re.compile(r"(?<![\d:])(\d{1,2}):(\d{2})(?::(\d{2}))?(?![\d:])")
+    # Camera OCR may read the seconds separator as a dot. Never truncate a broken
+    # seconds component (09:07.35 -> 09:07:35, not 09:07:00).
+    TIME = re.compile(r"(?<![\d:])(\d{1,2}):(\d{2})(?:[:.](\d{2}))?(?![\d:]|\.\d)")
 
     def parse(self, text: str) -> DateTimeResult:
         dates, times, raw = set(), set(), []
