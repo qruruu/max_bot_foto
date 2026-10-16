@@ -113,7 +113,10 @@ def test_existing_labels_models_and_remote_paths_migrate(db, monkeypatch):
 def test_api_and_export_use_only_short_labels(admin, db):
     response = admin.get("/api/meta")
     assert response.status_code == 200
-    assert [w["name"] for w in response.json()["work_types"]] == [v[0] for v in WORK_TYPES.values()]
+    assert [w["name"] for w in response.json()["work_types"]] == [
+        "УРНЫ", "ПЛОЩАДКИ", "ПОДХОДЫ", "ПГМ", "МУСОР_ГАЗОН", "КОЛОДЦЫ", "АРМАТУРА", "СЛУЧ_МУСОР",
+        "ПОДМЕТАНИЕ", "МОЙКА_УРН", "ГРАБЛИ", "ГАЗОН", "ПОКОС", "БРУСЧ_МОЙКА", "МЕХ_СНЕГ", "ВЫВОЗ_СНЕГА",
+    ]
     inbox = Inbox(max_chat_id=123, message_id="short-labels", payload={})
     db.add(inbox)
     db.flush()

@@ -34,7 +34,7 @@ from app.auth import (
     user_dict,
 )
 from app.auth import router as auth_router
-from app.catalog import WORK_TYPES, Role, Status
+from app.catalog import WORK_TYPE_DISPLAY_ORDER, WORK_TYPES, Role, Status
 from app.config import settings
 from app.domain import audit, enqueue, now, reassess
 from app.exchange_housekeeping import ARCHIVE_JOB_KEY
@@ -142,7 +142,7 @@ def max_status(db: Db, user: ChatManager):
 def meta(db: Db, user: CurrentUser):
     browse = has_permission(user, Permission.PHOTOS_VIEW) or has_permission(user, Permission.REPORTS_VIEW)
     return {
-        "work_types": [{"code": k, "name": v[0]} for k, v in WORK_TYPES.items()],
+        "work_types": [{"code": code, "name": WORK_TYPES[code][0]} for code in WORK_TYPE_DISPLAY_ORDER],
         "statuses": list(Status),
         "timezone": settings().app_timezone,
         "yandex_maps_api_key": settings().yandex_maps_api_key

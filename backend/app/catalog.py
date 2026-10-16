@@ -38,6 +38,11 @@ WORK_TYPES = {
     "SNOW_MECHANICAL": ("МЕХ_СНЕГ", "МЕХ_СНЕГ"),
     "SNOW_REMOVAL": ("ВЫВОЗ_СНЕГА", "ВЫВОЗ_СНЕГА"),
 }
+# UI order is independent of the stable class indices used by trained models.
+_PRIORITY_WORK_TYPES = ("BIN_EMPTYING", "PLAYGROUND_MAINTENANCE", "SNOW_MANUAL")
+WORK_TYPE_DISPLAY_ORDER = _PRIORITY_WORK_TYPES + tuple(
+    code for code in WORK_TYPES if code not in _PRIORITY_WORK_TYPES
+)
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".tif", ".tiff", ".bmp", ".heic", ".webp"}
 ACCEPTED_STATUSES = {Status.ACCEPTED, Status.NEEDS_REVIEW}
 REJECTED_STATUSES = {Status.REJECTED, Status.DUPLICATE, Status.FORWARDED}
