@@ -4,6 +4,7 @@ import { Camera, LocateFixed, RefreshCw } from 'lucide-react';
 import { ErrorBox, FilterBar, useApp, useFilters } from './App';
 import { query } from './api';
 import { loadMapPhotos, mapPhotoFeature, type MapPhoto, type MapSummary } from './photoMapData';
+import { createPhotoMarkerLayout } from './photoMapMarker';
 import { loadYandexMaps, type YMap, type YObjectManager } from './yandexMaps';
 import { useTheme } from './theme';
 import './photo-map.css';
@@ -40,16 +41,15 @@ export default function PhotoMap() {
       map.current = new sdk.Map(container.current, {
         center: [72.603, 61.099], zoom: 12, controls: ['zoomControl', 'typeSelector', 'fullscreenControl'],
       }, {suppressMapOpenBlock: true});
+      const iconLayout = createPhotoMarkerLayout(sdk);
       manager.current = new sdk.ObjectManager({
-        clusterize: true, gridSize: 64,
-      });
-      manager.current.objects.options.set({
-        preset: theme === 'dark' ? 'islands#blueDotIcon' : 'islands#darkGreenDotIcon',
-        balloonPanelMaxMapArea: 0,
-      });
-      manager.current.clusters.options.set({
-        preset: theme === 'dark' ? 'islands#blueClusterIcons' : 'islands#darkGreenClusterIcons',
-        balloonContentLayout: 'cluster#balloonCarousel', balloonPanelMaxMapArea: 0,
+        clusterize: true, gridSize: 80,
+        geoObjectIconLayout: iconLayout,
+        geoObjectIconShape: {type: 'Rectangle', coordinates: [[-28, -64], [28, 0]]},
+        geoObjectBalloonPanelMaxMapArea: 0,
+        clusterIconLayout: iconLayout,
+        clusterIconShape: {type: 'Rectangle', coordinates: [[-28, -73], [37, 0]]},
+        clusterBalloonContentLayout: 'cluster#balloonCarousel', clusterBalloonPanelMaxMapArea: 0,
       });
       map.current.geoObjects.add(manager.current);
       setReady(true);
@@ -88,7 +88,7 @@ export default function PhotoMap() {
       {!loading && data && data.photos.length === 0 && <p className="photo-map-empty" role="status">{data.summary.total ? 'В этой выборке нет фотографий с координатами. Их можно открыть списком.' : 'За выбранный период и с этими фильтрами фотографий нет.'}</p>}
       <div className="photo-map-canvas" ref={container} aria-label="Карта мест съёмки фотографий" hidden={!!mapError}/>
       {!mapError && !ready && <p className="hint">Подключаем Яндекс.Карты…</p>}
-      <p className="hint">Нажмите на точку, чтобы увидеть снимок. Число в кружке — количество фотографий рядом; увеличьте карту или откройте группу. Снимки без координат на карту не наносятся.</p>
+      <p className="hint">На карте показаны миниатюры снимков. Нажмите на миниатюру, чтобы открыть фотографию. Число в углу — количество фотографий рядом; увеличьте карту или откройте группу. Снимки без координат на карту не наносятся.</p>
       <p className="hint">Если дата снимка не определена, фильтр по дате фотографии использует дату получения. Часовой пояс: {meta.timezone}.</p>
     </section>
   </>;

@@ -5,6 +5,15 @@
 .photo-map-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .photo-map-canvas { height: 65vh; min-height: 420px; max-height: 850px; width: 100%; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface-soft, #edf2ed); }
 .photo-map-empty { padding: 14px; background: var(--surface-soft, #edf2ed); border-radius: 8px; }
+.map-photo-marker { position: absolute; left: -28px; top: -64px; width: 56px; height: 56px; cursor: pointer; isolation: isolate; }
+.map-photo-marker::after { content: ''; position: absolute; left: 23px; bottom: -5px; width: 10px; height: 10px; background: #fff; transform: rotate(45deg); z-index: -1; }
+.map-photo-marker-frame { position: relative; display: grid; place-items: center; box-sizing: border-box; width: 100%; height: 100%; border: 3px solid #fff; border-radius: 10px; overflow: hidden; background: var(--surface-soft, #edf2ed); box-shadow: 0 2px 9px #0005; }
+.map-photo-marker-image { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
+.map-photo-marker-fallback { color: var(--green, #256c4d); }
+.map-photo-marker-cluster::before { content: ''; position: absolute; inset: 1px -4px -3px 4px; border: 2px solid #fff; border-radius: 10px; background: var(--green, #256c4d); transform: rotate(8deg); box-shadow: 0 2px 5px #0003; z-index: -1; }
+.map-photo-marker-count { display: none; }
+.map-photo-marker-cluster .map-photo-marker-count { position: absolute; top: -9px; right: -9px; display: grid; place-items: center; box-sizing: border-box; min-width: 26px; height: 26px; padding: 0 6px; border: 2px solid #fff; border-radius: 14px; background: var(--green, #256c4d); color: #fff; font: 700 12px/1 Arial, sans-serif; box-shadow: 0 1px 4px #0004; }
+.map-photo-marker:hover .map-photo-marker-frame { box-shadow: 0 0 0 2px var(--green, #256c4d), 0 3px 12px #0005; }
 /* Yandex balloons keep a light surface in both application themes. */
 .map-photo-balloon { color: #24352e; font: 13px/1.5 Arial, sans-serif; max-width: 240px; overflow-wrap: anywhere; }
 .map-photo-balloon strong { display: block; }

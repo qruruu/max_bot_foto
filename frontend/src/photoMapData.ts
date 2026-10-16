@@ -42,6 +42,8 @@ export function mapPhotoFeature(photo: MapPhoto, filters: Filters, timezone: str
     type: 'Feature', id: photo.id,
     geometry: {type: 'Point', coordinates: [photo.longitude, photo.latitude]},
     properties: {
+      photoLabel: `Фото №${photo.id}`,
+      photoPreviewUrl: photo.preview_url ? `/api/photos/${photo.id}/preview` : '',
       hintContent: escape(`Фото №${photo.id} · ${photo.chat_name}`),
       clusterCaption: escape(`Фото №${photo.id} · ${date}`),
       balloonContentHeader: escape(`Фото №${photo.id}`),

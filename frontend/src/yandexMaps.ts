@@ -24,11 +24,21 @@ export interface MapFeature {
   geometry: {type: 'Point'; coordinates: [number, number]};
   properties: Record<string, string>;
 }
+export interface YLayout {
+  getData(): {properties: Record<string, unknown> | {get(name: string): unknown}};
+  getParentElement(): HTMLElement;
+}
+export interface YLayoutClass {
+  superclass: {build(this: YLayout): void};
+}
 export interface YMaps {
   ready(callback: () => void): void;
   Map: new (container: HTMLElement, state: Record<string, unknown>, options?: Record<string, unknown>) => YMap;
   Polygon: new (coordinates: Coordinates, properties?: Record<string, unknown>, options?: Record<string, unknown>) => YPolygon;
   ObjectManager: new (options?: Record<string, unknown>) => YObjectManager;
+  templateLayoutFactory: {
+    createClass(template: string, overrides?: {build(this: YLayout): void}): YLayoutClass;
+  };
 }
 declare global { interface Window { ymaps?: YMaps } }
 let loading: Promise<YMaps> | null = null;

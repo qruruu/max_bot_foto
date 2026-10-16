@@ -12,6 +12,8 @@ describe('photo map', () => {
     expect(feature.geometry.coordinates).toEqual([72.6, 61.1]);
     expect(feature.properties.balloonContentBody).not.toContain('<script>');
     expect(feature.properties.balloonContentBody).not.toContain('untrusted.example');
+    expect(feature.properties.photoPreviewUrl).toBe('/api/photos/7/preview');
+    expect(mapPhotoFeature({...photo, preview_url: null}, {}, 'Asia/Yekaterinburg').properties.photoPreviewUrl).toBe('');
     expect(feature.properties.balloonContentBody).toContain('/api/photos/7/preview');
     expect(feature.properties.balloonContentBody).toContain('from_map=1');
     expect(feature.properties.balloonContentBody).toContain('all_dates=1');
