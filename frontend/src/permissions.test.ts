@@ -22,7 +22,7 @@ describe('operator permissions', () => {
       .toEqual(['reports_view','chats_manage']);
   });
   it('grants only the stored operator functions while administrators retain all functions', () => {
-    const operator: User = {id:1,login:'operator',name:'Test',active:true,role:'OPERATOR',permissions:['photos_view']};
+    const operator: User = {id:1,login:'operator',name:'Test',active:true,role:'OPERATOR',permissions:['photos_view'],avatar_url:null};
     expect(hasPermission(operator,'photos_view')).toBe(true);
     expect(hasPermission(operator,'photos_edit')).toBe(false);
     expect(hasPermission({...operator,role:'ADMIN_OPERATOR',permissions:[]},'photos_edit')).toBe(true);

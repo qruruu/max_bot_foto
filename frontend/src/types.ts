@@ -1,4 +1,4 @@
-export type User = { id: number; login: string; name: string; role: string; active: boolean; permissions: string[] };
+export type User = { id: number; login: string; name: string; role: string; active: boolean; permissions: string[]; avatar_url: string | null };
 export type PermissionDefinition = { code: string; name: string; group: string; requires: string[]; default_operator: boolean };
 export type Chat = { id: number; max_chat_id: string; name: string; active: boolean; cv_work_type_enabled: boolean; fixed_work_type_code: string | null; work_rule_version: number };
 export type DiscoveredChat = { max_chat_id: string; message_preview: string | null; last_message_at: string; first_seen_at: string; last_seen_at: string };

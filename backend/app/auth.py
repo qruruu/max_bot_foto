@@ -7,10 +7,12 @@ from uuid import UUID
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import delete, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, attributes
 
+from app.avatars import MAX_AVATAR_BYTES, normalize_avatar
 from app.config import settings
 from app.db import get_db
 from app.domain import audit, now
@@ -117,6 +119,8 @@ def user_dict(user: User):
         "role": user.role,
         "active": user.active,
         "permissions": effective_permissions(user),
+        "avatar_url": f"/api/auth/avatar/{user.id}?v={hashlib.sha256(user.avatar_image).hexdigest()[:16]}"
+        if user.avatar_image else None,
     }
 
 
@@ -187,6 +191,44 @@ def login(body: LoginInput, request: Request, response: Response, db: Db):
 
 @router.get("/me")
 def me(user: CurrentUser):
+    return user_dict(user)
+
+
+@router.get("/avatar/{user_id}")
+def avatar(user_id: int, user: CurrentUser):
+    if user_id != user.id or not user.avatar_image:
+        raise HTTPException(404, "Аватарка не установлена")
+    return Response(
+        content=user.avatar_image,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.put("/avatar")
+async def update_avatar(request: Request, db: Db, user: CurrentUser):
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > MAX_AVATAR_BYTES:
+            raise HTTPException(413, "Размер фотографии должен быть не больше 5 МБ.")
+        data.extend(chunk)
+    try:
+        image = await run_in_threadpool(normalize_avatar, bytes(data))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    before = {"has_avatar": bool(user.avatar_image)}
+    user.avatar_image = image
+    audit(db, user.id, "USER_AVATAR_UPDATED", "user", user.id, before, {"has_avatar": True})
+    db.commit()
+    return user_dict(user)
+
+
+@router.delete("/avatar")
+def remove_avatar(db: Db, user: CurrentUser):
+    before = {"has_avatar": bool(user.avatar_image)}
+    user.avatar_image = None
+    audit(db, user.id, "USER_AVATAR_REMOVED", "user", user.id, before, {"has_avatar": False})
+    db.commit()
     return user_dict(user)
 
 

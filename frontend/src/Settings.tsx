@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { Bell, Monitor, Palette, ShieldCheck } from 'lucide-react';
+import { Bell, Monitor, Palette, ShieldCheck, UserRound } from 'lucide-react';
 import { Navigate, NavLink, useParams } from 'react-router-dom';
 import { api } from './api';
 import { ErrorBox } from './App';
 import ThemeSettings from './ThemeSettings';
 import NotificationSettings from './NotificationSettings';
 import ActiveSessions from './ActiveSessions';
+import ProfileSettings from './ProfileSettings';
 
 const sections = [
+  {id: 'profile', name: 'Профиль', Icon: UserRound},
   {id: 'appearance', name: 'Оформление', Icon: Palette},
   {id: 'notifications', name: 'Уведомления', Icon: Bell},
   {id: 'security', name: 'Безопасность', Icon: ShieldCheck},
@@ -49,12 +51,12 @@ function SecuritySettings() {
 
 export default function Settings() {
   const {section} = useParams();
-  if (!sections.some(item => item.id === section)) return <Navigate to="/settings/appearance" replace/>;
+  if (!sections.some(item => item.id === section)) return <Navigate to="/settings/profile" replace/>;
 
   return <>
     <header className="page-header"><div>
       <span className="eyebrow">ЛИЧНЫЕ НАСТРОЙКИ</span><h1>Настройки</h1>
-      <p>Настройте оформление, уведомления и безопасность аккаунта.</p>
+      <p>Настройте профиль, оформление, уведомления и безопасность аккаунта.</p>
     </div></header>
     <div className="settings-layout">
       <nav className="settings-nav" aria-label="Разделы настроек">
@@ -63,6 +65,7 @@ export default function Settings() {
         </NavLink>)}
       </nav>
       <div className="settings-content">
+        {section === 'profile' && <ProfileSettings/>}
         {section === 'appearance' && <ThemeSettings/>}
         {section === 'notifications' && <NotificationSettings/>}
         {section === 'security' && <SecuritySettings/>}

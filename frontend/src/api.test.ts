@@ -1,5 +1,20 @@
-import { describe, expect, it } from 'vitest';
-import { photoLink, query, shiftDate } from './api';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { api, photoLink, query, shiftDate } from './api';
+
+afterEach(() => vi.unstubAllGlobals());
+
+it('uploads the original image bytes with session credentials and CSRF protection', async () => {
+  vi.stubGlobal('document', {cookie: 'csrf=test%2Btoken'});
+  const fetch = vi.fn().mockResolvedValue({ok: true, json: async () => ({avatar_url: '/api/auth/avatar/1?v=photo'})});
+  vi.stubGlobal('fetch', fetch);
+  const image = new Blob([new Uint8Array([137, 80, 78, 71])], {type: 'image/png'});
+  await api('/auth/avatar', 'PUT', image);
+  const [url, request] = fetch.mock.calls[0];
+  expect(url).toBe('/api/auth/avatar');
+  expect(request.body).toBe(image);
+  expect(request.credentials).toBe('same-origin');
+  expect(request.headers).toEqual({'Content-Type': 'image/png', 'X-CSRF-Token': 'test+token'});
+});
 describe('report filters and calendar',()=>{
   it('preserves the unassigned district sentinel and removes empty filters',()=>{expect(query({district_id:'0',chat_id:'',status:'NEEDS_REVIEW'})).toBe('district_id=0&status=NEEDS_REVIEW');});
   it('crosses month and year boundaries consistently',()=>{expect(shiftDate('2026-01-01',-1)).toBe('2025-12-31');expect(shiftDate('2024-03-01',-1)).toBe('2024-02-29');});

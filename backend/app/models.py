@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     Time,
@@ -38,6 +39,7 @@ class User(Timestamps, Base):
     login: Mapped[str] = mapped_column(String(100), unique=True)
     name: Mapped[str] = mapped_column(String(150))
     password_hash: Mapped[str] = mapped_column(Text)
+    avatar_image: Mapped[bytes | None] = mapped_column(LargeBinary)
     role: Mapped[str] = mapped_column(String(30))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     permissions: Mapped[list[str]] = mapped_column(

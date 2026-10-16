@@ -15,8 +15,9 @@ export function photoLink(id: number, filters: Filters, review = false, spam = f
 }
 export async function api<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
   const csrf = document.cookie.split('; ').find(x => x.startsWith('csrf='))?.slice(5) || '';
+  const upload = body instanceof Blob;
   const response = await fetch('/api' + path, { method, credentials: 'same-origin', signal,
-    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': decodeURIComponent(csrf) }, body: body === undefined ? undefined : JSON.stringify(body) });
+    headers: { 'Content-Type': upload ? body.type || 'application/octet-stream' : 'application/json', 'X-CSRF-Token': decodeURIComponent(csrf) }, body: body === undefined ? undefined : upload ? body : JSON.stringify(body) });
   if (!response.ok) {
     const data = await response.json().catch(() => ({ detail: 'Сервис временно недоступен' }));
     if (response.status === 401 && path !== '/auth/me' && path !== '/auth/login') window.dispatchEvent(new Event('session-expired'));

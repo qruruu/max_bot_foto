@@ -11,10 +11,11 @@ import Administration from './Administration';
 import Learning from './Learning';
 import Exchange from './Exchange';
 import Settings from './Settings';
+import Avatar from './Avatar';
 import { hasPermission } from './permissions';
 import { PhotoNotificationsProvider } from './PhotoNotifications';
 
-const Context = createContext<{ user: User; meta: Meta; refresh: () => Promise<void>; notify: (text: string) => void }>(null!);
+const Context = createContext<{ user: User; meta: Meta; refresh: () => Promise<void>; notify: (text: string) => void; updateUser: (user: User) => void }>(null!);
 export const useApp = () => useContext(Context);
 export const ErrorBox = ({ error }: { error: string }) => error ? <div className="error" role="alert">{error}</div> : null;
 export const Empty = ({ children }: { children: ReactNode }) => <div className="empty"><Camera size={34}/><h3>Пока ничего нет</h3><p>{children}</p></div>;
@@ -54,7 +55,7 @@ export default function App() {
   const home = links[0]?.to || '/settings';
   const denied = <Navigate to={home} replace/>;
   const protectedPage = (code:string, element:ReactNode) => hasPermission(user,code) ? element : denied;
-  return <Context.Provider value={{user,meta,refresh,notify:setToast}}>
+  return <Context.Provider value={{user,meta,refresh,notify:setToast,updateUser:setUser}}>
     <PhotoNotificationsProvider key={user.id} userId={user.id} canViewPhotos={hasPermission(user,'photos_view')}>
     <div className="app">
       <aside className="sidebar">
@@ -63,7 +64,7 @@ export default function App() {
         <nav>{links.map(({to,label,Icon}) => <NavLink key={to} to={to} title={label} end={to==='/'}><Icon size={19}/>{label}</NavLink>)}</nav>
         <div className="sidebar-bottom">
           <NavLink to="/settings" className="account-link" title="Настройки" aria-label="Настройки">
-            <span className="avatar" aria-hidden="true">{user.name.charAt(0)}</span>
+            <Avatar name={user.name} src={user.avatar_url}/>
             <span className="account-info"><strong>{user.name}</strong><small>{admin?'Администратор':'Оператор'}</small></span>
           </NavLink>
           <button title="Выйти" aria-label="Выйти" onClick={async()=>{try{await api('/auth/logout','POST');setUser(null);setMeta(null);navigate('/');}catch(e){setToast((e as Error).message);}}}><LogOut size={17}/></button>
@@ -85,7 +86,7 @@ export default function App() {
           <Route path="/jobs" element={protectedPage('jobs_manage',<Administration key="jobs" page="jobs"/>)}/>
           <Route path="/learning" element={protectedPage('learning_manage',<Learning/>)}/>
           <Route path="/exchange" element={protectedPage('exchange_manage',<Exchange/>)}/>
-          <Route path="/settings" element={<Navigate to="/settings/appearance" replace/>}/>
+          <Route path="/settings" element={<Navigate to="/settings/profile" replace/>}/>
           <Route path="/settings/:section" element={<Settings/>}/>
           <Route path="/account" element={<Navigate to="/settings" replace/>}/>
           <Route path="*" element={denied}/>
