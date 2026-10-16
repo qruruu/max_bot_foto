@@ -4,11 +4,13 @@ import { Check, MapPin, Plus, Save, Trash2 } from 'lucide-react';
 import { api, ApiError } from './api';
 import { ErrorBox, useApp } from './App';
 import { hasPermission } from './permissions';
+import { useTheme } from './theme';
 import { closedPolygon, escapeMapLabel, loadYandexMaps, polygonsOf } from './yandexMaps';
 import type { YMap, YMaps, YPolygon } from './yandexMaps';
 
 type Feature = GeoJSON.Feature<Polygon|MultiPolygon,{id:number;name:string;active:boolean}>;
 export default function DistrictMap(){
+  const {theme}=useTheme();
   const {user,meta,refresh,notify}=useApp();const canEdit=hasPermission(user,'districts_edit');
   const container=useRef<HTMLDivElement>(null),map=useRef<YMap|null>(null),sdk=useRef<YMaps|null>(null);
   const editing=useRef<YPolygon[]>([]),background=useRef<YPolygon[]>([]),pick=useRef<(feature:Feature)=>void>(()=>{});
@@ -16,7 +18,7 @@ export default function DistrictMap(){
   function load(){return api<FeatureCollection>('/districts').then(data=>setFeatures(data.features as Feature[])).catch(e=>setError(e.message));}
   useEffect(()=>{void load();},[]);
   useEffect(()=>{let cancelled=false;setMapError('');setReady(false);loadYandexMaps(meta.yandex_maps_api_key).then(api=>{if(cancelled||!container.current)return;sdk.current=api;map.current=new api.Map(container.current,{center:[72.603,61.099],zoom:13,controls:['zoomControl','typeSelector','fullscreenControl']},{suppressMapOpenBlock:true});setReady(true);}).catch(e=>{if(!cancelled)setMapError(e.message);});return()=>{cancelled=true;map.current?.destroy();map.current=null;editing.current=[];background.current=[];};},[meta.yandex_maps_api_key]);
-  useEffect(()=>{if(!ready||!map.current||!sdk.current)return;for(const layer of background.current)map.current.geoObjects.remove(layer);background.current=[];for(const feature of features.filter(f=>f.properties.id!==selected)){for(const coordinates of polygonsOf(feature.geometry)){const layer=new sdk.current.Polygon(coordinates,{hintContent:escapeMapLabel(feature.properties.name)},{fillColor:feature.properties.active?'#80b39755':'#a3aba355',strokeColor:feature.properties.active?'#3d7e6c':'#8a9690',strokeWidth:2});layer.events.add('click',()=>pick.current(feature));map.current.geoObjects.add(layer);background.current.push(layer);}}},[features,selected,ready]);
+  useEffect(()=>{if(!ready||!map.current||!sdk.current)return;for(const layer of background.current)map.current.geoObjects.remove(layer);background.current=[];for(const feature of features.filter(f=>f.properties.id!==selected)){for(const coordinates of polygonsOf(feature.geometry)){const layer=new sdk.current.Polygon(coordinates,{hintContent:escapeMapLabel(feature.properties.name)},{fillColor:feature.properties.active?(theme==='dark'?'#578ff555':'#80b39755'):'#a3aba355',strokeColor:feature.properties.active?(theme==='dark'?'#6fa7ff':'#3d7e6c'):'#8a9690',strokeWidth:2});layer.events.add('click',()=>pick.current(feature));map.current.geoObjects.add(layer);background.current.push(layer);}}},[features,selected,ready,theme]);
   function clearEditing(){for(const polygon of editing.current){polygon.editor.stopDrawing();polygon.editor.stopEditing();map.current?.geoObjects.remove(polygon);}editing.current=[];setParts(0);setDrawing(false);}
   function reset(){clearEditing();setSelected(null);setName('');setActive(true);setError('');setOverlap(false);}
   function finish(){for(const polygon of editing.current){polygon.editor.stopDrawing();if(canEdit)polygon.editor.startEditing();}setDrawing(false);setOverlap(false);}
