@@ -100,6 +100,14 @@ def summarize(db: Session, filters: PhotoFilters):
     }
 
 
+def photo_operator_name(photo: Photo, operators: dict[int, str]) -> str | None:
+    if photo.reviewed_by is not None:
+        return operators.get(photo.reviewed_by)
+    if photo.work_type_source == "AI" and photo.work_type in WORK_TYPES:
+        return "Нейросеть"
+    return None
+
+
 def photo_dict(photo: Photo, districts: dict[int, str], operators: dict[int, str], detail=False):
     excluded = {"attachment"}
     if not detail:
@@ -109,7 +117,7 @@ def photo_dict(photo: Photo, districts: dict[int, str], operators: dict[int, str
     }
     result.update(
         district_name=districts.get(photo.district_id),
-        operator_name=operators.get(photo.reviewed_by),
+        operator_name=photo_operator_name(photo, operators),
         work_type_name="Спам"
         if photo.is_spam
         else WORK_TYPES[photo.work_type][0]
@@ -170,7 +178,7 @@ def export_excel(db: Session, filters: PhotoFilters) -> bytes:
                 p.max_message_id,
                 p.stored_filename,
                 p.yandex_disk_path,
-                operators.get(p.reviewed_by),
+                photo_operator_name(p, operators),
             ]
 
     sheet(
