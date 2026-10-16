@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { NavLink, Navigate, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MessageSquare, RefreshCw, Search, Settings, ShieldCheck, Users } from 'lucide-react';
+import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MessageSquare, RefreshCw, Search, ShieldCheck, Users } from 'lucide-react';
 import { api, dateLabel, photoLink, query, shiftDate, statusNames } from './api';
 import type { Filters, Meta, PhotoPage, Report, User } from './types';
 import PhotoDetail from './PhotoDetail';
@@ -46,9 +46,8 @@ export default function App() {
     {to:'/jobs', label:'Обработка', Icon:RefreshCw, allowed:hasPermission(user,'jobs_manage')},
     {to:'/exchange', label:'Обмен с АРМ', Icon:ArrowDownToLine, allowed:hasPermission(user,'exchange_manage')},
     {to:'/learning', label:'Обучение нейросети', Icon:Layers, allowed:hasPermission(user,'learning_manage')},
-    {to:'/account', label:'Мой аккаунт', Icon:Settings, allowed:true},
   ].filter(link => link.allowed);
-  const home = links[0].to;
+  const home = links[0]?.to || '/account';
   const denied = <Navigate to={home} replace/>;
   const protectedPage = (code:string, element:ReactNode) => hasPermission(user,code) ? element : denied;
   return <Context.Provider value={{user,meta,refresh,notify:setToast}}>
@@ -58,8 +57,10 @@ export default function App() {
         <div className="nav-label">РАБОЧЕЕ ПРОСТРАНСТВО</div>
         <nav>{links.map(({to,label,Icon}) => <NavLink key={to} to={to} title={label} end={to==='/'}><Icon size={19}/>{label}</NavLink>)}</nav>
         <div className="sidebar-bottom">
-          <div className="avatar">{user.name.charAt(0)}</div>
-          <div><strong>{user.name}</strong><small>{admin?'Администратор':'Оператор'}</small></div>
+          <NavLink to="/account" className="account-link" title="Мой аккаунт" aria-label="Мой аккаунт">
+            <span className="avatar" aria-hidden="true">{user.name.charAt(0)}</span>
+            <span className="account-info"><strong>{user.name}</strong><small>{admin?'Администратор':'Оператор'}</small></span>
+          </NavLink>
           <button title="Выйти" aria-label="Выйти" onClick={async()=>{try{await api('/auth/logout','POST');setUser(null);setMeta(null);navigate('/');}catch(e){setToast((e as Error).message);}}}><LogOut size={17}/></button>
         </div>
       </aside>
