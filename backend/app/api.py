@@ -341,6 +341,14 @@ def edit_photo(photo_id: int, body: PhotoEdit, db: Db, user: PhotoEditor):
     if photo.version != body.version:
         raise HTTPException(409, "Фото изменено другим оператором. Обновите карточку.")
     changes = body.model_dump(exclude_unset=True, exclude={"version"})
+    if "district_id" in changes:
+        district_id = changes["district_id"]
+        if district_id is not None:
+            district = db.get(District, district_id)
+            unchanged = photo.district_source == "OPERATOR" and photo.district_id == district_id
+            if district is None or (not district.active and not unchanged):
+                raise HTTPException(422, "Выберите существующий активный микрорайон")
+        changes["district_source"] = "OPERATOR" if district_id is not None else None
     if changes.get("is_spam"):
         check_permission(user, Permission.SPAM_VIEW)
         changes["work_type"] = None
@@ -350,6 +358,8 @@ def edit_photo(photo_id: int, body: PhotoEdit, db: Db, user: PhotoEditor):
     before = {key: getattr(photo, key) for key in changes}
     before.update(
         district_id=photo.district_id,
+        district_source=photo.district_source,
+        district_name_snapshot=photo.district_name_snapshot,
         status=photo.status,
         work_type_source=photo.work_type_source,
         is_spam=photo.is_spam,
@@ -375,6 +385,8 @@ def edit_photo(photo_id: int, body: PhotoEdit, db: Db, user: PhotoEditor):
         "version": photo.version,
         "review_reason": photo.review_reason,
         "storage_status": photo.storage_status,
+        "district_id": photo.district_id,
+        "district_source": photo.district_source,
     }
 
 

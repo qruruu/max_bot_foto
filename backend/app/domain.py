@@ -75,8 +75,19 @@ def reassess(db: Session, photo: Photo):
         photo.status = Status.SPAM
         photo.review_reason = []
         return
-    photo.district_id, geo_reason = resolve_district(db, photo.latitude, photo.longitude)
-    district = db.get(District, photo.district_id) if photo.district_id else None
+    # An operator can identify the territory without inventing a point on the map.
+    # Reprocessing and boundary updates must preserve that explicit choice.
+    district = (
+        db.get(District, photo.district_id)
+        if photo.district_source == "OPERATOR" and photo.district_id
+        else None
+    )
+    if district is not None:
+        geo_reason = None
+    else:
+        photo.district_id, geo_reason = resolve_district(db, photo.latitude, photo.longitude)
+        district = db.get(District, photo.district_id) if photo.district_id else None
+        photo.district_source = "COORDINATES" if district else None
     photo.district_name_snapshot = district.name if district else None
     reasons = []
     if photo.photo_date is None:

@@ -150,6 +150,7 @@ class Photo(Timestamps, Base):
     detected_address: Mapped[str | None] = mapped_column(Text)
     detected_city: Mapped[str | None] = mapped_column(String(300))
     district_id: Mapped[int | None] = mapped_column(ForeignKey("districts.id"), index=True)
+    district_source: Mapped[str | None] = mapped_column(String(20))
     ai_result: Mapped[dict | None] = mapped_column(JSONB)
     ai_confidence: Mapped[float | None] = mapped_column(Float)
     ai_alternatives: Mapped[list] = mapped_column(JSONB, default=list)
@@ -189,6 +190,14 @@ class Photo(Timestamps, Base):
         CheckConstraint("latitude BETWEEN -90 AND 90"),
         CheckConstraint("longitude BETWEEN -180 AND 180"),
         CheckConstraint("(latitude IS NULL) = (longitude IS NULL)"),
+        CheckConstraint(
+            "district_source IS NULL OR district_source IN ('COORDINATES','OPERATOR')",
+            name="ck_photos_district_source",
+        ),
+        CheckConstraint(
+            "district_source IS DISTINCT FROM 'OPERATOR' OR district_id IS NOT NULL",
+            name="ck_photos_manual_district",
+        ),
         CheckConstraint(
             "status IN ('RECEIVED','PROCESSING','ACCEPTED','NEEDS_REVIEW','REJECTED','DUPLICATE','FORWARDED','ERROR','SPAM')",
             name="ck_photos_status",

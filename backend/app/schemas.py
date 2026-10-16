@@ -91,6 +91,7 @@ class PhotoEdit(StrictModel):
     photo_time: time | None = None
     latitude: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
     longitude: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False)
+    district_id: int | None = Field(default=None, gt=0)
     work_type: str | None = None
     detected_address: str | None = Field(default=None, max_length=1000)
     detected_city: str | None = Field(default=None, max_length=300)

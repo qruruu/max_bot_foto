@@ -10,6 +10,7 @@ export type Photo = {
   cohort: 'test' | 'production';
   id: number; version: number; is_spam: boolean; status: string; storage_status: string; photo_date: string | null; photo_time: string | null;
   received_at: string; latitude: number | null; longitude: number | null; chat_name: string; district_id: number | null;
+  district_source: 'COORDINATES' | 'OPERATOR' | null;
   district_name: string | null; work_type: string | null; work_type_name: string | null; ai_confidence: number | null;
   ai_alternatives: string[]; review_reason: string[]; detected_address: string | null; detected_city: string | null;
   max_message_id: string; yandex_disk_path: string | null; operator_name: string | null; preview_url: string | null;
