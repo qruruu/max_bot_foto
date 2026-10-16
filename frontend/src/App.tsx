@@ -10,6 +10,7 @@ import Administration from './Administration';
 import Learning from './Learning';
 import Exchange from './Exchange';
 import { hasPermission } from './permissions';
+import { PhotoNotificationsProvider } from './PhotoNotifications';
 
 const Context = createContext<{ user: User; meta: Meta; refresh: () => Promise<void>; notify: (text: string) => void }>(null!);
 export const useApp = () => useContext(Context);
@@ -47,17 +48,18 @@ export default function App() {
     {to:'/exchange', label:'Обмен с АРМ', Icon:ArrowDownToLine, allowed:hasPermission(user,'exchange_manage')},
     {to:'/learning', label:'Обучение нейросети', Icon:Layers, allowed:hasPermission(user,'learning_manage')},
   ].filter(link => link.allowed);
-  const home = links[0]?.to || '/account';
+  const home = links[0]?.to || '/settings';
   const denied = <Navigate to={home} replace/>;
   const protectedPage = (code:string, element:ReactNode) => hasPermission(user,code) ? element : denied;
   return <Context.Provider value={{user,meta,refresh,notify:setToast}}>
+    <PhotoNotificationsProvider key={user.id} userId={user.id} canViewPhotos={hasPermission(user,'photos_view')}>
     <div className="app">
       <aside className="sidebar">
         <NavLink className="brand" to={home}><span className="brand-mark"><Layers size={23}/></span><span>MAX Фото<small>Контроль городских работ</small></span></NavLink>
         <div className="nav-label">РАБОЧЕЕ ПРОСТРАНСТВО</div>
         <nav>{links.map(({to,label,Icon}) => <NavLink key={to} to={to} title={label} end={to==='/'}><Icon size={19}/>{label}</NavLink>)}</nav>
         <div className="sidebar-bottom">
-          <NavLink to="/account" className="account-link" title="Мой аккаунт" aria-label="Мой аккаунт">
+          <NavLink to="/settings" className="account-link" title="Настройки" aria-label="Настройки">
             <span className="avatar" aria-hidden="true">{user.name.charAt(0)}</span>
             <span className="account-info"><strong>{user.name}</strong><small>{admin?'Администратор':'Оператор'}</small></span>
           </NavLink>
@@ -79,12 +81,14 @@ export default function App() {
           <Route path="/jobs" element={protectedPage('jobs_manage',<Administration key="jobs" page="jobs"/>)}/>
           <Route path="/learning" element={protectedPage('learning_manage',<Learning/>)}/>
           <Route path="/exchange" element={protectedPage('exchange_manage',<Exchange/>)}/>
-          <Route path="/account" element={<Administration page="account"/>}/>
+          <Route path="/settings" element={<Administration page="account"/>}/>
+          <Route path="/account" element={<Navigate to="/settings" replace/>}/>
           <Route path="*" element={denied}/>
         </Routes>
       </main>
     </div>
     {toast&&<div className="toast" role="status"><CircleCheck size={20}/>{toast}<button onClick={()=>setToast('')}>×</button></div>}
+    </PhotoNotificationsProvider>
   </Context.Provider>;
 }
 
@@ -113,6 +117,7 @@ function Overview() {
 
 function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boolean}) {
   const {filters,change}=useFilters(review,spam);const [data,setData]=useState<PhotoPage|null>(null),[error,setError]=useState(''),[page,setPage]=useState(1),[revision,setRevision]=useState(0);const key=query(filters);const navigate=useNavigate();
+  useEffect(()=>{const refresh=()=>setRevision(value=>value+1);window.addEventListener('refresh-photo-list',refresh);return()=>window.removeEventListener('refresh-photo-list',refresh);},[]);
   useEffect(()=>setPage(1),[key,review,spam]);
   useEffect(()=>{const c=new AbortController();setData(null);setError('');api<PhotoPage>(`/photos?${key}&page=${page}`,'GET',undefined,c.signal).then(setData).catch(e=>{if(e.name!=='AbortError')setError(e.message);});return()=>c.abort();},[key,page,revision]);
   return <><header className="page-header"><div><span className="eyebrow">{review?'РУЧНАЯ ПРОВЕРКА':spam?'СЛУЧАЙНЫЕ И НЕПОДХОДЯЩИЕ ФОТО':'АРХИВ ФОТОГРАФИЙ'}</span><h1>{review?'Требуют проверки':spam?'Спам':'Фотографии'}</h1><p>{review?'Помогите системе там, где нужен взгляд человека.':spam?'Не учитываются в работах и обучении. Для возврата откройте фото и выберите вид работы.':'Все снимки из разрешённых чатов MAX, кроме спама.'}</p></div><button onClick={()=>setRevision(x=>x+1)} aria-label="Обновить список"><RefreshCw size={18}/></button></header><FilterBar filters={filters} change={change} fixedStatus={review||spam} hideWork={spam}/><ErrorBox error={error}/>{data?<section className="panel photo-panel"><div className="section-title"><h2>{review?'Очередь проверки':spam?'Спам':'Все фотографии'} <span className="count-pill">{data.total}</span></h2><Search size={18}/></div>{data.items.length===0?<Empty>{review?'В этой выборке нет фотографий, требующих проверки.':'Измените фильтры, чтобы найти нужные фотографии.'}</Empty>:<div className="table-scroll"><table className="photos-table"><thead><tr><th>Фотография</th><th>Дата / время</th><th>Чат / микрорайон</th><th>Координаты</th><th>Вид работы</th><th>Статус</th><th>Нейросеть</th><th>Оператор</th><th/></tr></thead><tbody>{data.items.map(p=><tr key={p.id}><td><button className="photo-thumb" onClick={()=>navigate(photoLink(p.id,filters,review,spam))}>{p.preview_url?<img src={p.preview_url} loading="lazy" alt={'Фото №'+p.id}/>:<Camera size={22}/>}<small>#{p.id}</small></button></td><td>{dateLabel(p.photo_date)}<small>{p.photo_time||'Время не указано'}</small><small>Получено {new Date(p.received_at).toLocaleString('ru-RU')}</small></td><td>{p.chat_name}<small>{p.district_name||'Микрорайон не определён'}</small></td><td className="mono">{p.latitude?.toFixed(5)||'—'}<small>{p.longitude?.toFixed(5)||'—'}</small></td><td>{p.work_type_name||<span className="muted">Не определён</span>}</td><td><StatusBadge value={p.status}/>{p.storage_status==='ERROR'&&<small className="danger-text">Ошибка хранения</small>}</td><td>{p.ai_confidence===null?'—':Math.round(p.ai_confidence*100)+'%'}</td><td>{p.operator_name||'—'}</td><td><button className="text-button" onClick={()=>navigate(photoLink(p.id,filters,review,spam))}>Открыть<ChevronRight size={14}/></button></td></tr>)}</tbody></table></div>}<div className="pagination"><span>Страница {page} из {Math.max(1,Math.ceil(data.total/data.page_size))}</span><button disabled={page<=1} onClick={()=>setPage(p=>p-1)}><ChevronLeft size={16}/>Назад</button><button disabled={page*data.page_size>=data.total} onClick={()=>setPage(p=>p+1)}>Далее<ChevronRight size={16}/></button></div></section>:!error&&<p className="loading">Загружаем фотографии…</p>}</>;

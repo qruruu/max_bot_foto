@@ -200,6 +200,25 @@ def photos(db: Db, user: PhotosReader, filters: Filters):
     }
 
 
+@app.get("/api/photos/arrivals")
+def photo_arrivals(db: Db, user: PhotosReader):
+    """Lightweight arrival snapshot for open panels; updates do not create new arrivals."""
+    return {
+        "photo_ids": list(
+            db.scalars(
+                select(Photo.id)
+                .where(
+                    Photo.received_at >= now() - timedelta(days=1),
+                    Photo.preview_removed_at.is_(None),
+                    Photo.is_spam.is_(False),
+                    Photo.status.not_in([Status.REJECTED, Status.FORWARDED]),
+                )
+                .order_by(Photo.id)
+            )
+        )
+    }
+
+
 def check_photo_access(user, photo):
     check_permission(user, Permission.PHOTOS_VIEW)
     if photo.is_spam:

@@ -7,4 +7,5 @@ import UpdateNotice from './UpdateNotice';
 import './style.css';
 import './theme.css';
 import './update.css';
+import './notifications.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><ThemeProvider><BrowserRouter><App/><UpdateNotice/></BrowserRouter></ThemeProvider></React.StrictMode>);
