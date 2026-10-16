@@ -235,6 +235,7 @@ class ModelVersion(Base):
     supported_classes: Mapped[list] = mapped_column(JSONB, default=list)
     model_path: Mapped[str | None] = mapped_column(Text)
     model_sha256: Mapped[str | None] = mapped_column(String(64))
+    weights_removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
     __table_args__ = (
         Index("ix_one_active_model", "status", unique=True, postgresql_where=text("status = 'ACTIVE'")),

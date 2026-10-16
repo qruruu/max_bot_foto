@@ -208,6 +208,16 @@ def test_train_save_activate_classify_and_queue_isolation(db, monkeypatch):
 
     monkeypatch.setattr(ml, "prepare_backbone", lambda: None)
     monkeypatch.setattr(ml, "network", lambda *args: TinyNetwork())
+    failed = ModelVersion(
+        status="ERROR", dataset_fingerprint="c" * 64, sample_count=0, labels_snapshot={}
+    )
+    db.add(failed)
+    db.flush()
+    failed_path = settings().data_dir / "models" / f"version-{failed.id}" / "weights.pt"
+    failed_path.parent.mkdir(parents=True)
+    failed_path.write_bytes(b"checkpoint from failed training")
+    failed.model_path = str(failed_path)
+    db.commit()
     assert ml.schedule_training()
     assert not ml.schedule_training()
     from app.worker import run_once
@@ -215,9 +225,11 @@ def test_train_save_activate_classify_and_queue_isolation(db, monkeypatch):
     assert not run_once()  # Intake workers never consume a long-running training job.
     assert run_once(kinds=["TRAIN"])
     db.expire_all()
-    version = db.scalar(select(ModelVersion))
+    version = db.scalar(select(ModelVersion).where(ModelVersion.status == "ACTIVE"))
     job = db.scalar(select(Job))
     assert job.status == "DONE"
+    assert not failed_path.exists() and failed.weights_removed_at is not None
+    assert failed.status == "ERROR" and failed.model_path is None
     assert version.status == "ACTIVE"
     assert version.metrics["macro_f1"] == 1.0
     assert version.supported_classes == ml.CODES[:2]

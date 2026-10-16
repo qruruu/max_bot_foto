@@ -20,6 +20,7 @@ from app.config import settings
 from app.db import engine
 from app.domain import audit, enqueue, now
 from app.media import analysis_image, digest_file, media_path
+from app.model_storage import MODEL_FILE_LOCK, PREVIOUS_MODELS_TO_KEEP, cleanup_model_files, weights_available
 from app.models import Job, ModelVersion, Photo
 from app.recognition import Classification, ClassificationResponse
 
@@ -141,17 +142,21 @@ def version_dict(version):
     if not version:
         return None
     return {
-        key: getattr(version, key)
-        for key in [
-            "id",
-            "status",
-            "created_at",
-            "finished_at",
-            "sample_count",
-            "metrics",
-            "supported_classes",
-            "last_error",
-        ]
+        "weights_available": weights_available(version),
+        "weights_removed_at": version.weights_removed_at,
+        **{
+            key: getattr(version, key)
+            for key in [
+                "id",
+                "status",
+                "created_at",
+                "finished_at",
+                "sample_count",
+                "metrics",
+                "supported_classes",
+                "last_error",
+            ]
+        },
     }
 
 
@@ -171,6 +176,7 @@ def training_status(db: Session):
         "provider": "local",
         "architecture": ARCHITECTURE,
         "auto_train": settings().ml_auto_train,
+        "retention": {"previous_versions": PREVIOUS_MODELS_TO_KEEP},
         "labeled_total": len(examples),
         "missing_images": missing,
         "plan": training_plan(examples),
@@ -367,6 +373,7 @@ def interpret_probabilities(probabilities: list[list[float]], supported: list[st
 class LocalClassifier:
     def classify(self, path: Path) -> ClassificationResponse:
         with Session(engine()) as db:
+            db.execute(text("SELECT pg_advisory_xact_lock_shared(:key, 1)"), {"key": MODEL_FILE_LOCK})
             active = active_model(db)
             if not active:
                 result = Classification(result="UNKNOWN", work_type=None, confidence=0, alternatives=[])
@@ -379,7 +386,8 @@ class LocalClassifier:
                 active.model_sha256,
                 active.supported_classes,
             )
-        model = load_model(model_path, checksum)
+            # Hold the file lock until weights are in memory; inference can then run independently.
+            model = load_model(model_path, checksum)
         torch, _, _ = torch_modules()
         image = analysis_image(path)
         w, h = image.size
@@ -567,6 +575,8 @@ def train_model(force: bool = False):
             lock.execute(text("SELECT pg_advisory_unlock(7005, 1)"))
             lock.commit()
 
+    cleanup_model_files()
+
 
 def main():
     import signal
@@ -586,6 +596,7 @@ def main():
     while not stopping:
         try:
             if time.monotonic() >= next_check:
+                cleanup_model_files()
                 schedule_training()
                 next_check = time.monotonic() + settings().ml_check_seconds
             if not run_once(kinds=["TRAIN"]):
