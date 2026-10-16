@@ -2,13 +2,14 @@ import hashlib
 import secrets
 from datetime import timedelta
 from typing import Annotated
+from uuid import UUID
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import delete, select, text
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, attributes
 
 from app.config import settings
 from app.db import get_db
@@ -16,6 +17,7 @@ from app.domain import audit, now
 from app.models import LoginAttempt, LoginSession, User
 from app.permissions import Permission, effective_permissions, has_permission
 from app.schemas import LoginInput, PasswordInput
+from app.session_details import client_address, session_dict
 
 hasher = PasswordHasher()
 DUMMY_HASH = hasher.hash(secrets.token_urlsafe(24))
@@ -46,6 +48,23 @@ def current_user(request: Request, db: Db):
         csrf = request.headers.get("x-csrf-token", "")
         if not secrets.compare_digest(session.csrf_hash, digest(csrf)):
             raise HTTPException(403, "Недействительный CSRF-токен")
+    instant = now()
+    cutoff = instant - timedelta(minutes=1)
+    if session.last_seen_at is None or session.last_seen_at < cutoff:
+        # Persist after the handler finishes, without committing its business transaction.
+        observed_ua = request.headers.get("user-agent", "")[:512] or None
+        observed_ip = client_address(request)
+        db.info["session_activity"] = {
+            "token_hash": session.token_hash,
+            "at": instant,
+            "user_agent": observed_ua,
+            "ip_address": observed_ip,
+        }
+        attributes.set_committed_value(session, "last_seen_at", instant)
+        if session.user_agent is None and observed_ua:
+            attributes.set_committed_value(session, "user_agent", observed_ua)
+        if observed_ip:
+            attributes.set_committed_value(session, "ip_address", observed_ip)
     request.state.login_session = session
     return user
 
@@ -129,6 +148,8 @@ def rate_limit_login(db: Session, request: Request, login: str):
 def login(body: LoginInput, request: Request, response: Response, db: Db):
     check_origin(request)
     rate_limit_login(db, request, body.login)
+    # Serialize issuance with password/permission changes and explicit session revocation.
+    db.execute(text("SELECT pg_advisory_xact_lock(7004, 1)"))
     user = db.scalar(select(User).where(User.login == body.login.lower()))
     valid = verify_password(user.password_hash if user else DUMMY_HASH, body.password)
     if not valid or not user or not user.active:
@@ -136,12 +157,17 @@ def login(body: LoginInput, request: Request, response: Response, db: Db):
     if hasher.check_needs_rehash(user.password_hash):
         user.password_hash = hasher.hash(body.password)
     token, csrf = secrets.token_urlsafe(48), secrets.token_urlsafe(32)
+    instant = now()
     db.add(
         LoginSession(
             token_hash=digest(token),
             csrf_hash=digest(csrf),
             user_id=user.id,
-            expires_at=now() + timedelta(hours=settings().session_hours),
+            expires_at=instant + timedelta(hours=settings().session_hours),
+            created_at=instant,
+            last_seen_at=instant,
+            user_agent=request.headers.get("user-agent", "")[:512] or None,
+            ip_address=client_address(request),
         )
     )
     db.execute(delete(LoginSession).where(LoginSession.expires_at < now()))
@@ -162,6 +188,60 @@ def login(body: LoginInput, request: Request, response: Response, db: Db):
 @router.get("/me")
 def me(user: CurrentUser):
     return user_dict(user)
+
+
+@router.get("/sessions")
+def sessions(request: Request, db: Db, user: CurrentUser):
+    current_id = request.state.login_session.id
+    rows = db.scalars(
+        select(LoginSession)
+        .where(LoginSession.user_id == user.id, LoginSession.expires_at > now())
+        .order_by(
+            (LoginSession.id == current_id).desc(),
+            LoginSession.last_seen_at.desc().nullslast(),
+            LoginSession.created_at.desc().nullslast(),
+            LoginSession.id,
+        )
+    )
+    return {
+        "items": [session_dict(session, current_id) for session in rows],
+        "session_hours": settings().session_hours,
+    }
+
+
+@router.post("/sessions/revoke-others")
+def revoke_other_sessions(request: Request, db: Db, user: CurrentUser):
+    db.execute(text("SELECT pg_advisory_xact_lock(7004, 1)"))
+    count = db.execute(
+        delete(LoginSession).where(
+            LoginSession.user_id == user.id,
+            LoginSession.id != request.state.login_session.id,
+            LoginSession.expires_at > now(),
+        )
+    ).rowcount
+    if count:
+        audit(db, user.id, "OTHER_SESSIONS_REVOKED", "user", user.id, None, {"sessions_revoked": count})
+    db.commit()
+    return {"revoked": count}
+
+
+@router.delete("/sessions/{session_id}")
+def revoke_session(session_id: UUID, request: Request, db: Db, user: CurrentUser):
+    if str(session_id) == request.state.login_session.id:
+        raise HTTPException(409, "Для завершения текущего сеанса используйте кнопку «Выйти».")
+    db.execute(text("SELECT pg_advisory_xact_lock(7004, 1)"))
+    count = db.execute(
+        delete(LoginSession).where(
+            LoginSession.id == str(session_id),
+            LoginSession.user_id == user.id,
+            LoginSession.expires_at > now(),
+        )
+    ).rowcount
+    if not count:
+        raise HTTPException(404, "Сеанс не найден или уже завершён")
+    audit(db, user.id, "SESSION_REVOKED", "user", user.id, None, {"session_id": str(session_id)})
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/logout")

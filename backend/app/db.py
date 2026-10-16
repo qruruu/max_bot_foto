@@ -17,4 +17,10 @@ def engine():
 
 def get_db():
     with Session(engine(), expire_on_commit=False) as db:
-        yield db
+        try:
+            yield db
+        finally:
+            if "session_activity" in db.info:
+                from app.session_details import record_session_activity
+
+                record_session_activity(db)

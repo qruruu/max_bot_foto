@@ -1,0 +1,58 @@
+.settings-layout { display: grid; grid-template-columns: 200px minmax(0, 560px); gap: 28px; align-items: start; }
+.settings-nav { position: sticky; top: 24px; display: flex; flex-direction: column; gap: 8px; min-height: 280px; padding-right: 20px; border-right: 1px solid var(--border); }
+.settings-nav a { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 12px; border-radius: 9px; color: var(--muted); font-size: 13px; }
+.settings-nav a svg { flex-shrink: 0; }
+.settings-nav a:hover { background: #edf4ec; color: var(--green); }
+.settings-nav a.active { background: #edf4ec; color: var(--green); font-weight: 600; }
+.settings-nav a:focus-visible { outline: 2px solid var(--focus, #7aaa90); outline-offset: 2px; }
+.settings-content { min-width: 0; }
+.settings-content > .panel { width: 100%; max-width: none; margin-bottom: 0; }
+.settings-security label { margin-bottom: 20px; }
+.settings-security button { max-width: 100%; }
+.active-sessions > .section-title { margin-bottom: 24px; }
+.active-sessions > .section-title h2 { margin: 0; }
+.sessions-label { margin: 20px 0 10px; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+.session-panel { padding-top: 4px; padding-bottom: 4px; margin-bottom: 16px; }
+.session-row { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 12px; padding: 18px 0; }
+.session-row + .session-row { border-top: 1px solid var(--border); }
+.session-device-icon { width: 38px; height: 38px; display: grid; place-items: center; background: #edf4ec; color: var(--green); border-radius: 10px; }
+.session-details { min-width: 0; }
+.session-device-name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.session-device-name strong { font-size: 14px; font-weight: 600; }
+.session-device-name .badge { font-size: 9px; }
+.session-details p { margin: 7px 0 0; font-size: 12px; overflow-wrap: anywhere; }
+.session-details .hint { font-size: 11px; }
+.session-address { color: var(--muted); overflow-wrap: anywhere; }
+.session-action { grid-column: 2; justify-self: start; }
+.session-revoke { color: #b34336; border-color: #e7c5bf; }
+.session-revoke:hover { color: #a52e22; background: #fff4f1; border-color: #c8877d; }
+.revoke-other-sessions { margin: 0 0 10px; width: 100%; justify-content: flex-start; text-align: left; }
+.session-panel > .hint { margin: 0 0 16px; }
+.sessions-footnote { margin: 20px 0 0; }
+.session-confirmation { width: 480px; max-width: 100%; }
+.session-confirmation-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin-top: 24px; }
+:root[data-theme="dark"] .session-device-icon { color: var(--accent); background: var(--accent-surface); }
+:root[data-theme="dark"] .session-revoke { color: var(--danger); border-color: #81574f; }
+:root[data-theme="dark"] .session-revoke:hover { color: var(--danger); background: #422b27; border-color: #b77c70; }
+:root[data-theme="dark"] .settings-nav a:hover { background: var(--surface-soft); color: var(--text); }
+:root[data-theme="dark"] .settings-nav a.active { background: var(--accent-surface); color: var(--accent); }
+@media (max-width: 1100px) {
+  .settings-layout { grid-template-columns: 176px minmax(0, 560px); gap: 20px; }
+  .settings-nav { padding-right: 14px; }
+}
+@media (max-width: 700px) {
+  .settings-layout { grid-template-columns: 48px minmax(0, 1fr); gap: 16px; }
+  .settings-nav { padding-right: 8px; min-height: 240px; }
+  .settings-nav a { justify-content: center; padding: 12px 8px; }
+  .settings-nav a span { display: none; }
+  .settings-content .appearance-row { gap: 10px; }
+  .settings-content .appearance-row > div { min-width: 0; }
+  .session-device-name strong { font-size: 13px; }
+  .session-confirmation .section-title h2 { font-size: 18px; }
+}
+@media (max-width: 420px) {
+  .settings-layout { grid-template-columns: 44px minmax(0, 1fr); gap: 10px; }
+  .session-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .session-action { grid-column: 1; }
+  .session-details p { font-size: 11px; }
+}

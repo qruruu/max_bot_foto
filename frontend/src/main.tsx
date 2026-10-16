@@ -8,4 +8,5 @@ import './style.css';
 import './theme.css';
 import './update.css';
 import './notifications.css';
+import './settings.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><ThemeProvider><BrowserRouter><App/><UpdateNotice/></BrowserRouter></ThemeProvider></React.StrictMode>);

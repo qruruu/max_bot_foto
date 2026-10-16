@@ -9,6 +9,7 @@ import DistrictMap from './DistrictMap';
 import Administration from './Administration';
 import Learning from './Learning';
 import Exchange from './Exchange';
+import Settings from './Settings';
 import { hasPermission } from './permissions';
 import { PhotoNotificationsProvider } from './PhotoNotifications';
 
@@ -81,7 +82,8 @@ export default function App() {
           <Route path="/jobs" element={protectedPage('jobs_manage',<Administration key="jobs" page="jobs"/>)}/>
           <Route path="/learning" element={protectedPage('learning_manage',<Learning/>)}/>
           <Route path="/exchange" element={protectedPage('exchange_manage',<Exchange/>)}/>
-          <Route path="/settings" element={<Administration page="account"/>}/>
+          <Route path="/settings" element={<Navigate to="/settings/appearance" replace/>}/>
+          <Route path="/settings/:section" element={<Settings/>}/>
           <Route path="/account" element={<Navigate to="/settings" replace/>}/>
           <Route path="*" element={denied}/>
         </Routes>
