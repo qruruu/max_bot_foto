@@ -68,6 +68,7 @@ from app.schemas import (
     ExchangeModeInput,
     PhotoEdit,
     PhotoFilters,
+    PhotoMapFilters,
     PhotoVersionInput,
     UserCreate,
     UserUpdate,
@@ -216,6 +217,53 @@ def photo_arrivals(db: Db, user: PhotosReader):
                 .order_by(Photo.id)
             )
         )
+    }
+
+
+@app.get("/api/photos/map")
+def photo_map(
+    db: Db,
+    user: PhotosReader,
+    filters: Annotated[PhotoMapFilters, Query()],
+):
+    """Compact map batches, independent of the photo table's 30-row pagination."""
+    check_spam_filter(user, filters)
+    after_id, snapshot_id = filters.after_id, filters.snapshot_id
+    source = filtered(filters).with_only_columns(
+        Photo.id, Photo.latitude, Photo.longitude, Photo.photo_date, Photo.photo_time,
+        Photo.received_at, Photo.chat_name, Photo.work_type, Photo.status, Photo.sha256,
+    ).subquery()
+    if snapshot_id is None:
+        snapshot_id = db.scalar(select(func.max(source.c.id))) or 0
+    valid_coordinates = (
+        source.c.latitude.between(-90, 90) & source.c.longitude.between(-180, 180)
+    )
+    summary = None
+    if after_id == 0:
+        total, located = db.execute(
+            select(func.count(), func.count().filter(valid_coordinates))
+            .select_from(source).where(source.c.id <= snapshot_id)
+        ).one()
+        summary = {"total": total, "located": located, "without_coordinates": total - located}
+    rows = db.execute(
+        select(source).where(
+            source.c.id > after_id, source.c.id <= snapshot_id, valid_coordinates,
+        ).order_by(source.c.id).limit(1001)
+    ).mappings().all()
+    items = [
+        {
+            "id": p["id"], "longitude": p["longitude"], "latitude": p["latitude"],
+            "photo_date": p["photo_date"], "photo_time": p["photo_time"],
+            "received_at": p["received_at"], "chat_name": p["chat_name"],
+            "status": p["status"],
+            "work_type_name": WORK_TYPES[p["work_type"]][0] if p["work_type"] in WORK_TYPES else None,
+            "preview_url": f"/api/photos/{p['id']}/preview" if p["sha256"] else None,
+        }
+        for p in rows[:1000]
+    ]
+    return {
+        "items": items, "summary": summary, "snapshot_id": snapshot_id,
+        "next_after_id": items[-1]["id"] if len(rows) > 1000 else None,
     }
 
 

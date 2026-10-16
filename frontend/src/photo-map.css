@@ -1,0 +1,13 @@
+.photo-map-panel { padding: 20px; }
+.photo-map-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.photo-map-toolbar strong { display: block; font-size: 17px; margin-bottom: 6px; }
+.photo-map-toolbar span { color: var(--muted); font-size: 13px; }
+.photo-map-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.photo-map-canvas { height: 65vh; min-height: 420px; max-height: 850px; width: 100%; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface-soft, #edf2ed); }
+.photo-map-empty { padding: 14px; background: var(--surface-soft, #edf2ed); border-radius: 8px; }
+/* Yandex balloons keep a light surface in both application themes. */
+.map-photo-balloon { color: #24352e; font: 13px/1.5 Arial, sans-serif; max-width: 240px; overflow-wrap: anywhere; }
+.map-photo-balloon strong { display: block; }
+.map-photo-balloon a { display: inline-block; color: #145bbd; margin-top: 8px; }
+.map-photo-preview { display: block; max-width: 220px; width: 100%; height: 150px; object-fit: contain; margin-bottom: 8px; }
+@media (max-width: 600px) { .photo-map-panel { padding: 12px; } .photo-map-canvas { min-height: 360px; height: 60vh; } }

@@ -137,6 +137,11 @@ class PhotoFilters(BaseModel):
         return self
 
 
+class PhotoMapFilters(PhotoFilters):
+    after_id: int = Field(default=0, ge=0)
+    snapshot_id: int | None = Field(default=None, ge=0)
+
+
 def validate_polygon(data: dict):
     from shapely.geometry import MultiPolygon, shape
     from shapely.validation import explain_validity

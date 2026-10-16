@@ -7,14 +7,28 @@ export interface YPolygon {
   events: { add(name: string, callback: () => void): void };
 }
 export interface YMap {
-  geoObjects: { add(object: YPolygon): void; remove(object: YPolygon): void; getBounds(): number[][] | null };
+  geoObjects: { add(object: YPolygon | YObjectManager): void; remove(object: YPolygon | YObjectManager): void; getBounds(): number[][] | null };
   setBounds(bounds: number[][], options?: Record<string, unknown>): void;
   destroy(): void;
+}
+export interface YObjectManager {
+  objects: {options: {set(options: Record<string, unknown>): void}};
+  clusters: {options: {set(options: Record<string, unknown>): void}};
+  add(collection: {type: 'FeatureCollection'; features: MapFeature[]}): void;
+  removeAll(): void;
+  getBounds(): number[][] | null;
+}
+export interface MapFeature {
+  type: 'Feature';
+  id: number;
+  geometry: {type: 'Point'; coordinates: [number, number]};
+  properties: Record<string, string>;
 }
 export interface YMaps {
   ready(callback: () => void): void;
   Map: new (container: HTMLElement, state: Record<string, unknown>, options?: Record<string, unknown>) => YMap;
   Polygon: new (coordinates: Coordinates, properties?: Record<string, unknown>, options?: Record<string, unknown>) => YPolygon;
+  ObjectManager: new (options?: Record<string, unknown>) => YObjectManager;
 }
 declare global { interface Window { ymaps?: YMaps } }
 let loading: Promise<YMaps> | null = null;
