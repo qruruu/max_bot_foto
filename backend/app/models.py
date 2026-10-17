@@ -55,6 +55,24 @@ class User(Timestamps, Base):
     )
 
 
+class OperatorMessage(Base):
+    __tablename__ = "operator_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    recipient_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    client_id: Mapped[str] = mapped_column(String(36))
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint("sender_id <> recipient_id", name="ck_operator_message_peer"),
+        CheckConstraint("length(body) BETWEEN 1 AND 4000", name="ck_operator_message_body"),
+        UniqueConstraint("sender_id", "client_id", name="uq_operator_message_client"),
+        Index("ix_operator_messages_pair", "sender_id", "recipient_id", "id"),
+        Index("ix_operator_messages_unread", "recipient_id", "read_at", "sender_id"),
+    )
+
+
 class LoginSession(Base):
     __tablename__ = "login_sessions"
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)

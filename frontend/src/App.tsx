@@ -12,6 +12,8 @@ import Learning from './Learning';
 import Exchange from './Exchange';
 import Settings from './Settings';
 import Avatar from './Avatar';
+import OperatorChats from './OperatorChats';
+import { OperatorChatBadge, OperatorChatsProvider } from './OperatorChatsProvider';
 import { hasPermission } from './permissions';
 import { PhotoNotificationsProvider } from './PhotoNotifications';
 
@@ -45,6 +47,7 @@ export default function App() {
     {to:'/review', label:'Требуют проверки', Icon:ClipboardCheck, allowed:hasPermission(user,'photos_edit')},
     {to:'/spam', label:'Спам', Icon:ArchiveX, allowed:hasPermission(user,'spam_view')},
     {to:'/districts', label:'Микрорайоны', Icon:Map, allowed:hasPermission(user,'districts_view')},
+    {to:'/messages', label:'Чаты операторов', Icon:MessageSquare, allowed:true},
     {to:'/chats', label:'Чаты MAX', Icon:MessageSquare, allowed:hasPermission(user,'chats_manage')},
     {to:'/users', label:'Операторы', Icon:Users, allowed:admin},
     {to:'/audit', label:'Журнал действий', Icon:ShieldCheck, allowed:hasPermission(user,'audit_view')},
@@ -56,12 +59,13 @@ export default function App() {
   const denied = <Navigate to={home} replace/>;
   const protectedPage = (code:string, element:ReactNode) => hasPermission(user,code) ? element : denied;
   return <Context.Provider value={{user,meta,refresh,notify:setToast,updateUser:setUser}}>
+    <OperatorChatsProvider key={user.id}>
     <PhotoNotificationsProvider key={user.id} userId={user.id} canViewPhotos={hasPermission(user,'photos_view')}>
     <div className="app">
       <aside className="sidebar">
         <NavLink className="brand" to={home}><span className="brand-mark"><Layers size={23}/></span><span>MAX Фото<small>Контроль городских работ</small></span></NavLink>
         <div className="nav-label">РАБОЧЕЕ ПРОСТРАНСТВО</div>
-        <nav>{links.map(({to,label,Icon}) => <NavLink key={to} to={to} title={label} end={to==='/'}><Icon size={19}/>{label}</NavLink>)}</nav>
+        <nav>{links.map(({to,label,Icon}) => <NavLink key={to} to={to} title={label} className={to==='/messages'?'operator-chats-link':undefined} end={to==='/'}><Icon size={19}/>{label}{to==='/messages'&&<OperatorChatBadge/>}</NavLink>)}</nav>
         <div className="sidebar-bottom">
           <NavLink to="/settings" className="account-link" title="Настройки" aria-label="Настройки">
             <Avatar name={user.name} src={user.avatar_url}/>
@@ -80,6 +84,7 @@ export default function App() {
           <Route path="/spam" element={protectedPage('spam_view',<PhotoList spam/>)}/>
           <Route path="/photos/:id" element={protectedPage('photos_view',<PhotoDetail/>)}/>
           <Route path="/districts" element={protectedPage('districts_view',<DistrictMap/>)}/>
+          <Route path="/messages" element={<OperatorChats/>}/>
           <Route path="/chats" element={protectedPage('chats_manage',<Administration key="chats" page="chats"/>)}/>
           <Route path="/users" element={admin?<Administration key="users" page="users"/>:denied}/>
           <Route path="/audit" element={protectedPage('audit_view',<Administration key="audit" page="audit"/>)}/>
@@ -95,6 +100,7 @@ export default function App() {
     </div>
     {toast&&<div className="toast" role="status"><CircleCheck size={20}/>{toast}<button onClick={()=>setToast('')}>×</button></div>}
     </PhotoNotificationsProvider>
+    </OperatorChatsProvider>
   </Context.Provider>;
 }
 

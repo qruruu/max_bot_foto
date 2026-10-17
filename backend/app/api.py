@@ -53,6 +53,7 @@ from app.models import (
     Publication,
     User,
 )
+from app.operator_chats import router as operator_chats_router
 from app.permissions import (
     DEFAULT_OPERATOR_PERMISSIONS,
     Permission,
@@ -82,6 +83,7 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 app.include_router(auth_router)
+app.include_router(operator_chats_router)
 Filters = Annotated[PhotoFilters, Query()]
 
 
