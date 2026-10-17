@@ -12,3 +12,5 @@
 .operator-modal{width:780px;max-width:100%}.permission-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.permissions-editor .permission-groups fieldset{min-width:0;margin:0}.permissions-editor .permission-groups .checkbox{font-size:11px}@media(max-width:600px){.permission-groups{grid-template-columns:1fr}}
 
 .account-link{display:flex;align-items:center;gap:10px;flex:1;min-width:0;padding:6px;border-radius:8px}.account-link .avatar{flex-shrink:0}.account-info{min-width:0}.account-link:hover,.account-link.active{background:#edf4ec}.account-link:focus-visible{outline:2px solid #7aaa90;outline-offset:2px}@media(max-width:850px){.account-link{flex:0 0 auto;justify-content:center}.account-info{display:none}}
+
+.photo-save-actions{display:grid;gap:10px}

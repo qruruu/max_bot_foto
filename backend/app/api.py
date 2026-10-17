@@ -311,6 +311,21 @@ def preview(photo_id: int, db: Db, user: PhotosReader):
     return FileResponse(path, media_type="image/jpeg")
 
 
+@app.get("/api/photos/{photo_id}/next")
+def next_photo(photo_id: int, db: Db, user: PhotosReader, filters: Filters):
+    photo = require_photo(db, photo_id, user)
+    check_spam_filter(user, filters)
+    # Match the archive order, including ties, without depending on table pagination
+    # or whether the current photo still matches the filters after an edit.
+    candidate = db.scalar(
+        filtered(filters).with_only_columns(Photo.id).where(
+            (Photo.received_at < photo.received_at)
+            | ((Photo.received_at == photo.received_at) & (Photo.id < photo.id))
+        ).order_by(Photo.received_at.desc(), Photo.id.desc()).limit(1)
+    )
+    return {"id": candidate}
+
+
 @app.get("/api/photos/{photo_id}/original")
 def original(photo_id: int, db: Db, user: OriginalsReader):
     photo = require_photo(db, photo_id, user)
