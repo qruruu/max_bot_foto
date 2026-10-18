@@ -1,6 +1,7 @@
 import type { PermissionDefinition, User } from './types';
 
 export function hasPermission(user: User, code: string): boolean {
+  if (user.role !== 'ADMIN_OPERATOR' && user.allowed_chat_ids != null && ['exchange_manage', 'learning_manage'].includes(code)) return false;
   return user.role === 'ADMIN_OPERATOR' || !!user.permissions?.includes(code);
 }
 

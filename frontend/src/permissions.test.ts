@@ -22,10 +22,18 @@ describe('operator permissions', () => {
       .toEqual(['reports_view','chats_manage']);
   });
   it('grants only the stored operator functions while administrators retain all functions', () => {
-    const operator: User = {id:1,login:'operator',name:'Test',active:true,role:'OPERATOR',permissions:['photos_view'],avatar_url:null};
+    const operator: User = {id:1,login:'operator',name:'Test',active:true,role:'OPERATOR',permissions:['photos_view'],allowed_chat_ids:null,avatar_url:null};
     expect(hasPermission(operator,'photos_view')).toBe(true);
     expect(hasPermission(operator,'photos_edit')).toBe(false);
     expect(hasPermission({...operator,role:'ADMIN_OPERATOR',permissions:[]},'photos_edit')).toBe(true);
     expect(hasPermission({...operator,permissions:[]},'photos_view')).toBe(false);
+  });
+  it('keeps global exchange and training unavailable with a limited chat selection', () => {
+    const operator = {role:'OPERATOR',allowed_chat_ids:[1],permissions:['photos_view','exchange_manage','learning_manage']} as User;
+    expect(hasPermission(operator,'photos_view')).toBe(true);
+    expect(hasPermission(operator,'exchange_manage')).toBe(false);
+    expect(hasPermission(operator,'learning_manage')).toBe(false);
+    expect(hasPermission({...operator,allowed_chat_ids:null},'exchange_manage')).toBe(true);
+    expect(hasPermission({...operator,role:'ADMIN_OPERATOR'},'learning_manage')).toBe(true);
   });
 });

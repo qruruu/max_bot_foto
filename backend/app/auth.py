@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, attributes
 
 from app.avatars import MAX_AVATAR_BYTES, normalize_avatar
+from app.chat_access import allowed_chat_ids, require_all_chats
 from app.config import settings
 from app.db import get_db
 from app.domain import audit, now
@@ -91,6 +92,8 @@ def check_permission(user: User, code):
 def require_permission(code):
     def allowed(user: CurrentUser):
         check_permission(user, code)
+        if code in {Permission.EXCHANGE_MANAGE, Permission.LEARNING_MANAGE}:
+            require_all_chats(user)
         return user
 
     return allowed
@@ -119,6 +122,7 @@ def user_dict(user: User):
         "role": user.role,
         "active": user.active,
         "permissions": effective_permissions(user),
+        "allowed_chat_ids": allowed_chat_ids(user),
         "avatar_url": f"/api/auth/avatar/{user.id}?v={hashlib.sha256(user.avatar_image).hexdigest()[:16]}"
         if user.avatar_image else None,
     }

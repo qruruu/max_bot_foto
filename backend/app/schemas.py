@@ -1,6 +1,6 @@
 import re
 from datetime import date, time
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -22,7 +22,16 @@ class PasswordInput(StrictModel):
     new_password: str = Field(min_length=12, max_length=256)
 
 
-class UserCreate(StrictModel):
+class ChatAccessInput(StrictModel):
+    allowed_chat_ids: list[Annotated[int, Field(strict=True, gt=0)]] | None = None
+
+    @field_validator("allowed_chat_ids")
+    @classmethod
+    def distinct_chats(cls, value):
+        return sorted(set(value)) if value is not None else None
+
+
+class UserCreate(ChatAccessInput):
     login: str = Field(min_length=3, max_length=100, pattern=r"^[A-Za-z0-9_.@-]+$")
     name: str = Field(min_length=1, max_length=150)
     password: str = Field(min_length=12, max_length=256)
@@ -38,7 +47,7 @@ class UserCreate(StrictModel):
         return validate_permissions(value)
 
 
-class UserUpdate(StrictModel):
+class UserUpdate(ChatAccessInput):
     name: str | None = Field(default=None, min_length=1, max_length=150)
     password: str | None = Field(default=None, min_length=12, max_length=256)
     role: Role | None = None

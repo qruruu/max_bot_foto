@@ -132,7 +132,8 @@ def test_photo_and_report_readers_get_counts_without_spam(counts_client, permiss
     client, service, monkeypatch = counts_client
     monkeypatch.setitem(app.dependency_overrides, current_user, lambda: SimpleNamespace(role="OPERATOR", permissions=permissions))
     assert client.get("/api/photos/filter-counts?work_type=GREEN_CLEANING").status_code == 200
-    assert service.call_args.kwargs == {"include_spam": False}
+    assert service.call_args.kwargs["include_spam"] is False
+    assert service.call_args.kwargs["user"].permissions == permissions
     assert client.get("/api/photos/filter-counts?status=SPAM").status_code == 403
 
 
@@ -140,5 +141,6 @@ def test_admin_gets_spam_counts_and_query_validation_still_applies(counts_client
     client, service, monkeypatch = counts_client
     monkeypatch.setitem(app.dependency_overrides, current_user, lambda: SimpleNamespace(role="ADMIN_OPERATOR"))
     assert client.get("/api/photos/filter-counts").status_code == 200
-    assert service.call_args.kwargs == {"include_spam": True}
+    assert service.call_args.kwargs["include_spam"] is True
+    assert service.call_args.kwargs["user"].role == "ADMIN_OPERATOR"
     assert client.get("/api/photos/filter-counts?date_from=2026-10-18&date_to=2026-10-17").status_code == 422

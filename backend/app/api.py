@@ -11,6 +11,7 @@ from geoalchemy2.shape import from_shape
 from shapely.geometry import mapping
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import load_only
 
 from app.auth import (
     AdminUser,
@@ -35,6 +36,13 @@ from app.auth import (
 )
 from app.auth import router as auth_router
 from app.catalog import WORK_TYPE_DISPLAY_ORDER, WORK_TYPES, Role, Status, work_type_label
+from app.chat_access import (
+    allowed_chat_ids,
+    can_access_chat,
+    chat_condition,
+    require_all_chats,
+    validate_chat_access,
+)
 from app.config import settings
 from app.domain import audit, enqueue, now, reassess
 from app.exchange_housekeeping import ARCHIVE_JOB_KEY
@@ -48,6 +56,7 @@ from app.models import (
     DiscoveredChat,
     District,
     ExchangeState,
+    Inbox,
     Job,
     LoginSession,
     Photo,
@@ -139,6 +148,7 @@ async def webhook(request: Request, db: Db):
 
 @app.get("/api/max/status")
 def max_status(db: Db, user: ChatManager):
+    require_all_chats(user)
     return connection_status(db)
 
 
@@ -164,12 +174,12 @@ def meta(db: Db, user: CurrentUser):
                 "fixed_work_type_code": c.fixed_work_type_code,
                 "work_rule_version": c.work_rule_version,
             }
-            for c in db.scalars(select(Chat).order_by(Chat.name))
+            for c in db.scalars(select(Chat).where(chat_condition(user, Chat.max_chat_id)).order_by(Chat.name))
             if browse or has_permission(user, Permission.CHATS_MANAGE)
         ],
         "districts": [
             {"id": d.id, "name": d.name, "active": d.active}
-            for d in db.scalars(select(District).order_by(District.name))
+            for d in db.scalars(select(District).options(load_only(District.id, District.name, District.active)).order_by(District.name))
             if browse or has_permission(user, Permission.DISTRICTS_VIEW)
         ],
         "operators": [
@@ -189,15 +199,16 @@ def dictionaries(db):
 @app.get("/api/photos")
 def photos(db: Db, user: PhotosReader, filters: Annotated[PhotoListFilters, Query()]):
     check_spam_filter(user, filters)
-    stmt = filtered(filters)
+    stmt = filtered(filters, user)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     anchor = db.get(Photo, filters.anchor_id) if filters.anchor_id else None
     if anchor and (
         anchor.preview_removed_at is not None
+        or not can_access_chat(db, user, anchor.max_chat_id)
         or (anchor.is_spam and not has_permission(user, Permission.SPAM_VIEW))
     ):
         anchor = None
-    page, focus_index = photo_list_position(db, filters, total, anchor)
+    page, focus_index = photo_list_position(db, filters, total, anchor, user)
     rows = list(db.scalars(
         stmt.order_by(Photo.received_at.desc(), Photo.id.desc())
         .offset((page - 1) * filters.page_size)
@@ -218,7 +229,7 @@ def photo_filter_options(db: Db, user: CurrentUser, filters: Filters):
     if not (has_permission(user, Permission.PHOTOS_VIEW) or has_permission(user, Permission.REPORTS_VIEW)):
         raise HTTPException(403, "Нет доступа к этой функции")
     check_spam_filter(user, filters)
-    return photo_filter_counts(db, filters, include_spam=has_permission(user, Permission.SPAM_VIEW))
+    return photo_filter_counts(db, filters, include_spam=has_permission(user, Permission.SPAM_VIEW), user=user)
 
 
 @app.get("/api/photos/arrivals")
@@ -229,6 +240,7 @@ def photo_arrivals(db: Db, user: PhotosReader):
             db.scalars(
                 select(Photo.id)
                 .where(
+                    chat_condition(user),
                     Photo.received_at >= now() - timedelta(days=1),
                     Photo.preview_removed_at.is_(None),
                     Photo.is_spam.is_(False),
@@ -249,7 +261,7 @@ def photo_map(
     """Compact map batches, independent of the photo table's 30-row pagination."""
     check_spam_filter(user, filters)
     after_id, snapshot_id = filters.after_id, filters.snapshot_id
-    source = filtered(filters).with_only_columns(
+    source = filtered(filters, user).with_only_columns(
         Photo.id, Photo.latitude, Photo.longitude, Photo.photo_date, Photo.photo_time,
         Photo.received_at, Photo.chat_name, Photo.work_type, Photo.is_defect, Photo.status, Photo.sha256,
     ).subquery()
@@ -300,7 +312,7 @@ def check_spam_filter(user, filters):
 
 def require_photo(db, photo_id, user):
     photo = db.get(Photo, photo_id)
-    if not photo or photo.preview_removed_at is not None:
+    if not photo or photo.preview_removed_at is not None or not can_access_chat(db, user, photo.max_chat_id):
         raise HTTPException(404, "Фотография не найдена")
     check_photo_access(user, photo)
     return photo
@@ -336,7 +348,7 @@ def next_photo(photo_id: int, db: Db, user: PhotosReader, filters: Filters):
     # Match the archive order, including ties, without depending on table pagination
     # or whether the current photo still matches the filters after an edit.
     candidate = db.scalar(
-        filtered(filters).with_only_columns(Photo.id).where(
+        filtered(filters, user).with_only_columns(Photo.id).where(
             (Photo.received_at < photo.received_at)
             | ((Photo.received_at == photo.received_at) & (Photo.id < photo.id))
         ).order_by(Photo.received_at.desc(), Photo.id.desc()).limit(1)
@@ -437,7 +449,7 @@ def remove_missing_preview(photo_id: int, body: PhotoVersionInput, db: Db, user:
 
     db.execute(text("SELECT pg_advisory_xact_lock(7002, :id)"), {"id": photo_id})
     photo = db.get(Photo, photo_id)
-    if not photo:
+    if not photo or not can_access_chat(db, user, photo.max_chat_id):
         raise HTTPException(404, "Фотография не найдена")
     check_photo_access(user, photo)
     if photo.preview_removed_at is not None:
@@ -523,7 +535,7 @@ def retry_photo(photo_id: int, db: Db, user: PhotoEditor):
 @app.get("/api/reports")
 def reports(db: Db, user: ReportsReader, filters: Filters):
     check_spam_filter(user, filters)
-    return summarize(db, filters)
+    return summarize(db, filters, user)
 
 
 @app.get("/api/export.xlsx")
@@ -532,7 +544,7 @@ def excel(db: Db, user: ReportsExporter, filters: Filters):
     # One snapshot keeps detailed rows and the summary sheets consistent during concurrent review.
     db.commit()
     db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
-    data = export_excel(db, filters)
+    data = export_excel(db, filters, user)
     return Response(
         data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -554,12 +566,13 @@ def chats(db: Db, user: ChatManager):
             "created_at": c.created_at,
             "updated_at": c.updated_at,
         }
-        for c in db.scalars(select(Chat).order_by(Chat.name))
+        for c in db.scalars(select(Chat).where(chat_condition(user, Chat.max_chat_id)).order_by(Chat.name))
     ]
 
 
 @app.get("/api/chats/discovered")
 def discovered_chats(db: Db, user: ChatManager):
+    require_all_chats(user)
     unknown = ~select(Chat.id).where(Chat.max_chat_id == DiscoveredChat.max_chat_id).exists()
     rows = db.scalars(
         select(DiscoveredChat)
@@ -584,6 +597,7 @@ def discovered_chats(db: Db, user: ChatManager):
 
 @app.post("/api/chats", status_code=201)
 def create_chat(body: ChatInput, db: Db, user: ChatManager):
+    require_all_chats(user)
     chat = Chat(**body.model_dump())
     db.add(chat)
     db.flush()
@@ -595,7 +609,7 @@ def create_chat(body: ChatInput, db: Db, user: ChatManager):
 @app.put("/api/chats/{chat_id}")
 def edit_chat(chat_id: int, body: ChatInput, db: Db, user: ChatManager):
     chat = db.scalar(select(Chat).where(Chat.id == chat_id).with_for_update())
-    if not chat:
+    if not chat or not can_access_chat(db, user, chat.max_chat_id):
         raise HTTPException(404, "Чат не найден")
     if chat.max_chat_id != body.max_chat_id:
         raise HTTPException(422, "Для другого MAX chat ID создайте новый чат")
@@ -710,6 +724,8 @@ def users(db: Db, user: AdminUser):
 
 @app.post("/api/users", status_code=201)
 def create_user(body: UserCreate, db: Db, user: AdminUser):
+    ids = None if body.role == Role.ADMIN_OPERATOR else body.allowed_chat_ids
+    validate_chat_access(db, ids)
     record = User(
         login=body.login.lower(),
         name=body.name,
@@ -717,6 +733,7 @@ def create_user(body: UserCreate, db: Db, user: AdminUser):
         role=body.role,
         active=body.active,
         permissions=[] if body.role == Role.ADMIN_OPERATOR else body.permissions,
+        allowed_chat_ids=ids,
     )
     db.add(record)
     db.flush()
@@ -733,7 +750,14 @@ def update_user(user_id: int, body: UserUpdate, db: Db, user: AdminUser):
         raise HTTPException(404, "Пользователь не найден")
     old = user_dict(record)
     updates = body.model_dump(exclude_unset=True, exclude_none=True)
+    # Explicit NULL means all chats; omission must preserve an existing restriction.
+    if "allowed_chat_ids" in body.model_fields_set:
+        updates["allowed_chat_ids"] = body.allowed_chat_ids
     target_role = updates.get("role", record.role)
+    if target_role == Role.ADMIN_OPERATOR:
+        updates["allowed_chat_ids"] = None
+    if "allowed_chat_ids" in updates:
+        validate_chat_access(db, updates["allowed_chat_ids"])
     if target_role == Role.ADMIN_OPERATOR and ("role" in updates or "permissions" in updates):
         updates["permissions"] = []
     elif record.role == Role.ADMIN_OPERATOR and target_role == Role.OPERATOR:
@@ -749,7 +773,8 @@ def update_user(user_id: int, body: UserUpdate, db: Db, user: AdminUser):
     ):
         raise HTTPException(409, "Нельзя заблокировать или понизить последнего администратора")
     permissions_changed = old["permissions"] != user_dict(record)["permissions"]
-    if permissions_changed or any(key in updates for key in ("password", "active", "role")):
+    chats_changed = old["allowed_chat_ids"] != user_dict(record)["allowed_chat_ids"]
+    if permissions_changed or chats_changed or any(key in updates for key in ("password", "active", "role")):
         db.execute(delete(LoginSession).where(LoginSession.user_id == record.id))
     audit(
         db,
@@ -780,8 +805,26 @@ def audit_dict(a):
 
 @app.get("/api/audit")
 def audits(db: Db, user: AuditReader, page: int = Query(1, ge=1)):
-    rows = db.scalars(select(Audit).order_by(Audit.id.desc()).offset((page - 1) * 100).limit(100))
+    stmt = select(Audit)
+    if allowed_chat_ids(user) is not None:
+        stmt = stmt.where(
+            Audit.photo_id.in_(select(Photo.id).where(chat_condition(user)))
+            | ((Audit.object_type == "chat") & Audit.object_id.in_(allowed_chat_ids(user)))
+        )
+    rows = db.scalars(stmt.order_by(Audit.id.desc()).offset((page - 1) * 100).limit(100))
     return {"items": [audit_dict(a) for a in rows], "page": page}
+
+
+def job_chat_condition(user):
+    if allowed_chat_ids(user) is None:
+        return text("true")
+    return (
+        Job.kind.in_(["SYNC", "REMOVE_PREVIEW"])
+        & select(Photo.id).where(Photo.id == Job.object_id, chat_condition(user)).exists()
+    ) | (
+        Job.kind.in_(["BATCH", "REPLY"])
+        & select(Inbox.id).where(Inbox.id == Job.object_id, chat_condition(user, Inbox.max_chat_id)).exists()
+    )
 
 
 @app.get("/api/jobs")
@@ -797,13 +840,13 @@ def jobs(db: Db, user: JobManager):
             "next_run_at": j.next_run_at,
             "can_retry": can_retry_job(user, j.kind),
         }
-        for j in db.scalars(select(Job).where(Job.status != "DONE").order_by(Job.next_run_at).limit(200))
+        for j in db.scalars(select(Job).where(Job.status != "DONE", job_chat_condition(user)).order_by(Job.next_run_at).limit(200))
     ]
 
 
 @app.post("/api/jobs/{job_id}/retry")
 def retry_job(job_id: int, db: Db, user: JobManager):
-    job = db.get(Job, job_id)
+    job = db.scalar(select(Job).where(Job.id == job_id, job_chat_condition(user)))
     if not job:
         raise HTTPException(404, "Задача не найдена")
     if not can_retry_job(user, job.kind):

@@ -8,13 +8,14 @@ from sqlalchemy import Date, cast, func, select
 from sqlalchemy.orm import Session
 
 from app.catalog import WORK_TYPES, Status, work_type_label
+from app.chat_access import chat_condition
 from app.config import settings
 from app.models import District, Photo, User
 from app.schemas import PhotoFilters
 
 
-def filtered(filters: PhotoFilters):
-    stmt = select(Photo).where(Photo.preview_removed_at.is_(None))
+def filtered(filters: PhotoFilters, user=None):
+    stmt = select(Photo).where(Photo.preview_removed_at.is_(None), chat_condition(user))
     # Spam is an explicit archive view; normal lists, work reports and exports omit it.
     if filters.status != Status.SPAM:
         stmt = stmt.where(Photo.is_spam.is_(False))
@@ -49,14 +50,14 @@ def filtered(filters: PhotoFilters):
     return stmt
 
 
-def photo_list_position(db, filters: PhotoFilters, total: int, anchor: Photo | None):
+def photo_list_position(db, filters: PhotoFilters, total: int, anchor: Photo | None, user=None):
     last_page = max(1, (total + filters.page_size - 1) // filters.page_size)
     if anchor is None or not total:
         return min(filters.page, last_page), None
     # Resolve the current row against the same order and filters as the archive.
     # If an edit removed it from the selection, return to its nearest remaining row.
     preceding = db.scalar(
-        select(func.count()).select_from(filtered(filters).with_only_columns(Photo.id).where(
+        select(func.count()).select_from(filtered(filters, user).with_only_columns(Photo.id).where(
             (Photo.received_at > anchor.received_at)
             | ((Photo.received_at == anchor.received_at) & (Photo.id > anchor.id))
         ).subquery())
@@ -65,8 +66,8 @@ def photo_list_position(db, filters: PhotoFilters, total: int, anchor: Photo | N
     return index // filters.page_size + 1, index % filters.page_size
 
 
-def summarize(db: Session, filters: PhotoFilters):
-    source = filtered(filters).subquery()
+def summarize(db: Session, filters: PhotoFilters, user=None):
+    source = filtered(filters, user).subquery()
     counts = dict(db.execute(select(source.c.status, func.count()).group_by(source.c.status)).all())
     chats = [
         {"id": cid, "name": name, "count": n}
@@ -149,7 +150,7 @@ def literal(value):
     return value
 
 
-def export_excel(db: Session, filters: PhotoFilters) -> bytes:
+def export_excel(db: Session, filters: PhotoFilters, user=None) -> bytes:
     wb = Workbook(write_only=True)
 
     def sheet(name, columns, rows):
@@ -173,7 +174,7 @@ def export_excel(db: Session, filters: PhotoFilters) -> bytes:
     operators = dict(db.execute(select(User.id, User.name)).all())
 
     def photo_rows():
-        for p in db.scalars(filtered(filters).order_by(Photo.id).execution_options(yield_per=500)):
+        for p in db.scalars(filtered(filters, user).order_by(Photo.id).execution_options(yield_per=500)):
             yield [
                 p.id,
                 p.photo_date,
@@ -219,7 +220,7 @@ def export_excel(db: Session, filters: PhotoFilters) -> bytes:
         ],
         photo_rows(),
     )
-    report = summarize(db, filters)
+    report = summarize(db, filters, user)
     for key, title in [
         ("chats", "По чатам"),
         ("districts", "По микрорайонам"),
