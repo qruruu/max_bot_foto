@@ -149,6 +149,37 @@ def test_next_photo_and_list_anchor_cannot_cross_the_boundary(access_api):
     assert data["page"] == 1 and data["focus_id"] is None
 
 
+def test_save_and_next_finishes_the_review_list_before_revisiting_unresolved_photos(access_api):
+    client, engine = access_api
+    with AccessSession(engine) as db:
+        for id in [50,30,10]:
+            photo = db.get(Photo,id)
+            photo.status, photo.is_spam = "NEEDS_REVIEW", False
+            photo.latitude = photo.longitude = photo.work_type = None
+        db.commit()
+    query = "status=NEEDS_REVIEW&chat_id=100"
+    assert [p["id"] for p in client.get('/api/photos?'+query).json()["items"]] == [50,30,10]
+    for id, expected in [(50,30),(30,10),(10,50)]:
+        # The UI resolves navigation before saving. An uncertain category stays
+        # unresolved, but must not pull the next click back to the first row.
+        assert client.get(f'/api/photos/{id}/next?'+query).json() == {"id":expected}
+        saved = client.patch(f'/api/photos/{id}',json={"version":1,"work_type":None})
+        assert saved.status_code == 200 and saved.json()["status"] == "NEEDS_REVIEW"
+    with AccessSession(engine) as db:
+        assert all(db.get(Photo,id).version == 2 for id in [50,30,10])
+
+
+def test_review_wrap_still_hides_unassigned_chats(access_api):
+    client, engine = access_api
+    with AccessSession(engine) as db:
+        for id in [50,20,10]:
+            db.get(Photo,id).status = "NEEDS_REVIEW"
+        db.commit()
+    assert client.get('/api/photos/10/next?status=NEEDS_REVIEW').json() == {"id":50}
+    actor(client,3)
+    assert client.get('/api/photos/10/next?status=NEEDS_REVIEW').status_code == 404
+
+
 def test_excel_all_sheets_are_scoped(access_api):
     client, _ = access_api
     result = client.get("/api/export.xlsx")

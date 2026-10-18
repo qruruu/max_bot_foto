@@ -94,6 +94,48 @@ def test_next_photo_uses_immutable_position_even_after_current_leaves_filters(ar
     assert archive.next(30, work_type="BIN_EMPTYING") == 20
 
 
+def test_review_visits_remaining_rows_before_revisiting_an_unresolved_photo(archive):
+    for id in [50,40,30,20,10]:
+        archive.add(id,status="NEEDS_REVIEW")
+    # 50 is left uncertain; saving 40 must still advance to 30, not back to 50.
+    assert archive.next(50,status="NEEDS_REVIEW") == 40
+    assert archive.next(40,status="NEEDS_REVIEW") == 30
+    assert archive.next(30,status="NEEDS_REVIEW") == 20
+    assert archive.next(20,status="NEEDS_REVIEW") == 10
+    assert archive.next(10,status="NEEDS_REVIEW") == 50
+
+
+def test_review_wrap_keeps_filters_and_excludes_accepted_spam_removed_and_current(archive):
+    archive.add(100,status="ACCEPTED")
+    archive.add(90,status="NEEDS_REVIEW",max_chat_id=999)
+    archive.add(80,status="NEEDS_REVIEW",work_type="SWEEPING")
+    archive.add(70,status="NEEDS_REVIEW",district_id=5)
+    archive.add(60,status="NEEDS_REVIEW",reviewed_by=2)
+    archive.add(50,status="NEEDS_REVIEW",is_spam=True)
+    archive.add(40,status="NEEDS_REVIEW",preview_removed_at=datetime(2026,10,17))
+    archive.add(30,status="NEEDS_REVIEW")
+    archive.add(10,status="NEEDS_REVIEW")
+    assert archive.next(10,status="NEEDS_REVIEW",chat_id=123,work_type="BIN_EMPTYING",
+                        district_id=0,operator_id=0) == 30
+
+
+def test_review_with_only_the_current_photo_returns_to_the_list(archive):
+    archive.add(30,status="ACCEPTED")
+    archive.add(20,status="NEEDS_REVIEW")
+    assert archive.next(20,status="NEEDS_REVIEW") is None
+
+
+def test_review_wrap_uses_the_same_tiebreaker_and_skips_a_saved_photo(archive):
+    # Even when the current record no longer matches after a save, the next
+    # endpoint uses its immutable position and the remaining review rows.
+    archive.add(100,status="NEEDS_REVIEW",received_at=datetime(2026,10,16))
+    archive.add(30,status="NEEDS_REVIEW")
+    archive.add(20,status="ACCEPTED")
+    archive.add(10,status="NEEDS_REVIEW")
+    assert archive.next(20,status="NEEDS_REVIEW") == 10
+    assert archive.next(100,status="NEEDS_REVIEW") == 30
+
+
 def test_spam_list_and_access_checks_are_preserved(archive):
     archive.add(30, is_spam=True, status="SPAM")
     archive.add(20)

@@ -37,12 +37,22 @@ describe('next photo in the current list', () => {
     expect(params.toString()).toBe('from_map=1&all_dates=1&district_id=0');
   });
 
-  it('keeps the review queue behavior and skips the current photo', async () => {
-    respond({items: [{id: 42}, {id: 38}]});
+  it('advances the review queue from the current photo rather than its first page', async () => {
+    respond({id: 38});
     expect(await nextPhotoId(42, new URLSearchParams('review=1&status=ACCEPTED&page=3'))).toBe(38);
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/photos?status=NEEDS_REVIEW&page_size=2');
-    respond({items: [{id: 42}]});
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/photos/42/next?status=NEEDS_REVIEW');
+    respond({id: null});
     expect(await nextPhotoId(42, new URLSearchParams('review=1'))).toBeNull();
+  });
+
+  it('preserves every filter when the server returns an unresolved photo at the end', async () => {
+    respond({id: 99});
+    expect(await nextPhotoId(12, new URLSearchParams('review=1&chat_id=123&district_id=4&work_type=SWEEPING&date_from=2026-10-16&all_dates=1&anchor_id=12&page=3'))).toBe(99);
+    const url = new URL(fetchMock.mock.calls[0][0], 'http://test');
+    expect(url.pathname).toBe('/api/photos/12/next');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      chat_id:'123',district_id:'4',work_type:'SWEEPING',date_from:'2026-10-16',status:'NEEDS_REVIEW',
+    });
   });
 
   it('preserves the separate spam list', async () => {

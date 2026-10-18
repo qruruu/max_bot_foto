@@ -357,6 +357,13 @@ def next_photo(photo_id: int, db: Db, user: PhotosReader, filters: Filters):
             | ((Photo.received_at == photo.received_at) & (Photo.id < photo.id))
         ).order_by(Photo.received_at.desc(), Photo.id.desc()).limit(1)
     )
+    if candidate is None and filters.status == Status.NEEDS_REVIEW:
+        # Finish the remaining rows before returning to unresolved photos above
+        # the cursor. Accepted photos have already left this filtered queue.
+        candidate = db.scalar(
+            filtered(filters, user).with_only_columns(Photo.id).where(Photo.id != photo.id)
+            .order_by(Photo.received_at.desc(), Photo.id.desc()).limit(1)
+        )
     return {"id": candidate}
 
 

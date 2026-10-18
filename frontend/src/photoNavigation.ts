@@ -1,5 +1,4 @@
 import { api, query } from './api';
-import type { PhotoPage } from './types';
 
 export type PhotoListPosition = { photoId: number; rowOffset: number; scrollY: number; scrollLeft: number };
 
@@ -28,8 +27,6 @@ export async function nextPhotoId(id: number, params: URLSearchParams): Promise<
 
   if (params.get('review') === '1') {
     filters.status = 'NEEDS_REVIEW';
-    const page = await api<PhotoPage>('/photos?' + query({...filters, page_size: '2'}));
-    return page.items.find(photo => photo.id !== id)?.id ?? null;
   }
 
   if (params.get('spam') === '1') filters.status = 'SPAM';
