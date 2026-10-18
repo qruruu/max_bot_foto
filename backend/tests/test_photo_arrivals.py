@@ -44,7 +44,7 @@ def test_arrival_snapshot_contains_recent_photos_only_and_no_private_metadata(ad
     visible = [
         add_photo(db, inbox, i, status=status)
         for i, status in enumerate(
-            ["RECEIVED", "PROCESSING", "NEEDS_REVIEW", "ACCEPTED", "DUPLICATE", "ERROR"]
+            ["RECEIVED", "PROCESSING", "NEEDS_REVIEW", "ACCEPTED", "ERROR"]
         )
     ]
     add_photo(db, inbox, 10, received_at=now() - timedelta(days=2))
@@ -52,6 +52,7 @@ def test_arrival_snapshot_contains_recent_photos_only_and_no_private_metadata(ad
     add_photo(db, inbox, 12, preview_removed_at=now())
     add_photo(db, inbox, 13, status="FORWARDED", is_forwarded=True)
     add_photo(db, inbox, 14, status="REJECTED")
+    add_photo(db, inbox, 15, status="DUPLICATE")
     db.commit()
     response = admin.get("/api/photos/arrivals")
     assert response.status_code == 200
