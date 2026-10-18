@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.api import edit_photo
-from app.catalog import Status
+from app.catalog import WORK_TYPES, Status
 from app.domain import now, reassess, storage_path
 from app.models import District, Photo
 from app.schemas import PhotoEdit
@@ -38,7 +38,9 @@ def record():
 
 
 @pytest.fixture
-def session(record):
+def session(record, monkeypatch):
+    monkeypatch.setattr("app.api.work_catalog", lambda db: WORK_TYPES)
+    monkeypatch.setattr("app.api.require_work_type", lambda db, code: None)
     districts = {
         10: District(id=10, name="12 мкр", active=True),
         20: District(id=20, name="11 мкр", active=True),

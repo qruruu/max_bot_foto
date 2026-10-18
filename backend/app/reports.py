@@ -7,12 +7,13 @@ from openpyxl.styles import Font, PatternFill
 from sqlalchemy import Date, cast, func, select
 from sqlalchemy.orm import Session
 
-from app.catalog import NON_WORK_STATUSES, WORK_TYPES, Status, work_type_label
+from app.catalog import NON_WORK_STATUSES, Status, work_type_label
 from app.chat_access import chat_condition
 from app.config import settings
 from app.models import District, Photo, User
 from app.photo_ordering import photo_order, photo_position
 from app.schemas import PhotoFilters
+from app.work_types import work_catalog
 
 
 def filtered(filters: PhotoFilters, user=None):
@@ -70,6 +71,7 @@ def photo_list_position(db, filters: PhotoFilters, total: int, anchor: Photo | N
 
 
 def summarize(db: Session, filters: PhotoFilters, user=None):
+    catalog = work_catalog(db)
     source = filtered(filters, user).subquery()
     counts = dict(db.execute(select(source.c.status, func.count()).group_by(source.c.status)).all())
     chats = [
@@ -92,7 +94,7 @@ def summarize(db: Session, filters: PhotoFilters, user=None):
     works = [
         {
             "id": code or "NONE",
-            "name": WORK_TYPES[code][0] if code in WORK_TYPES else "Не определён",
+            "name": work_type_label(code, catalog=catalog) or "Не определён",
             "count": n,
         }
         for code, n in db.execute(
@@ -123,12 +125,12 @@ def summarize(db: Session, filters: PhotoFilters, user=None):
 def photo_operator_name(photo: Photo, operators: dict[int, str]) -> str | None:
     if photo.reviewed_by is not None:
         return operators.get(photo.reviewed_by)
-    if photo.work_type_source == "AI" and photo.work_type in WORK_TYPES:
+    if photo.work_type_source == "AI" and photo.work_type is not None:
         return "Нейросеть"
     return None
 
 
-def photo_dict(photo: Photo, districts: dict[int, str], operators: dict[int, str], detail=False):
+def photo_dict(photo: Photo, districts: dict[int, str], operators: dict[int, str], detail=False, catalog=None):
     excluded = {"attachment"}
     if not detail:
         excluded |= {"ocr_raw_text", "ocr_date_raw", "ocr_coordinates_raw", "ocr_address_raw", "ai_result"}
@@ -143,7 +145,7 @@ def photo_dict(photo: Photo, districts: dict[int, str], operators: dict[int, str
         operator_name=photo_operator_name(photo, operators),
         work_type_name="Спам"
         if photo.is_spam
-        else work_type_label(photo.work_type, photo.is_defect),
+        else work_type_label(photo.work_type, photo.is_defect, catalog),
         preview_url=f"/api/photos/{photo.id}/preview" if photo.sha256 else None,
     )
     return result
@@ -157,6 +159,7 @@ def literal(value):
 
 
 def export_excel(db: Session, filters: PhotoFilters, user=None) -> bytes:
+    catalog = work_catalog(db)
     wb = Workbook(write_only=True)
 
     def sheet(name, columns, rows):
@@ -188,7 +191,7 @@ def export_excel(db: Session, filters: PhotoFilters, user=None) -> bytes:
                 p.received_at.astimezone(ZoneInfo(settings().app_timezone)).replace(tzinfo=None),
                 p.chat_name,
                 districts.get(p.district_id),
-                "Спам" if p.is_spam else work_type_label(p.work_type, p.is_defect),
+                "Спам" if p.is_spam else work_type_label(p.work_type, p.is_defect, catalog),
                 p.latitude,
                 p.longitude,
                 p.detected_address,

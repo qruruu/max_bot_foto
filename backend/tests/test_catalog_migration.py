@@ -114,8 +114,8 @@ def test_api_and_export_use_only_short_labels(admin, db):
     response = admin.get("/api/meta")
     assert response.status_code == 200
     assert [w["name"] for w in response.json()["work_types"]] == [
-        "УРНЫ", "ПЛОЩАДКИ", "ПОДХОДЫ", "ПГМ", "МУСОР_ГАЗОН", "КОЛОДЦЫ", "АРМАТУРА", "СЛУЧ_МУСОР",
-        "ПОДМЕТАНИЕ", "МОЙКА_УРН", "ГРАБЛИ", "ГАЗОН", "ПОКОС", "БРУСЧ_МОЙКА", "МЕХ_СНЕГ", "ВЫВОЗ_СНЕГА",
+        "УРНЫ", "ПЛОЩАДКИ", "ПОДХОДЫ", "ПГМ", "ГАЗОН", "МУСОР_ГАЗОН", "КОЛОДЦЫ", "АРМАТУРА", "СЛУЧ_МУСОР",
+        "ПОДМЕТАНИЕ", "МОЙКА_УРН", "ГРАБЛИ", "ПОКОС", "БРУСЧ_МОЙКА", "МЕХ_СНЕГ", "ВЫВОЗ_СНЕГА",
     ]
     inbox = Inbox(max_chat_id=123, message_id="short-labels", payload={})
     db.add(inbox)

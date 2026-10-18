@@ -11,6 +11,7 @@ import Administration from './Administration';
 import Learning from './Learning';
 import Exchange from './Exchange';
 import Settings from './Settings';
+import WorkTypes from './WorkTypes';
 import Avatar from './Avatar';
 import OperatorChats from './OperatorChats';
 import { OperatorChatBadge, OperatorChatsProvider } from './OperatorChatsProvider';
@@ -56,6 +57,7 @@ export default function App() {
     {to:'/districts', label:'Микрорайоны', Icon:Map, allowed:hasPermission(user,'districts_view')},
     {to:'/messages', label:'Чаты операторов', Icon:MessageSquare, allowed:true},
     {to:'/chats', label:'Чаты MAX', Icon:MessageSquare, allowed:hasPermission(user,'chats_manage')},
+    {to:'/work-types', label:'Виды работ', Icon:Layers, allowed:admin},
     {to:'/users', label:'Операторы', Icon:Users, allowed:admin},
     {to:'/audit', label:'Журнал действий', Icon:ShieldCheck, allowed:hasPermission(user,'audit_view')},
     {to:'/jobs', label:'Обработка', Icon:RefreshCw, allowed:hasPermission(user,'jobs_manage')},
@@ -93,6 +95,7 @@ export default function App() {
           <Route path="/districts" element={protectedPage('districts_view',<DistrictMap/>)}/>
           <Route path="/messages" element={<OperatorChats/>}/>
           <Route path="/chats" element={protectedPage('chats_manage',<Administration key="chats" page="chats"/>)}/>
+          <Route path="/work-types" element={admin?<WorkTypes/>:denied}/>
           <Route path="/users" element={admin?<Administration key="users" page="users"/>:denied}/>
           <Route path="/audit" element={protectedPage('audit_view',<Administration key="audit" page="audit"/>)}/>
           <Route path="/jobs" element={protectedPage('jobs_manage',<Administration key="jobs" page="jobs"/>)}/>

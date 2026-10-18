@@ -23,9 +23,10 @@ from app.media import analysis_image, digest_file, media_path
 from app.model_storage import MODEL_FILE_LOCK, PREVIOUS_MODELS_TO_KEEP, cleanup_model_files, weights_available
 from app.models import Job, ModelVersion, Photo
 from app.recognition import Classification, ClassificationResponse
+from app.work_types import catalog_rows, work_catalog
 
 log = logging.getLogger(__name__)
-CODES = list(WORK_TYPES)
+CODES = list(WORK_TYPES)  # Frozen legacy head order; only a fallback for pre-0022 checkpoints.
 ARCHITECTURE = "resnet18-local-v2-short16"
 BACKBONE_URL = "https://download.pytorch.org/models/resnet18-f37072fd.pth"
 
@@ -72,11 +73,12 @@ def collect_examples(db: Session) -> tuple[list[Example], int]:
         )
         .order_by(Photo.id)
     )
+    catalog = work_catalog(db)
     examples, missing, labels_by_hash = {}, 0, {}
     for photo_id, sha256, label in rows:
         labels_by_hash.setdefault(sha256, set()).add(label)
         path = media_path(photo_id, preview=True)
-        if label not in WORK_TYPES or not path.is_file():
+        if label not in catalog or not path.is_file():
             missing += 1
             continue
         examples.setdefault(sha256, Example(photo_id, sha256, label, path))
@@ -85,13 +87,15 @@ def collect_examples(db: Session) -> tuple[list[Example], int]:
     return [example for sha, example in examples.items() if len(labels_by_hash[sha]) == 1], missing
 
 
-def training_plan(examples: list[Example]) -> dict:
+def training_plan(examples: list[Example], catalog=None) -> dict:
+    catalog = WORK_TYPES if catalog is None else catalog
+    codes = list(catalog)
     cfg = settings()
     totals = Counter(e.label for e in examples)
     validation = Counter(e.label for e in examples if e.validation)
     eligible = [
         code
-        for code in CODES
+        for code in codes
         if totals[code] >= cfg.ml_min_per_class
         and validation[code] >= cfg.ml_min_validation_per_class
         and totals[code] - validation[code] >= 2
@@ -116,12 +120,12 @@ def training_plan(examples: list[Example]) -> dict:
         "classes": [
             {
                 "code": c,
-                "name": WORK_TYPES[c][0],
+                "name": catalog[c][0],
                 "labeled": totals[c],
                 "validation": validation[c],
                 "eligible": c in eligible,
             }
-            for c in CODES
+            for c in codes
         ],
     }
 
@@ -179,7 +183,7 @@ def training_status(db: Session):
         "retention": {"previous_versions": PREVIOUS_MODELS_TO_KEEP},
         "labeled_total": len(examples),
         "missing_images": missing,
-        "plan": training_plan(examples),
+        "plan": training_plan(examples, work_catalog(db)),
         "new_labels": changed_labels(snapshot(examples), previous.labels_snapshot if previous else {}),
         "min_new_labels": settings().ml_min_new_labels,
         "active": version_dict(active_model(db)),
@@ -202,7 +206,7 @@ def schedule_training() -> bool:
         examples, _ = collect_examples(db)
         labels = snapshot(examples)
         previous = latest_evaluated(db)
-        if not training_plan(examples)["ready"] or (
+        if not training_plan(examples, work_catalog(db))["ready"] or (
             previous and changed_labels(labels, previous.labels_snapshot) < settings().ml_min_new_labels
         ):
             return False
@@ -256,12 +260,13 @@ def prepare_backbone() -> Path:
         temp.unlink(missing_ok=True)
 
 
-def network(backbone: Path | None = None):
+def network(backbone: Path | None = None, codes=None):
+    codes = CODES if codes is None else codes
     torch, models, _ = torch_modules()
     model = models.resnet18(weights=None)
     if backbone:
         model.load_state_dict(torch.load(backbone, map_location="cpu", weights_only=True))
-    model.fc = torch.nn.Linear(model.fc.in_features, len(CODES))
+    model.fc = torch.nn.Linear(model.fc.in_features, len(codes))
     return model
 
 
@@ -274,10 +279,11 @@ def transform_image(image: Image.Image):
     )(image)
 
 
-def metrics_for(truth: list[int], predicted: list[int], classes: list[str]) -> dict:
+def metrics_for(truth: list[int], predicted: list[int], classes: list[str], codes=None) -> dict:
+    codes = CODES if codes is None else codes
     rows, f1s = {}, []
     for code in classes:
-        idx = CODES.index(code)
+        idx = codes.index(code)
         tp = sum(t == idx and p == idx for t, p in zip(truth, predicted, strict=True))
         support = truth.count(idx)
         predicted_count = predicted.count(idx)
@@ -300,7 +306,10 @@ def metrics_for(truth: list[int], predicted: list[int], classes: list[str]) -> d
     }
 
 
-def evaluate(model, examples: list[Example], classes: list[str]) -> dict:
+def evaluate(model, examples: list[Example], classes: list[str], codes=None) -> dict:
+    codes = list(CODES if codes is None else codes)
+    # An incumbent cannot predict a newly added class; count its missed examples fairly.
+    evaluation_codes = codes + [code for code in classes if code not in codes]
     torch, _, _ = torch_modules()
     predictions, truth = [], []
     model.eval()
@@ -309,8 +318,8 @@ def evaluate(model, examples: list[Example], classes: list[str]) -> dict:
             batch = examples[start : start + settings().ml_batch_size]
             images = torch.stack([transform_image(analysis_image(e.path)) for e in batch])
             predictions.extend(model(images).argmax(dim=1).tolist())
-            truth.extend(CODES.index(e.label) for e in batch)
-    return metrics_for(truth, predictions, classes)
+            truth.extend(evaluation_codes.index(e.label) for e in batch)
+    return metrics_for(truth, predictions, classes, evaluation_codes)
 
 
 def supported_classes(metrics: dict) -> list[str]:
@@ -337,26 +346,33 @@ def promotion_allowed(
 
 
 @lru_cache(maxsize=2)
-def load_model(path: str, checksum: str):
+def load_model(path: str, checksum: str, codes: tuple[str, ...] = tuple(CODES)):
     if digest_file(Path(path)) != checksum:
         raise RuntimeError("MODEL_CHECKSUM_MISMATCH")
     torch, _, _ = torch_modules()
-    model = network()
+    model = network(None, codes)
     model.load_state_dict(torch.load(path, map_location="cpu", weights_only=True))
     model.eval()
     return model
 
 
-def interpret_probabilities(probabilities: list[list[float]], supported: list[str], threshold: float):
+def model_codes(version) -> tuple[str, ...]:
+    # Old files contain a plain state_dict with the original 16 outputs. Do not resize them
+    # when a new catalog entry is added or its display position changes.
+    return tuple(version.metrics.get("class_codes", CODES))
+
+
+def interpret_probabilities(probabilities: list[list[float]], supported: list[str], threshold: float, codes=None):
+    codes = CODES if codes is None else codes
     confident = set()
     for row in probabilities:
         ranked = sorted(range(len(row)), key=lambda i: row[i], reverse=True)
         if (
-            CODES[ranked[0]] in supported
+            codes[ranked[0]] in supported
             and row[ranked[0]] >= threshold
             and row[ranked[0]] - row[ranked[1]] >= 0.15
         ):
-            confident.add(CODES[ranked[0]])
+            confident.add(codes[ranked[0]])
     full = probabilities[0]
     ranked = sorted(range(len(full)), key=lambda i: full[i], reverse=True)
     top, second = ranked[:2]
@@ -365,8 +381,8 @@ def interpret_probabilities(probabilities: list[list[float]], supported: list[st
         return Classification(
             result="MULTIPLE", work_type=None, confidence=confidence, alternatives=sorted(confident)
         )
-    if CODES[top] in supported and confidence >= threshold and full[top] - full[second] >= 0.15:
-        return Classification(result="SINGLE", work_type=CODES[top], confidence=confidence, alternatives=[])
+    if codes[top] in supported and confidence >= threshold and full[top] - full[second] >= 0.15:
+        return Classification(result="SINGLE", work_type=codes[top], confidence=confidence, alternatives=[])
     return Classification(result="UNKNOWN", work_type=None, confidence=confidence, alternatives=[])
 
 
@@ -386,8 +402,11 @@ class LocalClassifier:
                 active.model_sha256,
                 active.supported_classes,
             )
+            codes = model_codes(active)
+            catalog = work_catalog(db)
+            supported = [code for code in supported if code in catalog]
             # Hold the file lock until weights are in memory; inference can then run independently.
-            model = load_model(model_path, checksum)
+            model = load_model(model_path, checksum, codes)
         torch, _, _ = torch_modules()
         image = analysis_image(path)
         w, h = image.size
@@ -402,7 +421,7 @@ class LocalClassifier:
         ]
         with torch.inference_mode():
             probabilities = model(torch.stack([transform_image(c) for c in crops])).softmax(dim=1).tolist()
-        result = interpret_probabilities(probabilities, supported, settings().work_type_confidence_threshold)
+        result = interpret_probabilities(probabilities, supported, settings().work_type_confidence_threshold, codes)
         return ClassificationResponse(
             result,
             {
@@ -410,9 +429,9 @@ class LocalClassifier:
                 "architecture": ARCHITECTURE,
                 "model_id": model_id,
                 "supported_classes": supported,
-                "probabilities": dict(zip(CODES, probabilities[0], strict=True)),
+                "probabilities": dict(zip(codes, probabilities[0], strict=True)),
                 "crop_predictions": [
-                    CODES[max(range(len(row)), key=lambda i: row[i])] for row in probabilities
+                    codes[max(range(len(row)), key=lambda i: row[i])] for row in probabilities
                 ],
             },
         )
@@ -434,7 +453,10 @@ def train_model(force: bool = False):
                     .values(status="INTERRUPTED", finished_at=now())
                 )
                 examples, _ = collect_examples(db)
-                plan = training_plan(examples)
+                rows = catalog_rows(db, model_order=True)
+                catalog = {row.code: (row.name, row.filename_label) for row in rows}
+                codes = tuple(catalog)
+                plan = training_plan(examples, catalog)
                 previous = latest_evaluated(db)
                 labels = snapshot(examples)
                 if not plan["ready"] or (
@@ -446,7 +468,7 @@ def train_model(force: bool = False):
                     return
                 active = active_model(db)
                 active_info = (
-                    (active.model_path, active.model_sha256, list(active.supported_classes))
+                    (active.model_path, active.model_sha256, list(active.supported_classes), model_codes(active))
                     if active
                     else None
                 )
@@ -455,7 +477,7 @@ def train_model(force: bool = False):
                     dataset_fingerprint=fingerprint(labels),
                     sample_count=plan["sample_count"],
                     labels_snapshot=labels,
-                    metrics={"architecture": ARCHITECTURE},
+                    metrics={"architecture": ARCHITECTURE, "class_codes": list(codes)},
                     supported_classes=[],
                 )
                 db.add(run)
@@ -465,17 +487,17 @@ def train_model(force: bool = False):
             cfg = settings()
             torch, _, _ = torch_modules()
             torch.manual_seed(42)
-            model = network(prepare_backbone())
+            model = network(prepare_backbone(), codes)
             # Train against the full accumulated dataset, not just recent labels; avoids forgetting.
             for name, param in model.named_parameters():
                 param.requires_grad = name.startswith(("layer4.", "fc."))
             train = [e for e in examples if e.label in plan["eligible_classes"] and not e.validation]
             validation = [e for e in examples if e.label in plan["eligible_classes"] and e.validation]
-            targets = torch.tensor([CODES.index(e.label) for e in train], dtype=torch.long)
-            weights = torch.ones(len(CODES))
+            targets = torch.tensor([codes.index(e.label) for e in train], dtype=torch.long)
+            weights = torch.ones(len(codes))
             counts = Counter(e.label for e in train)
             for code, count in counts.items():
-                weights[CODES.index(code)] = len(train) / (len(counts) * count)
+                weights[codes.index(code)] = len(train) / (len(counts) * count)
             loss_fn = torch.nn.CrossEntropyLoss(weight=weights)
             optimizer = torch.optim.AdamW(
                 [p for p in model.parameters() if p.requires_grad], lr=cfg.ml_learning_rate
@@ -502,14 +524,16 @@ def train_model(force: bool = False):
                     progress = db.get(ModelVersion, run_id)
                     progress.metrics = {
                         "architecture": ARCHITECTURE,
+                        "class_codes": list(codes),
                         "epoch": epoch + 1,
                         "epochs": cfg.ml_epochs,
                     }
                     db.commit()
-            metrics = evaluate(model, validation, plan["eligible_classes"])
+            metrics = evaluate(model, validation, plan["eligible_classes"], codes)
             supported = supported_classes(metrics)
             incumbent = (
-                evaluate(load_model(active_info[0], active_info[1]), validation, plan["eligible_classes"])
+                evaluate(load_model(active_info[0], active_info[1], active_info[3]), validation,
+                         plan["eligible_classes"], active_info[3])
                 if active_info
                 else None
             )
@@ -525,6 +549,7 @@ def train_model(force: bool = False):
             checksum = digest_file(path)
             metrics.update(
                 architecture=ARCHITECTURE,
+                class_codes=list(codes),
                 epochs=cfg.ml_epochs,
                 train_count=len(train),
                 incumbent_macro_f1=incumbent["macro_f1"] if incumbent else None,

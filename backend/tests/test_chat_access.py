@@ -16,7 +16,7 @@ from app.api import app
 from app.auth import digest
 from app.db import get_db
 from app.domain import now
-from app.models import Audit, Chat, Inbox, Job, LoginSession, Photo, User
+from app.models import Audit, Chat, Inbox, Job, LoginSession, Photo, User, WorkType
 from app.permissions import PERMISSIONS
 from app.schemas import UserCreate, UserUpdate
 
@@ -57,7 +57,12 @@ def access_api(monkeypatch):
         connection.create_function("timezone", 2, lambda zone, value: value)
 
     metadata.create_all(engine)
+    WorkType.__table__.create(engine)
     with AccessSession(engine) as db:
+        from app.catalog import WORK_TYPE_DISPLAY_ORDER, WORK_TYPES
+        db.add_all([WorkType(code=code, name=names[0], filename_label=names[1],
+                             model_index=i, sort_order=WORK_TYPE_DISPLAY_ORDER.index(code)+1)
+                     for i, (code, names) in enumerate(WORK_TYPES.items())])
         for id, role, ids in [(1, "ADMIN_OPERATOR", [2]), (2, "OPERATOR", [1]),
                               (3, "OPERATOR", []), (4, "OPERATOR", None)]:
             db.add(User(id=id, login=f"user{id}", name=f"Оператор {id}", password_hash="unused",

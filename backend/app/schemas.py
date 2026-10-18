@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.catalog import WORK_TYPES, Role, Status
+from app.catalog import Role, Status
 from app.permissions import DEFAULT_OPERATOR_PERMISSIONS, Permission, validate_permissions
 
 
@@ -62,17 +62,18 @@ class UserUpdate(ChatAccessInput):
         return validate_permissions(value)
 
 
+WorkCode = Annotated[str, Field(min_length=1, max_length=60, pattern=r"^[A-Z][A-Z0-9_]*$")]
+
+
 class ChatInput(StrictModel):
     max_chat_id: int = Field(ge=-(2**63), lt=2**63)
     name: str = Field(min_length=1, max_length=150)
     active: bool = True
     cv_work_type_enabled: bool = True
-    fixed_work_type_code: str | None = None
+    fixed_work_type_code: WorkCode | None = None
 
     @model_validator(mode="after")
     def work_rule(self):
-        if self.fixed_work_type_code is not None and self.fixed_work_type_code not in WORK_TYPES:
-            raise ValueError("Вид работы отсутствует в справочнике")
         if not self.cv_work_type_enabled and self.fixed_work_type_code is None:
             raise ValueError("Выберите фиксированный вид работы при выключенном распознавании")
         return self
@@ -106,16 +107,9 @@ class PhotoEdit(StrictModel):
     latitude: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
     longitude: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False)
     district_id: int | None = Field(default=None, gt=0)
-    work_type: str | None = None
+    work_type: WorkCode | None = None
     detected_address: str | None = Field(default=None, max_length=1000)
     detected_city: str | None = Field(default=None, max_length=300)
-
-    @field_validator("work_type")
-    @classmethod
-    def validate_work_type(cls, value):
-        if value is not None and value not in WORK_TYPES:
-            raise ValueError("Вид работы отсутствует в справочнике")
-        return value
 
     @model_validator(mode="after")
     def coordinate_pair(self):
@@ -139,7 +133,7 @@ class PhotoFilters(BaseModel):
     day: date | None = None
     district_id: int | None = None
     chat_id: int | None = None
-    work_type: str | None = None
+    work_type: WorkCode | None = None
     status: Status | None = None
     operator_id: int | None = None
     date_basis: Literal["photo", "received"] = "photo"
@@ -149,8 +143,6 @@ class PhotoFilters(BaseModel):
     def validate_range(self):
         if self.date_from and self.date_to and self.date_from > self.date_to:
             raise ValueError("Начало периода должно быть раньше его окончания")
-        if self.work_type and self.work_type != "NONE" and self.work_type not in WORK_TYPES:
-            raise ValueError("Неизвестный вид работы")
         return self
 
 

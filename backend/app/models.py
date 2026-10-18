@@ -33,6 +33,23 @@ class Timestamps:
     )
 
 
+class WorkType(Timestamps, Base):
+    __tablename__ = "work_types"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(60), unique=True)
+    name: Mapped[str] = mapped_column(String(100))
+    # Kept immutable when the display name changes, so existing disk paths stay valid.
+    filename_label: Mapped[str] = mapped_column(String(100))
+    model_index: Mapped[int] = mapped_column(Integer, unique=True)
+    sort_order: Mapped[int] = mapped_column(Integer)
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    __table_args__ = (
+        CheckConstraint("model_index >= 0 AND sort_order >= 1 AND version >= 1"),
+        CheckConstraint("length(trim(name)) BETWEEN 1 AND 100"),
+        Index("ix_work_types_name_unique", func.lower(name), unique=True),
+    )
+
+
 class User(Timestamps, Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)

@@ -22,7 +22,10 @@ from app.schemas import PhotoEdit, PhotoFilters
 
 
 @pytest.fixture
-def defect_photo():
+def defect_photo(monkeypatch):
+    monkeypatch.setattr("app.api.work_catalog", lambda db: WORK_TYPES)
+    monkeypatch.setattr("app.api.require_work_type", lambda db, code: None)
+    monkeypatch.setattr("app.reports.work_catalog", lambda db: WORK_TYPES)
     photo = Photo(id=7, version=1, district_id=12, district_source="OPERATOR",
                   district_name_snapshot="12 мкр", photo_date=date(2026, 10, 18),
                   received_at=datetime(2026, 10, 18, tzinfo=UTC),

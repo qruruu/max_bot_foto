@@ -35,7 +35,7 @@ from app.auth import (
     user_dict,
 )
 from app.auth import router as auth_router
-from app.catalog import WORK_TYPE_DISPLAY_ORDER, WORK_TYPES, Role, Status, work_type_label
+from app.catalog import Role, Status, work_type_label
 from app.chat_access import (
     allowed_chat_ids,
     can_access_chat,
@@ -90,6 +90,8 @@ from app.schemas import (
     UserUpdate,
     validate_polygon,
 )
+from app.work_types import require_work_type, work_catalog
+from app.work_types import router as work_types_router
 
 app = FastAPI(
     title="MAX Фото · операторская панель",
@@ -100,6 +102,7 @@ app = FastAPI(
 app.include_router(auth_router)
 app.include_router(operator_chats_router)
 app.include_router(chat_senders_router)
+app.include_router(work_types_router)
 Filters = Annotated[PhotoFilters, Query()]
 
 
@@ -161,7 +164,7 @@ def max_status(db: Db, user: ChatManager):
 def meta(db: Db, user: CurrentUser):
     browse = has_permission(user, Permission.PHOTOS_VIEW) or has_permission(user, Permission.REPORTS_VIEW)
     return {
-        "work_types": [{"code": code, "name": WORK_TYPES[code][0]} for code in WORK_TYPE_DISPLAY_ORDER],
+        "work_types": [{"code": code, "name": names[0]} for code, names in work_catalog(db).items()],
         "statuses": list(Status),
         "timezone": settings().app_timezone,
         "yandex_maps_api_key": settings().yandex_maps_api_key
@@ -203,7 +206,7 @@ def dictionaries(db):
 
 @app.get("/api/photos")
 def photos(db: Db, user: PhotosReader, filters: Annotated[PhotoListFilters, Query()]):
-    check_spam_filter(user, filters)
+    check_spam_filter(user, filters, db)
     stmt = filtered(filters, user)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     anchor = db.get(Photo, filters.anchor_id) if filters.anchor_id else None
@@ -220,8 +223,9 @@ def photos(db: Db, user: PhotosReader, filters: Annotated[PhotoListFilters, Quer
         .limit(filters.page_size)
     ))
     districts, operators = dictionaries(db)
+    catalog = work_catalog(db)
     return {
-        "items": [photo_dict(p, districts, operators) for p in rows],
+        "items": [photo_dict(p, districts, operators, catalog=catalog) for p in rows],
         "total": total,
         "page": page,
         "page_size": filters.page_size,
@@ -233,7 +237,7 @@ def photos(db: Db, user: PhotosReader, filters: Annotated[PhotoListFilters, Quer
 def photo_filter_options(db: Db, user: CurrentUser, filters: Filters):
     if not (has_permission(user, Permission.PHOTOS_VIEW) or has_permission(user, Permission.REPORTS_VIEW)):
         raise HTTPException(403, "Нет доступа к этой функции")
-    check_spam_filter(user, filters)
+    check_spam_filter(user, filters, db)
     return photo_filter_counts(db, filters, include_spam=has_permission(user, Permission.SPAM_VIEW), user=user)
 
 
@@ -264,7 +268,7 @@ def photo_map(
     filters: Annotated[PhotoMapFilters, Query()],
 ):
     """Compact map batches, independent of the photo table's 30-row pagination."""
-    check_spam_filter(user, filters)
+    check_spam_filter(user, filters, db)
     after_id, snapshot_id = filters.after_id, filters.snapshot_id
     source = filtered(filters, user).with_only_columns(
         Photo.id, Photo.latitude, Photo.longitude, Photo.photo_date, Photo.photo_time,
@@ -287,13 +291,14 @@ def photo_map(
             source.c.id > after_id, source.c.id <= snapshot_id, valid_coordinates,
         ).order_by(source.c.id).limit(1001)
     ).mappings().all()
+    catalog = work_catalog(db)
     items = [
         {
             "id": p["id"], "longitude": p["longitude"], "latitude": p["latitude"],
             "photo_date": p["photo_date"], "photo_time": p["photo_time"],
             "received_at": p["received_at"], "chat_name": p["chat_name"],
             "status": p["status"],
-            "work_type_name": work_type_label(p["work_type"], p["is_defect"]),
+            "work_type_name": work_type_label(p["work_type"], p["is_defect"], catalog),
             "preview_url": f"/api/photos/{p['id']}/preview" if p["sha256"] else None,
         }
         for p in rows[:1000]
@@ -310,7 +315,9 @@ def check_photo_access(user, photo):
         check_permission(user, Permission.SPAM_VIEW)
 
 
-def check_spam_filter(user, filters):
+def check_spam_filter(user, filters, db):
+    if filters.work_type and filters.work_type != "NONE":
+        require_work_type(db, filters.work_type)
     if filters.status == Status.SPAM:
         check_permission(user, Permission.SPAM_VIEW)
 
@@ -327,7 +334,7 @@ def require_photo(db, photo_id, user):
 def get_photo(photo_id: int, db: Db, user: PhotosReader):
     photo = require_photo(db, photo_id, user)
     districts, operators = dictionaries(db)
-    result = photo_dict(photo, districts, operators, detail=True)
+    result = photo_dict(photo, districts, operators, detail=True, catalog=work_catalog(db))
     result["sender_name"] = photo_sender_name(db, photo)
     result["history"] = [
         audit_dict(a)
@@ -350,7 +357,7 @@ def preview(photo_id: int, db: Db, user: PhotosReader):
 @app.get("/api/photos/{photo_id}/next")
 def next_photo(photo_id: int, db: Db, user: PhotosReader, filters: Annotated[PhotoBrowseFilters, Query()]):
     photo = require_photo(db, photo_id, user)
-    check_spam_filter(user, filters)
+    check_spam_filter(user, filters, db)
     # Match the selected table order, including partial timestamps and ties,
     # without depending on pagination or whether an edit changed the filters.
     candidate = db.scalar(
@@ -400,6 +407,8 @@ def edit_photo(photo_id: int, body: PhotoEdit, db: Db, user: PhotoEditor):
     if photo.version != body.version:
         raise HTTPException(409, "Фото изменено другим оператором. Обновите карточку.")
     changes = body.model_dump(exclude_unset=True, exclude={"version"})
+    if "work_type" in changes:
+        require_work_type(db, changes["work_type"])
     if "district_id" in changes:
         district_id = changes["district_id"]
         if district_id is not None:
@@ -446,7 +455,7 @@ def edit_photo(photo_id: int, body: PhotoEdit, db: Db, user: PhotoEditor):
         "status": photo.status,
         "is_spam": photo.is_spam,
         "is_defect": bool(photo.is_defect),
-        "work_type_name": "Спам" if photo.is_spam else work_type_label(photo.work_type, photo.is_defect),
+        "work_type_name": "Спам" if photo.is_spam else work_type_label(photo.work_type, photo.is_defect, work_catalog(db)),
         "version": photo.version,
         "review_reason": photo.review_reason,
         "storage_status": photo.storage_status,
@@ -546,13 +555,13 @@ def retry_photo(photo_id: int, db: Db, user: PhotoEditor):
 
 @app.get("/api/reports")
 def reports(db: Db, user: ReportsReader, filters: Filters):
-    check_spam_filter(user, filters)
+    check_spam_filter(user, filters, db)
     return summarize(db, filters, user)
 
 
 @app.get("/api/export.xlsx")
 def excel(db: Db, user: ReportsExporter, filters: Filters):
-    check_spam_filter(user, filters)
+    check_spam_filter(user, filters, db)
     # One snapshot keeps detailed rows and the summary sheets consistent during concurrent review.
     db.commit()
     db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
@@ -610,6 +619,7 @@ def discovered_chats(db: Db, user: ChatManager):
 @app.post("/api/chats", status_code=201)
 def create_chat(body: ChatInput, db: Db, user: ChatManager):
     require_all_chats(user)
+    require_work_type(db, body.fixed_work_type_code)
     chat = Chat(**body.model_dump())
     db.add(chat)
     db.flush()
@@ -625,6 +635,7 @@ def edit_chat(chat_id: int, body: ChatInput, db: Db, user: ChatManager):
         raise HTTPException(404, "Чат не найден")
     if chat.max_chat_id != body.max_chat_id:
         raise HTTPException(422, "Для другого MAX chat ID создайте новый чат")
+    require_work_type(db, body.fixed_work_type_code)
     old = {
         key: getattr(chat, key)
         for key in ("name", "active", "cv_work_type_enabled", "fixed_work_type_code", "work_rule_version")

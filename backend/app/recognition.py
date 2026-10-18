@@ -8,10 +8,10 @@ import pytesseract
 from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.catalog import WORK_TYPES
 from app.config import settings
 from app.media import analysis_image
 from app.parsers import CoordinateParser, DateTimeParser
+from app.schemas import WorkCode
 
 logger = logging.getLogger(__name__)
 
@@ -76,16 +76,12 @@ class TesseractOCR:
 class Classification(BaseModel):
     model_config = ConfigDict(extra="forbid")
     result: Literal["SINGLE", "UNKNOWN", "MULTIPLE"]
-    work_type: str | None
+    work_type: WorkCode | None
     confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
-    alternatives: list[str]
+    alternatives: list[WorkCode]
 
     @model_validator(mode="after")
     def validate_categories(self):
-        if self.work_type is not None and self.work_type not in WORK_TYPES:
-            raise ValueError("Unknown work type")
-        if any(x not in WORK_TYPES for x in self.alternatives):
-            raise ValueError("Unknown alternative")
         if self.result == "SINGLE" and (not self.work_type or self.alternatives):
             raise ValueError("SINGLE must have exactly one work type")
         if self.result != "SINGLE" and self.work_type is not None:

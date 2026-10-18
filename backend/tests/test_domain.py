@@ -131,7 +131,7 @@ def test_review_requires_coordinate_pair_and_catalog():
     with pytest.raises(ValidationError):
         PhotoEdit(version=1, latitude=61)
     with pytest.raises(ValidationError):
-        PhotoEdit(version=1, work_type="OTHER")
+        PhotoEdit(version=1, work_type="invalid code")
     with pytest.raises(ValidationError):
         PhotoEdit(version=1, latitude=91, longitude=70)
     assert PhotoEdit(version=1, latitude=None, longitude=None).latitude is None

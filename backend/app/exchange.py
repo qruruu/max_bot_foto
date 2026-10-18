@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from app.catalog import WORK_TYPES, Status
+from app.catalog import Status
 from app.config import settings
 from app.db import engine
 from app.domain import enqueue, now
@@ -21,6 +21,8 @@ from app.exchange_files import checked_files, content_hash, register_existing, r
 from app.integrations import YandexDisk
 from app.models import District, ExchangeFile, ExchangeState, Job, Photo, Publication
 from app.processing import error_code
+from app.schemas import WorkCode
+from app.work_types import work_catalog
 
 Cohort = Literal["training", "production"]
 
@@ -41,10 +43,10 @@ class PhotoRecord(Document):
     district_id: str | None
     district_name: str | None
     district_geometry_version: str | None = None
-    source_work_type_code: str | None = Field(pattern="^(?:" + "|".join(WORK_TYPES) + ")$")
+    source_work_type_code: WorkCode | None
     classification_mode: Literal["AI", "CHAT_FIXED", "LEGACY_UNKNOWN", "REVIEW"]
     work_rule_version: int | None
-    fixed_work_type_snapshot: str | None = Field(pattern="^(?:" + "|".join(WORK_TYPES) + ")$")
+    fixed_work_type_snapshot: WorkCode | None
     work_type_source: Literal["AI", "OPERATOR", "CHAT_FIXED"] | None
     classification_confidence: float | None = Field(ge=0, le=1)
     status: Status
@@ -235,7 +237,7 @@ def prepare(publication_id: int):
         dictionary = Dictionary(
             source_instance_id=identity,
             cohort=external_cohort,
-            work_types=[{"code": c, "name": n[0]} for c, n in WORK_TYPES.items()],
+            work_types=[{"code": c, "name": n[0]} for c, n in work_catalog(db).items()],
             statuses=list(Status),
             storage_statuses=["PENDING", "ERROR", "SYNCED", "NOT_REQUIRED"],
             districts_geojson={"type": "FeatureCollection", "features": features},

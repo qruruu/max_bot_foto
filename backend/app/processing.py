@@ -6,7 +6,7 @@ import httpx
 from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session
 
-from app.catalog import ACCEPTED_STATUSES, IMAGE_EXTENSIONS, REJECTED_STATUSES, WORK_TYPES, Status
+from app.catalog import ACCEPTED_STATUSES, IMAGE_EXTENSIONS, REJECTED_STATUSES, Status
 from app.config import settings
 from app.db import engine
 from app.domain import audit, bot_reply, enqueue, now, reassess, storage_path
@@ -17,6 +17,7 @@ from app.models import Audit, District, Inbox, Job, Photo
 from app.ocr import LocalOCR
 from app.parsers import CoordinateParser, DateTimeParser, parse_address
 from app.recognition import OCRService, WorkTypeClassifier
+from app.work_types import work_catalog
 
 log = logging.getLogger(__name__)
 
@@ -157,7 +158,7 @@ def _synchronize(db: Session, photo: Photo, disk: YandexDisk):
     if photo.preview_removed_at is not None:
         return
     district = db.get(District, photo.district_id) if photo.district_id else None
-    desired = storage_path(photo, district.name if district else None)
+    desired = storage_path(photo, district.name if district else None, work_catalog(db))
     target = transfer_target(db, photo, desired)
     transfer_original(db, photo, disk, target)
     if target != desired:
@@ -254,7 +255,7 @@ def process_photo(
                 try:
                     if photo.classification_mode == "CHAT_FIXED":
                         code = photo.fixed_work_type_snapshot
-                        photo.work_type = code if code in WORK_TYPES else None
+                        photo.work_type = code if code in work_catalog(db) else None
                         photo.work_type_source = "CHAT_FIXED" if photo.work_type else None
                         photo.ai_confidence, photo.ai_alternatives = None, []
                         photo.ai_result = {
@@ -277,6 +278,8 @@ def process_photo(
                             photo.work_type = classification.automatic_work_type(
                                 settings().work_type_confidence_threshold
                             )
+                            if photo.work_type not in work_catalog(db):
+                                photo.work_type = None
                             photo.work_type_source = "AI" if photo.work_type else None
                         else:
                             recognition_errors.append("AI_INVALID_RESPONSE")
@@ -355,7 +358,7 @@ def process_batch(inbox_id: int):
             return
         districts = dict(db.execute(select(District.id, District.name)).all())
         if not inbox.reply_text:
-            inbox.reply_text = bot_reply(photos, districts)
+            inbox.reply_text = bot_reply(photos, districts, work_catalog(db))
         enqueue(db, "REPLY", inbox_id, f"reply:{inbox_id}")
         # Signed attachment URLs are no longer needed after durable storage.
         inbox.payload = {}

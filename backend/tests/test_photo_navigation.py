@@ -8,7 +8,8 @@ from sqlalchemy import Column, MetaData, Table, create_engine
 from sqlalchemy.orm import Session
 
 from app.api import next_photo, photos
-from app.models import Photo
+from app.catalog import WORK_TYPE_DISPLAY_ORDER, WORK_TYPES
+from app.models import Photo, WorkType
 from app.reports import photo_list_position
 from app.schemas import PhotoFilters, PhotoListFilters
 
@@ -25,8 +26,13 @@ def archive():
     ))
     engine = create_engine("sqlite://")
     table.metadata.create_all(engine)
+    WorkType.__table__.create(engine)
     records = {}
     with Session(engine) as session:
+        session.add_all([WorkType(code=code, name=names[0], filename_label=names[1],
+                                   model_index=i, sort_order=WORK_TYPE_DISPLAY_ORDER.index(code)+1)
+                         for i, (code, names) in enumerate(WORK_TYPES.items())])
+        session.flush()
         db = Mock()
         db.scalar.side_effect = session.scalar
         db.get.side_effect = lambda model, key: records.get(key)
@@ -222,6 +228,7 @@ def test_list_ignores_missing_or_inaccessible_anchor_without_disclosing_its_posi
     db.scalar.return_value = 37
     db.scalars.return_value = [Photo(id=7)]
     monkeypatch.setattr("app.api.dictionaries", lambda db: ({}, {}))
+    monkeypatch.setattr("app.api.work_catalog", lambda db: {})
     user = SimpleNamespace(role="OPERATOR", permissions=["photos_view"])
     result = photos(db, user, PhotoListFilters(anchor_id=99, page=2))
     assert result["page"] == 2 and result["focus_id"] is None
@@ -235,5 +242,6 @@ def test_list_response_selects_the_resolved_page_and_photo_to_focus(monkeypatch)
     db.scalar.side_effect = [35, 31]
     db.scalars.return_value = [Photo(id=id) for id in [4, 3, 2, 1]]
     monkeypatch.setattr("app.api.dictionaries", lambda db: ({}, {}))
+    monkeypatch.setattr("app.api.work_catalog", lambda db: {})
     result = photos(db, SimpleNamespace(role="ADMIN_OPERATOR"), PhotoListFilters(anchor_id=3))
     assert result["page"] == 2 and result["focus_id"] == 3

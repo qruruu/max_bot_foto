@@ -19,6 +19,7 @@ from app.integrations import OriginalMissing, YandexDisk
 from app.legacy_exchange import recover_manifest
 from app.models import District, ExchangeFile, ExchangeState, Photo, Publication
 from app.processing import error_code, photo_lock, storage_lock, synchronize, transfer_target
+from app.work_types import work_catalog
 
 ARCHIVE_JOB_KEY = "archive-organize:v4"
 log = logging.getLogger(__name__)
@@ -203,7 +204,7 @@ def organize_archive(disk=None):
                 ):
                     continue
                 district = db.get(District, photo.district_id) if photo.district_id else None
-                desired = storage_path(photo, district.name if district else None)
+                desired = storage_path(photo, district.name if district else None, work_catalog(db))
                 if (
                     source == desired
                     and photo.storage_status == "SYNCED"

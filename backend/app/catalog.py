@@ -51,6 +51,7 @@ REJECTED_STATUSES = {Status.REJECTED, Status.DUPLICATE, Status.FORWARDED}
 NON_WORK_STATUSES = {Status.DUPLICATE, Status.FORWARDED, Status.SPAM}
 
 
-def work_type_label(code: str | None, is_defect: bool = False) -> str | None:
-    name = WORK_TYPES[code][0] if code in WORK_TYPES else None
+def work_type_label(code: str | None, is_defect: bool = False, catalog=None) -> str | None:
+    catalog = WORK_TYPES if catalog is None else catalog
+    name = catalog[code][0] if code in catalog else code
     return f"{name or 'Не определён'} · НЕИСПРАВНОСТЬ" if is_defect else name

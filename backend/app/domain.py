@@ -107,7 +107,8 @@ def safe_component(value: str, limit: int = 45) -> str:
     return (value or "Без_названия")[:limit]
 
 
-def storage_path(photo: Photo, district_name: str | None):
+def storage_path(photo: Photo, district_name: str | None, catalog=None):
+    catalog = WORK_TYPES if catalog is None else catalog
     folder_date = photo.photo_date.isoformat() if photo.photo_date else "ДАТА_НЕ_ОПРЕДЕЛЕНА"
     district = safe_component(district_name, 35) if district_name else "МР_НЕ_ОПРЕДЕЛЕН"
     root = f"disk:/{settings().yandex_disk_root}"
@@ -116,14 +117,14 @@ def storage_path(photo: Photo, district_name: str | None):
     if photo.is_spam:
         cohort = "training" if getattr(photo, "cohort", "production") == "test" else "production"
         return f"disk:/{settings().spam_folder}/{cohort}/{folder_date}/{district}/Спам_{photo.id}{photo.extension}"
-    work = WORK_TYPES[photo.work_type][1] if photo.work_type else "НЕ_ОПРЕДЕЛЕНО"
+    work = safe_component(catalog.get(photo.work_type, (None, photo.work_type))[1]) if photo.work_type else "НЕ_ОПРЕДЕЛЕНО"
     if getattr(photo, "is_defect", False):
         work += "_НЕИСПРАВНОСТЬ"
     filename = f"{district}_{work}_{photo.id}{photo.extension}"
     return f"{root}/{folder_date}/{district}/{filename}"
 
 
-def bot_reply(photos: list[Photo], district_names: dict[int, str]) -> str:
+def bot_reply(photos: list[Photo], district_names: dict[int, str], catalog=None) -> str:
     if len(photos) > 1:
         accepted = sum(p.status in {Status.ACCEPTED, Status.NEEDS_REVIEW} for p in photos)
         return f"✅ Обработано фотографий: {len(photos)}\nПринято: {accepted}\nНе принято: {len(photos) - accepted}"
@@ -144,5 +145,5 @@ def bot_reply(photos: list[Photo], district_names: dict[int, str]) -> str:
     if photo.district_id in district_names:
         text += f"\nМикрорайон: {district_names[photo.district_id]}"
         if photo.work_type:
-            text += f"\nВид работы: {work_type_label(photo.work_type, getattr(photo, 'is_defect', False))}"
+            text += f"\nВид работы: {work_type_label(photo.work_type, getattr(photo, 'is_defect', False), catalog)}"
     return text

@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
     "Status": {
       "enum": [
@@ -106,7 +107,9 @@
     "source_work_type_code": {
       "anyOf": [
         {
-          "pattern": "^(?:DEICING_MANUAL|SNOW_MANUAL|BIN_EMPTYING|LAWN_LITTER|DRAIN_CLEANING|METAL_CUTTING|PLAYGROUND_MAINTENANCE|UNPAVED_LITTER|SWEEPING|BIN_WASHING|LAWN_RAKING|GREEN_CLEANING|GRASS_MOWING|PAVING_WASHING|SNOW_MECHANICAL|SNOW_REMOVAL)$",
+          "maxLength": 60,
+          "minLength": 1,
+          "pattern": "^[A-Z][A-Z0-9_]*$",
           "type": "string"
         },
         {
@@ -139,7 +142,9 @@
     "fixed_work_type_snapshot": {
       "anyOf": [
         {
-          "pattern": "^(?:DEICING_MANUAL|SNOW_MANUAL|BIN_EMPTYING|LAWN_LITTER|DRAIN_CLEANING|METAL_CUTTING|PLAYGROUND_MAINTENANCE|UNPAVED_LITTER|SWEEPING|BIN_WASHING|LAWN_RAKING|GREEN_CLEANING|GRASS_MOWING|PAVING_WASHING|SNOW_MECHANICAL|SNOW_REMOVAL)$",
+          "maxLength": 60,
+          "minLength": 1,
+          "pattern": "^[A-Z][A-Z0-9_]*$",
           "type": "string"
         },
         {
@@ -309,6 +314,5 @@
     "longitude"
   ],
   "title": "PhotoRecord",
-  "type": "object",
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  "type": "object"
 }
