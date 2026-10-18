@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Camera, LocateFixed, RefreshCw } from 'lucide-react';
-import { ErrorBox, FilterBar, useApp, useFilters } from './App';
+import { ErrorBox, useApp, useFilters } from './App';
+import FilterBar from './FilterBar';
 import { query } from './api';
 import { loadMapPhotos, mapPhotoFeature, type MapPhoto, type MapSummary } from './photoMapData';
 import { createPhotoMarkerLayout } from './photoMapMarker';
@@ -74,7 +75,7 @@ export default function PhotoMap() {
     <header className="page-header"><div><span className="eyebrow">ГЕОГРАФИЯ СНИМКОВ</span><h1>Карта фотографий</h1><p>Выберите период и чат, чтобы увидеть, где сделаны фотографии.</p></div>
       <button onClick={() => setRevision(value => value + 1)} aria-label="Обновить карту"><RefreshCw size={18}/></button>
     </header>
-    <FilterBar filters={filters} change={change}/>
+    <FilterBar filters={filters} change={change} refreshKey={revision}/>
     <section className="panel photo-map-panel">
       <div className="photo-map-toolbar">
         <div aria-live="polite">{loading ? `Загружаем точки… ${loaded || ''}` : data && <>

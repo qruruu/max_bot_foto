@@ -38,6 +38,7 @@ from app.catalog import WORK_TYPE_DISPLAY_ORDER, WORK_TYPES, Role, Status
 from app.config import settings
 from app.domain import audit, enqueue, now, reassess
 from app.exchange_housekeeping import ARCHIVE_JOB_KEY
+from app.filter_counts import photo_filter_counts
 from app.intake import ingest
 from app.integrations import YandexDisk, safe_url
 from app.media import media_path
@@ -210,6 +211,14 @@ def photos(db: Db, user: PhotosReader, filters: Annotated[PhotoListFilters, Quer
         "page_size": filters.page_size,
         "focus_id": rows[focus_index].id if focus_index is not None and focus_index < len(rows) else None,
     }
+
+
+@app.get("/api/photos/filter-counts")
+def photo_filter_options(db: Db, user: CurrentUser, filters: Filters):
+    if not (has_permission(user, Permission.PHOTOS_VIEW) or has_permission(user, Permission.REPORTS_VIEW)):
+        raise HTTPException(403, "Нет доступа к этой функции")
+    check_spam_filter(user, filters)
+    return photo_filter_counts(db, filters, include_spam=has_permission(user, Permission.SPAM_VIEW))
 
 
 @app.get("/api/photos/arrivals")

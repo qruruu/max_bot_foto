@@ -39,7 +39,9 @@ WORK_TYPES = {
     "SNOW_REMOVAL": ("ВЫВОЗ_СНЕГА", "ВЫВОЗ_СНЕГА"),
 }
 # UI order is independent of the stable class indices used by trained models.
-_PRIORITY_WORK_TYPES = ("BIN_EMPTYING", "PLAYGROUND_MAINTENANCE", "SNOW_MANUAL")
+_PRIORITY_WORK_TYPES = (
+    "BIN_EMPTYING", "PLAYGROUND_MAINTENANCE", "SNOW_MANUAL", "DEICING_MANUAL", "GREEN_CLEANING",
+)
 WORK_TYPE_DISPLAY_ORDER = _PRIORITY_WORK_TYPES + tuple(
     code for code in WORK_TYPES if code not in _PRIORITY_WORK_TYPES
 )

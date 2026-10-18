@@ -16,3 +16,5 @@
 .photo-save-actions{display:grid;gap:10px}
 
 .photos-table .photo-return-row td{background:color-mix(in srgb,var(--green) 8%,transparent)}
+
+.photo-thumb{min-width:144px;align-items:center;gap:6px}.photo-thumb img{width:144px;height:108px;border-radius:8px}.photo-thumb>svg{width:44px;height:108px}.photo-thumb small{font-size:11px}.filter-counts-error{padding:0 18px 15px;margin:0}
