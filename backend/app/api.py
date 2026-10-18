@@ -79,6 +79,7 @@ from app.schemas import (
     ChatInput,
     DistrictInput,
     ExchangeModeInput,
+    PhotoBrowseFilters,
     PhotoEdit,
     PhotoFilters,
     PhotoListFilters,
@@ -247,7 +248,7 @@ def photo_arrivals(db: Db, user: PhotosReader):
                     Photo.received_at >= now() - timedelta(days=1),
                     Photo.preview_removed_at.is_(None),
                     Photo.is_spam.is_(False),
-                    Photo.status.not_in([Status.REJECTED, Status.FORWARDED]),
+                    Photo.status.not_in([Status.REJECTED, Status.DUPLICATE, Status.FORWARDED, Status.SPAM]),
                 )
                 .order_by(Photo.id)
             )
@@ -346,7 +347,7 @@ def preview(photo_id: int, db: Db, user: PhotosReader):
 
 
 @app.get("/api/photos/{photo_id}/next")
-def next_photo(photo_id: int, db: Db, user: PhotosReader, filters: Filters):
+def next_photo(photo_id: int, db: Db, user: PhotosReader, filters: Annotated[PhotoBrowseFilters, Query()]):
     photo = require_photo(db, photo_id, user)
     check_spam_filter(user, filters)
     # Match the archive order, including ties, without depending on table pagination

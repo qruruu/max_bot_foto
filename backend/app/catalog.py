@@ -48,6 +48,7 @@ WORK_TYPE_DISPLAY_ORDER = _PRIORITY_WORK_TYPES + tuple(
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".tif", ".tiff", ".bmp", ".heic", ".webp"}
 ACCEPTED_STATUSES = {Status.ACCEPTED, Status.NEEDS_REVIEW}
 REJECTED_STATUSES = {Status.REJECTED, Status.DUPLICATE, Status.FORWARDED}
+NON_WORK_STATUSES = {Status.DUPLICATE, Status.FORWARDED, Status.SPAM}
 
 
 def work_type_label(code: str | None, is_defect: bool = False) -> str | None:

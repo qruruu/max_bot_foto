@@ -64,7 +64,7 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
       </select></label>}
       <label>Статус<select aria-label="Статус" disabled={fixedStatus} value={filters.accepted_only === 'true' ? 'ACCEPTED_ALL' : filters.status || ''}
         onChange={e => change({status: e.target.value === 'ACCEPTED_ALL' ? '' : e.target.value, accepted_only: e.target.value === 'ACCEPTED_ALL' ? 'true' : ''})}>
-        <option value="">{label('Все статусы', 'status')}</option>
+        <option value="">{label(filters.work_only === 'true' ? 'Для разбора' : 'Все статусы', 'status')}</option>
         <option value="ACCEPTED_ALL">{label('Принято системой', 'status', 'ACCEPTED_ALL')}</option>
         {meta.statuses.filter(s => s !== 'SPAM' || hasPermission(user, 'spam_view')).map(s => <option key={s} value={s}>{label(statusNames[s], 'status', s)}</option>)}
       </select></label>

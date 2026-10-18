@@ -133,6 +133,7 @@ class PhotoFilters(BaseModel):
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=30, ge=1, le=100)
     accepted_only: bool = False
+    work_only: bool = False
     date_from: date | None = None
     date_to: date | None = None
     day: date | None = None
@@ -152,11 +153,15 @@ class PhotoFilters(BaseModel):
         return self
 
 
-class PhotoListFilters(PhotoFilters):
+class PhotoBrowseFilters(PhotoFilters):
+    work_only: bool = True
+
+
+class PhotoListFilters(PhotoBrowseFilters):
     anchor_id: int | None = Field(default=None, ge=1)
 
 
-class PhotoMapFilters(PhotoFilters):
+class PhotoMapFilters(PhotoBrowseFilters):
     after_id: int = Field(default=0, ge=0)
     snapshot_id: int | None = Field(default=None, ge=0)
 

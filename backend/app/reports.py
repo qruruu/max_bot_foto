@@ -7,7 +7,7 @@ from openpyxl.styles import Font, PatternFill
 from sqlalchemy import Date, cast, func, select
 from sqlalchemy.orm import Session
 
-from app.catalog import WORK_TYPES, Status, work_type_label
+from app.catalog import NON_WORK_STATUSES, WORK_TYPES, Status, work_type_label
 from app.chat_access import chat_condition
 from app.config import settings
 from app.models import District, Photo, User
@@ -19,6 +19,9 @@ def filtered(filters: PhotoFilters, user=None):
     # Spam is an explicit archive view; normal lists, work reports and exports omit it.
     if filters.status != Status.SPAM:
         stmt = stmt.where(Photo.is_spam.is_(False))
+    # An explicit status still opens the separate duplicate/forwarded/spam archive.
+    if filters.work_only and filters.status not in NON_WORK_STATUSES:
+        stmt = stmt.where(Photo.status.not_in(NON_WORK_STATUSES))
     received_date = cast(func.timezone(settings().app_timezone, Photo.received_at), Date)
     date_field = (
         func.coalesce(Photo.photo_date, received_date) if filters.date_basis == "photo" else received_date

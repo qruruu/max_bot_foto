@@ -13,7 +13,7 @@ import './photo-map.css';
 export default function PhotoMap() {
   const {meta} = useApp();
   const {theme} = useTheme();
-  const {filters, change} = useFilters(false, false, true);
+  const {filters, change} = useFilters(false, false, true, true);
   const key = query(filters);
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<YMap | null>(null);

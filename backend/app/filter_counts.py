@@ -1,7 +1,7 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.catalog import Status
+from app.catalog import NON_WORK_STATUSES, Status
 from app.models import Photo
 from app.reports import filtered
 from app.schemas import PhotoFilters
@@ -23,11 +23,12 @@ def photo_filter_counts(db: Session, filters: PhotoFilters, *, include_spam: boo
         values = {str(value) if value is not None else missing: count for value, count in rows}
         result[name] = {"total": sum(values.values()), "values": values}
 
-    selection = filters.model_copy(update={"status": None, "accepted_only": False})
+    # Alternatives remain visible even when they are omitted from normal sorting.
+    selection = filters.model_copy(update={"status": None, "accepted_only": False, "work_only": False})
     values = dict(db.execute(
         filtered(selection, user).with_only_columns(Photo.status, func.count()).group_by(Photo.status)
     ).all())
-    total = sum(values.values())
+    total = sum(count for status, count in values.items() if not filters.work_only or status not in NON_WORK_STATUSES)
     values["ACCEPTED_ALL"] = values.get(Status.ACCEPTED, 0) + values.get(Status.NEEDS_REVIEW, 0)
     if include_spam:
         spam = filters.model_copy(update={"status": Status.SPAM, "accepted_only": False})

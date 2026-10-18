@@ -18,12 +18,12 @@ function respond(value: unknown) {
 describe('next photo in the current list', () => {
   it('advances accepted photos with the same filters across table pages', async () => {
     respond({id: 38});
-    const params = new URLSearchParams('review=0&spam=0&status=ACCEPTED&district_id=0&chat_id=123&work_type=SWEEPING&operator_id=2&date_from=2026-10-16&date_to=2026-10-17&date_basis=received&page=3&page_size=30&anchor_id=42');
+    const params = new URLSearchParams('review=0&spam=0&work_only=true&status=ACCEPTED&district_id=0&chat_id=123&work_type=SWEEPING&operator_id=2&date_from=2026-10-16&date_to=2026-10-17&date_basis=received&page=3&page_size=30&anchor_id=42');
     expect(await nextPhotoId(42, params)).toBe(38);
     const url = new URL(fetchMock.mock.calls[0][0], 'http://test');
     expect(url.pathname).toBe('/api/photos/42/next');
     expect(Object.fromEntries(url.searchParams)).toEqual({
-      status: 'ACCEPTED', district_id: '0', chat_id: '123', work_type: 'SWEEPING',
+      work_only: 'true', status: 'ACCEPTED', district_id: '0', chat_id: '123', work_type: 'SWEEPING',
       operator_id: '2', date_from: '2026-10-16', date_to: '2026-10-17', date_basis: 'received',
     });
     expect(params.get('page')).toBe('3');
