@@ -5,7 +5,19 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import JSON, DefaultClause, MetaData, create_engine, event, func, select, text
+from sqlalchemy import (
+    JSON,
+    Column,
+    DefaultClause,
+    Integer,
+    MetaData,
+    Table,
+    create_engine,
+    event,
+    func,
+    select,
+    text,
+)
 from sqlalchemy.orm import Session, attributes
 from sqlalchemy.pool import StaticPool
 
@@ -46,6 +58,7 @@ def chat_test_engine(url="sqlite://"):
     users.c.permissions.server_default = DefaultClause(text("'[]'"))
     sessions = LoginSession.__table__.to_metadata(metadata)
     sessions.c.id.server_default = None
+    Table("photos", metadata, Column("id", Integer, primary_key=True))
     OperatorMessage.__table__.to_metadata(metadata)
     metadata.create_all(engine)
     return engine

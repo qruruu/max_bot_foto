@@ -85,11 +85,13 @@ class OperatorMessage(Base):
     recipient_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     client_id: Mapped[str] = mapped_column(String(36))
     body: Mapped[str] = mapped_column(Text)
+    photo_id: Mapped[int | None] = mapped_column(ForeignKey("photos.id", name="fk_operator_messages_photo"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (
         CheckConstraint("sender_id <> recipient_id", name="ck_operator_message_peer"),
-        CheckConstraint("length(body) BETWEEN 1 AND 4000", name="ck_operator_message_body"),
+        CheckConstraint("length(body) <= 4000 AND (length(body) > 0 OR photo_id IS NOT NULL)",
+                        name="ck_operator_message_body"),
         UniqueConstraint("sender_id", "client_id", name="uq_operator_message_client"),
         Index("ix_operator_messages_pair", "sender_id", "recipient_id", "id"),
         Index("ix_operator_messages_unread", "recipient_id", "read_at", "sender_id"),
@@ -129,7 +131,21 @@ class Chat(Timestamps, Base):
     work_rule_version: Mapped[int] = mapped_column(default=1, server_default="1")
 
 
+class MaxSender(Timestamps, Base):
+    """One current label per MAX user, shared by every chat in this installation."""
+
+    __tablename__ = "max_senders"
+    sender_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    name: Mapped[str] = mapped_column(String(150))
+    __table_args__ = (
+        CheckConstraint("sender_id > 0", name="ck_max_sender_id"),
+        CheckConstraint("length(trim(name)) BETWEEN 1 AND 150", name="ck_max_sender_name"),
+    )
+
+
 class ChatSender(Timestamps, Base):
+    # Manual registration in a chat. The legacy name is retained for migration recovery;
+    # MaxSender.name is the sole authority for the current label.
     __tablename__ = "chat_senders"
     chat_id: Mapped[int] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), primary_key=True)
     sender_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)

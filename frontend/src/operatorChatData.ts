@@ -1,6 +1,7 @@
 export type OperatorMessage = {
   id: number; sender_id: number; recipient_id: number; client_id: string;
   body: string; created_at: string; read_at: string | null;
+  photo?: {id: number; available: boolean; preview_url: string | null} | null;
 };
 export type OperatorContact = {
   id: number; name: string; role: string; active: boolean; avatar_url: string | null;
@@ -10,6 +11,14 @@ export type ContactPage = {items: OperatorContact[]; unread: number};
 export type MessagePage = {
   items: OperatorMessage[]; has_older: boolean; has_newer: boolean; peer_read_through_id: number;
 };
+
+export function operatorPhotoLink(photoId: number, peerId: number) {
+  return `/photos/${photoId}?operator_chat=${peerId}`;
+}
+
+export function messagePreview(message: OperatorMessage) {
+  return message.photo ? `Фото #${message.photo.id}${message.body ? ' · ' + message.body : ''}` : message.body;
+}
 
 export function mergeMessages(current: OperatorMessage[], incoming: OperatorMessage[]) {
   const byId = new Map(current.map(message => [message.id, message]));

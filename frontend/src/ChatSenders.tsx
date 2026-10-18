@@ -52,7 +52,7 @@ export default function ChatSenders({chat, onClose}: {chat: Chat; onClose: () =>
     pending.current = true; setBusy(true); setError('');
     try {
       await api(path + '/' + senderId.trim(), 'PUT', {name: name.trim()});
-      reset(); await load(); notify('Подпись отправителя сохранена');
+      reset(); await load(); notify('Подпись отправителя сохранена для всех чатов');
     } catch (e) {setError((e as Error).message);}
     finally {pending.current = false; setBusy(false);}
   }
@@ -63,7 +63,7 @@ export default function ChatSenders({chat, onClose}: {chat: Chat; onClose: () =>
     try {
       await api(path + '/' + item.sender_id, 'DELETE');
       if (senderId === item.sender_id) reset();
-      await load(); notify('Подпись убрана. Фотографии сохранены.');
+      await load(); notify('Подпись убрана во всех чатах. Фотографии сохранены.');
     } catch (e) {setError((e as Error).message);}
     finally {pending.current = false; setBusy(false);}
   }
@@ -78,15 +78,15 @@ export default function ChatSenders({chat, onClose}: {chat: Chat; onClose: () =>
     }
   }}><form ref={formRef} className="modal chat-senders-modal" role="dialog" aria-modal="true" aria-labelledby="chat-senders-title" onSubmit={save}>
     <div className="section-title"><div><h2 id="chat-senders-title"><UserRound size={20}/>Участники чата</h2><p>{chat.name}</p></div><button type="button" aria-label="Закрыть участников" disabled={busy} onClick={onClose}><X size={18}/></button></div>
-    <p className="hint">Укажите ID пользователя MAX и подпись — имя, должность или бригаду. Она появится у всех его фотографий в этом чате, включая ранее полученные.</p>
+    <p className="hint">Укажите ID пользователя MAX и подпись — имя, должность или бригаду. Подпись общая для всех чатов и появится у всех фотографий этого человека, включая ранее полученные. Изменение и удаление подписи тоже применяются ко всем чатам.</p>
     <ErrorBox error={error}/>
     <fieldset disabled={busy} className="sender-form"><label>ID пользователя MAX<input required inputMode="numeric" pattern="[0-9]+" autoComplete="off" value={senderId} disabled={editing} onChange={e => setSenderId(e.target.value)} placeholder="Например, 123456789"/></label><label>Подпись<input required maxLength={150} value={name} onChange={e => setName(e.target.value)} placeholder="Например, Иван · бригада № 2"/></label><div className="sender-form-actions"><button className="primary" type="submit">{busy?'Сохранение…':editing?'Сохранить подпись':'Добавить участника'}</button>{editing && <button type="button" onClick={reset}>Отмена</button>}</div></fieldset>
     <div className="section-title"><h3>Отправители фотографий</h3><button type="button" aria-label="Обновить участников" disabled={busy} onClick={() => void load()}><RefreshCw size={16}/></button></div>
     <p className="hint">Здесь также показаны ID тех, кто уже присылал фото. Нажмите «Подписать», чтобы добавить имя.</p>
     {items === null && !error && <p className="loading">Загружаем участников…</p>}
     {items?.length === 0 && <p className="empty">Пользователей пока нет. Добавьте участника по ID.</p>}
-    {!!items?.length && <div className="table-scroll"><table className="chat-senders-table"><thead><tr><th>Участник / ID</th><th>Фотографии</th><th/></tr></thead><tbody>{items.map(item => <tr key={item.sender_id}>
-      <td><strong>{item.name || 'Не подписан'}</strong><small className="mono">ID {item.sender_id}</small></td><td>{item.photo_count}<small>{item.last_photo_at ? 'Последнее фото '+dateLabel(item.last_photo_at) : 'Фото ещё не присылал'}</small></td><td><div className="sender-row-actions"><button type="button" disabled={busy} onClick={() => {setSenderId(item.sender_id); setName(item.name || ''); setEditing(true); formRef.current?.querySelector<HTMLInputElement>('input[maxlength]')?.focus();}}><Pencil size={14}/>{item.name?'Изменить':'Подписать'}</button>{item.name && <button className="text-button" type="button" disabled={busy} onClick={() => void remove(item)}>Убрать подпись</button>}</div></td>
+    {!!items?.length && <div className="table-scroll"><table className="chat-senders-table"><thead><tr><th>Участник / ID</th><th>Фото в этом чате</th><th/></tr></thead><tbody>{items.map(item => <tr key={item.sender_id}>
+      <td><strong>{item.name || 'Не подписан'}</strong><small className="mono">ID {item.sender_id}</small></td><td>{item.photo_count}<small>{item.last_photo_at ? 'Последнее фото '+dateLabel(item.last_photo_at) : 'Фото ещё не присылал'}</small></td><td><div className="sender-row-actions"><button type="button" disabled={busy} onClick={() => {setSenderId(item.sender_id); setName(item.name || ''); setEditing(true); formRef.current?.querySelector<HTMLInputElement>('input[maxlength]')?.focus();}}><Pencil size={14}/>{item.name?'Изменить':'Подписать'}</button>{item.name && <button className="text-button" type="button" disabled={busy} onClick={() => void remove(item)}>Убрать подпись везде</button>}</div></td>
     </tr>)}</tbody></table></div>}
   </form></div>;
 }

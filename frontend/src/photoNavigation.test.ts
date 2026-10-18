@@ -95,3 +95,20 @@ describe('return to the photo list', () => {
 
   it('restores a valid page', () => expect(photoListPage('3')).toBe(3));
 });
+
+
+describe('return from a forwarded photo', () => {
+  it('returns to the sender conversation to answer without opening the photo list', () => {
+    expect(photoListBackLink(48, new URLSearchParams('operator_chat=2'))).toBe('/messages?with=2');
+  });
+  it('does not include the conversation parameter in requests for the next photo', async () => {
+    respond({id: 47});
+    expect(await nextPhotoId(48, new URLSearchParams('operator_chat=2&sort_order=asc'))).toBe(47);
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/photos/48/next?sort_order=asc');
+  });
+  it.each(['-1', '0', 'invalid', '9007199254740992'])('ignores invalid conversation %s', value => {
+    const link = new URL(photoListBackLink(48, new URLSearchParams({operator_chat: value})), 'http://test');
+    expect(link.pathname).toBe('/photos');
+    expect(link.searchParams.has('operator_chat')).toBe(false);
+  });
+});

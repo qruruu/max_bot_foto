@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, select, update
 from test_chat_access import AccessSession, actor
 from test_chat_access import access_api as access_api
 
-from app.models import Audit, Chat, ChatSender, Photo, User
+from app.models import Audit, Chat, ChatSender, MaxSender, Photo, User
 
 LARGE_ID = 9007199254740993
 
@@ -18,12 +18,16 @@ LARGE_ID = 9007199254740993
 def senders_api(access_api):
     client, engine = access_api
     ChatSender.__table__.create(engine)
+    MaxSender.__table__.create(engine)
     with AccessSession(engine) as db:
         for photo_id, sender_id in [(10,LARGE_ID),(20,LARGE_ID),(30,111),(50,321),(60,777)]:
             db.execute(update(Photo).where(Photo.id == photo_id).values(sender_id=sender_id))
         db.add_all([ChatSender(chat_id=1,sender_id=LARGE_ID,name="Иван · бригада № 2"),
                     ChatSender(chat_id=2,sender_id=LARGE_ID,name="Подпись в другом чате"),
                     ChatSender(chat_id=1,sender_id=999,name="Ещё не присылал фото")])
+        db.add_all([MaxSender(sender_id=LARGE_ID,name="Иван · бригада № 2"),
+                    MaxSender(sender_id=999,name="Ещё не присылал фото"),
+                    MaxSender(sender_id=777,name="Отправитель из другого чата")])
         db.commit()
     return client, engine
 
@@ -41,7 +45,7 @@ def test_directory_combines_registered_users_and_senders_seen_in_this_chat(sende
     assert all(row['name'] != 'Подпись в другом чате' for row in rows.values())
 
 
-def test_photo_detail_uses_the_current_alias_for_its_own_chat_and_exact_id(senders_api):
+def test_photo_detail_uses_the_current_shared_name_for_the_exact_id(senders_api):
     client, _ = senders_api
     data = client.get('/api/photos/10').json()
     assert data['sender_id'] == str(LARGE_ID) and data['sender_name'] == 'Иван · бригада № 2'
@@ -50,7 +54,7 @@ def test_photo_detail_uses_the_current_alias_for_its_own_chat_and_exact_id(sende
     assert client.get('/api/photos/10').json()['sender_name'] == 'Иван Петров'
     actor(client,1)
     other = client.get('/api/photos/20').json()
-    assert other['sender_name'] == 'Подпись в другом чате' and other['sender_id'] == str(LARGE_ID)
+    assert other['sender_name'] == 'Иван Петров' and other['sender_id'] == str(LARGE_ID)
 
 
 def test_unregistered_and_missing_senders_are_not_misattributed(senders_api):
@@ -60,8 +64,8 @@ def test_unregistered_and_missing_senders_are_not_misattributed(senders_api):
     actor(client,1)
     data = client.get('/api/photos/40').json()
     assert data['sender_id'] is None and data['sender_name'] is None
-    # A chat with no registered Chat record must not inherit a label from another chat.
-    assert client.get('/api/photos/60').json()['sender_name'] is None
+    # A shared ID has the same name even on historical photos from an unregistered chat.
+    assert client.get('/api/photos/60').json()['sender_name'] == "Отправитель из другого чата"
 
 
 def test_manual_registration_and_deleting_label_preserve_photos(senders_api):
@@ -76,7 +80,7 @@ def test_manual_registration_and_deleting_label_preserve_photos(senders_api):
         assert db.get(Photo,50) is not None
         audit = db.scalar(select(Audit).where(Audit.action=='CHAT_SENDER_REMOVED'))
         assert audit.object_type == 'chat' and audit.object_id == 1
-        assert audit.old_value == {'sender_id':'321','name':'Бригада № 3'}
+        assert audit.old_value == {'sender_id':'321','name':'Бригада № 3','scope':'ALL_CHATS'}
 
 
 def test_saving_a_participant_twice_updates_instead_of_duplicating(senders_api):
@@ -84,7 +88,7 @@ def test_saving_a_participant_twice_updates_instead_of_duplicating(senders_api):
     for name in ['Первая подпись','Новая подпись']:
         assert client.put('/api/chats/1/senders/12345',json={'name':name}).status_code == 200
     with AccessSession(engine) as db:
-        records = db.scalars(select(ChatSender).where(ChatSender.sender_id == 12345)).all()
+        records = db.scalars(select(MaxSender).where(MaxSender.sender_id == 12345)).all()
         assert len(records) == 1 and records[0].name == 'Новая подпись'
 
 
@@ -94,7 +98,7 @@ def test_directory_and_mutations_cannot_cross_chat_boundaries(senders_api,method
     path = '/api/chats/2/senders' + ('' if method=='GET' else f'/{LARGE_ID}')
     assert client.request(method,path,json={'name':'Чужая подпись'} if method=='PUT' else None).status_code == 404
     with AccessSession(engine) as db:
-        assert db.get(ChatSender,(2,LARGE_ID)).name == 'Подпись в другом чате'
+        assert db.get(MaxSender,LARGE_ID).name == 'Иван · бригада № 2'
     assert client.request(method,path.replace('/chats/2/','/chats/999/'),
                           json={'name':'Подпись'} if method=='PUT' else None).status_code == 404
 
@@ -157,4 +161,117 @@ def test_sender_table_migration_keeps_existing_chat_and_photo_rows():
         with Operations.context(MigrationContext.configure(connection)):
             migration['downgrade']()
         assert connection.scalar(select(Chat.name)) == 'Чат'
+    engine.dispose()
+
+
+def test_a_sender_signed_in_one_chat_is_named_in_other_chats_without_registration(senders_api):
+    client, engine = senders_api
+    # The person has sent a photo to both chats but has only been signed in the first.
+    with AccessSession(engine) as db:
+        db.delete(db.get(ChatSender, (2, LARGE_ID)))
+        db.commit()
+    actor(client, 1)
+    rows = client.get('/api/chats/2/senders').json()
+    item = next(row for row in rows if row['sender_id'] == str(LARGE_ID))
+    assert item['name'] == 'Иван · бригада № 2' and item['photo_count'] == 1
+    assert client.get('/api/photos/20').json()['sender_name'] == item['name']
+    # A rename from the second chat becomes visible in the first without copying data.
+    assert client.put(f'/api/chats/2/senders/{LARGE_ID}',json={'name':'Общее имя'}).status_code == 200
+    actor(client, 2)
+    assert client.get('/api/photos/10').json()['sender_name'] == 'Общее имя'
+    assert next(row for row in client.get('/api/chats/1/senders').json()
+                if row['sender_id'] == str(LARGE_ID))['name'] == 'Общее имя'
+    assert client.get('/api/photos/20').status_code == 404
+
+
+def test_global_names_do_not_enumerate_participants_from_other_chats(senders_api):
+    client, engine = senders_api
+    with AccessSession(engine) as db:
+        db.add(MaxSender(sender_id=123456,name='Участник только другого чата'))
+        db.add(ChatSender(chat_id=2,sender_id=123456,name='Участник только другого чата'))
+        db.commit()
+    rows = client.get('/api/chats/1/senders').json()
+    assert '123456' not in {item['sender_id'] for item in rows}
+    assert '777' not in {item['sender_id'] for item in rows}
+    assert client.get('/api/chats/2/senders').status_code == 404
+    actor(client, 1)
+    assert '999' not in {item['sender_id'] for item in client.get('/api/chats/2/senders').json()}
+
+
+def test_removing_the_shared_name_applies_everywhere_without_changing_photos(senders_api):
+    client, engine = senders_api
+    assert client.delete(f'/api/chats/1/senders/{LARGE_ID}').status_code == 200
+    assert client.get('/api/photos/10').json()['sender_name'] is None
+    actor(client, 1)
+    assert client.get('/api/photos/20').json()['sender_name'] is None
+    assert next(row for row in client.get('/api/chats/2/senders').json()
+                if row['sender_id'] == str(LARGE_ID))['name'] is None
+    with AccessSession(engine) as db:
+        assert db.get(MaxSender, LARGE_ID) is None
+        assert not list(db.scalars(select(ChatSender).where(ChatSender.sender_id == LARGE_ID)))
+        assert db.get(Photo, 10).version == db.get(Photo, 20).version == 1
+        assert db.get(Photo, 10).sender_id == db.get(Photo, 20).sender_id == LARGE_ID
+    assert client.delete(f'/api/chats/2/senders/{LARGE_ID}').status_code == 200
+
+
+def test_saving_same_id_from_different_chats_creates_one_shared_name(senders_api):
+    client, engine = senders_api
+    actor(client, 1)
+    for chat_id, name in [(1, 'Первое имя'), (2, 'Новое имя'), (1, 'Итоговое имя')]:
+        assert client.put(f'/api/chats/{chat_id}/senders/12345',json={'name':name}).status_code == 200
+    with AccessSession(engine) as db:
+        assert [s.name for s in db.scalars(select(MaxSender).where(MaxSender.sender_id == 12345))] == ['Итоговое имя']
+        assert len(list(db.scalars(select(ChatSender).where(ChatSender.sender_id == 12345)))) == 2
+    for chat_id in [1, 2]:
+        assert next(row for row in client.get(f'/api/chats/{chat_id}/senders').json()
+                    if row['sender_id'] == '12345')['name'] == 'Итоговое имя'
+
+
+def test_shared_name_migration_preserves_old_labels_and_chooses_the_latest_edit():
+    from datetime import UTC, datetime
+
+    migration = runpy.run_path(str(Path(__file__).parents[1] / 'alembic/versions/0023_shared_sender_names.py'))
+    engine = create_engine('sqlite://')
+    Chat.__table__.create(engine)
+    ChatSender.__table__.create(engine)
+    earlier = datetime(2026, 10, 16, tzinfo=UTC)
+    later = datetime(2026, 10, 18, tzinfo=UTC)
+    with engine.begin() as connection:
+        for id in [1, 2]:
+            connection.execute(Chat.__table__.insert().values(id=id,max_chat_id=id*100,name=f'Чат {id}',active=True))
+        for chat_id, sender_id, name, created_at, updated_at in [
+            (1, LARGE_ID, 'Прежнее имя', earlier, earlier),
+            (2, LARGE_ID, 'Последнее имя', earlier, later),
+            (1, 50171150, 'Анна Викторовна', earlier, later),
+            (1, 123, 'Одинаковое имя', earlier, earlier),
+            (2, 123, 'Одинаковое имя', earlier, earlier),
+            (1, 321, 'Первый чат при одинаковом времени', earlier, later),
+            (2, 321, 'Второй чат при одинаковом времени', earlier, later),
+        ]:
+            connection.execute(ChatSender.__table__.insert().values(
+                chat_id=chat_id,sender_id=sender_id,name=name,created_at=created_at,updated_at=updated_at))
+        before = connection.execute(select(ChatSender.__table__).order_by(ChatSender.chat_id, ChatSender.sender_id)).all()
+        with Operations.context(MigrationContext.configure(connection)):
+            migration['upgrade']()
+        assert dict(connection.execute(select(MaxSender.sender_id,MaxSender.name)).all()) == {
+            LARGE_ID:'Последнее имя',50171150:'Анна Викторовна',123:'Одинаковое имя',
+            321:'Первый чат при одинаковом времени',
+        }
+        assert before == connection.execute(select(ChatSender.__table__).order_by(ChatSender.chat_id, ChatSender.sender_id)).all()
+        assert connection.scalar(select(MaxSender.created_at).where(MaxSender.sender_id == LARGE_ID)).date() == earlier.date()
+        assert len(connection.execute(select(Chat.__table__)).all()) == 2
+    with pytest.raises(RuntimeError, match='preserved'):
+        migration['downgrade']()
+    engine.dispose()
+
+
+def test_fresh_installation_has_no_shared_sender_labels():
+    migration = runpy.run_path(str(Path(__file__).parents[1] / 'alembic/versions/0023_shared_sender_names.py'))
+    engine = create_engine('sqlite://')
+    Chat.__table__.create(engine)
+    ChatSender.__table__.create(engine)
+    with engine.begin() as connection:
+        with Operations.context(MigrationContext.configure(connection)):
+            migration['upgrade']()
+        assert connection.execute(select(MaxSender.__table__)).all() == []
     engine.dispose()

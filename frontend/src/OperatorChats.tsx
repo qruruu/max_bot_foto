@@ -1,12 +1,12 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
-import { ArrowLeft, Check, CheckCheck, MessageCircle, RefreshCw, Search, Send } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { ArrowLeft, Camera, Check, CheckCheck, MessageCircle, RefreshCw, Search, Send } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError, api } from './api';
 import { ErrorBox, useApp } from './App';
 import Avatar from './Avatar';
 import { useOperatorChats } from './OperatorChatsProvider';
-import { mergeMessages, messageDay, messageTime } from './operatorChatData';
+import { mergeMessages, messageDay, messagePreview, messageTime, operatorPhotoLink } from './operatorChatData';
 import type { ContactPage, MessagePage, OperatorContact, OperatorMessage } from './operatorChatData';
 import './operator-chats.css';
 
@@ -160,7 +160,7 @@ export default function OperatorChats() {
           {!contactLoading && !filtered.length && <p className="operator-chat-note">{search ? 'Операторов не найдено.' : 'Другие операторы пока не добавлены.'}</p>}
           {filtered.map(contact => <button type="button" key={contact.id} className={`operator-chat-contact ${peerId === contact.id ? 'selected' : ''}`} onClick={() => setParams({with: String(contact.id)})} aria-pressed={peerId === contact.id}>
             <Avatar name={contact.name} src={contact.avatar_url}/>
-            <span className="operator-chat-contact-copy"><strong>{contact.name}</strong><span>{contact.last_message ? `${contact.last_message.sender_id === user.id ? 'Вы: ' : ''}${contact.last_message.body}` : contact.active ? 'Начать переписку' : 'Аккаунт отключён'}</span></span>
+            <span className="operator-chat-contact-copy"><strong>{contact.name}</strong><span>{contact.last_message ? `${contact.last_message.sender_id === user.id ? 'Вы: ' : ''}${messagePreview(contact.last_message)}` : contact.active ? 'Начать переписку' : 'Аккаунт отключён'}</span></span>
             <span className="operator-chat-contact-meta">{contact.last_message && <time dateTime={contact.last_message.created_at}>{messageTime(contact.last_message.created_at, meta.timezone)}</time>}{contact.unread > 0 && <span className="operator-chat-unread" aria-label={`Непрочитанных: ${contact.unread}`}>{contact.unread > 99 ? '99+' : contact.unread}</span>}</span>
           </button>)}
         </div>
@@ -180,7 +180,10 @@ export default function OperatorChats() {
                 const read = !!message.read_at || message.id <= readThrough;
                 return <Fragment key={message.id}>
                   {(index === 0 || messageDay(messages[index - 1].created_at, meta.timezone) !== day) && <li className="operator-message-day">{day}</li>}
-                  <li className={`operator-message ${own ? 'own' : ''}`}><div className="operator-message-bubble"><p>{message.body}</p><div className="operator-message-meta"><time dateTime={message.created_at}>{messageTime(message.created_at, meta.timezone)}</time>{own && <span className={read ? 'message-read' : ''} aria-label={read ? 'Прочитано' : 'Отправлено'} title={read ? 'Прочитано' : 'Отправлено'}>{read ? <CheckCheck size={14} aria-hidden="true"/> : <Check size={14} aria-hidden="true"/>}</span>}</div></div></li>
+                  <li className={`operator-message ${own ? 'own' : ''}`}><div className="operator-message-bubble">{message.photo && (message.photo.available ? <Link className="operator-message-photo" to={operatorPhotoLink(message.photo.id, peerId)} aria-label={'Открыть фотографию №' + message.photo.id}>
+                      {message.photo.preview_url ? <img src={message.photo.preview_url} loading="lazy" alt={'Фотография №' + message.photo.id}/> : <span className="operator-message-photo-placeholder"><Camera size={30}/></span>}
+                      <span>Фотография #{message.photo.id}<small>Открыть карточку</small></span>
+                    </Link> : <div className="operator-message-photo-unavailable">Фотография #{message.photo.id} недоступна</div>)}{message.body && <p>{message.body}</p>}<div className="operator-message-meta"><time dateTime={message.created_at}>{messageTime(message.created_at, meta.timezone)}</time>{own && <span className={read ? 'message-read' : ''} aria-label={read ? 'Прочитано' : 'Отправлено'} title={read ? 'Прочитано' : 'Отправлено'}>{read ? <CheckCheck size={14} aria-hidden="true"/> : <Check size={14} aria-hidden="true"/>}</span>}</div></div></li>
                 </Fragment>;
               })}
             </ol>
