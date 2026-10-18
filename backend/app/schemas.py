@@ -138,6 +138,10 @@ class PhotoFilters(BaseModel):
         return self
 
 
+class PhotoListFilters(PhotoFilters):
+    anchor_id: int | None = Field(default=None, ge=1)
+
+
 class PhotoMapFilters(PhotoFilters):
     after_id: int = Field(default=0, ge=0)
     snapshot_id: int | None = Field(default=None, ge=0)

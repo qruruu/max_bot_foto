@@ -7,9 +7,10 @@ from fastapi import HTTPException
 from sqlalchemy import Column, MetaData, Table, create_engine
 from sqlalchemy.orm import Session
 
-from app.api import next_photo
+from app.api import next_photo, photos
 from app.models import Photo
-from app.schemas import PhotoFilters
+from app.reports import photo_list_position
+from app.schemas import PhotoFilters, PhotoListFilters
 
 
 @pytest.fixture
@@ -46,7 +47,14 @@ def archive():
                 id, db, user or SimpleNamespace(role="ADMIN_OPERATOR"), PhotoFilters(**filters),
             )["id"]
 
-        yield SimpleNamespace(add=add, next=next_id, db=db, records=records)
+        def position(id=None, **filters):
+            from app.reports import filtered
+
+            selection = PhotoListFilters(**filters)
+            total = len(session.scalars(filtered(selection).with_only_columns(Photo.id)).all())
+            return photo_list_position(db, selection, total, records.get(id))
+
+        yield SimpleNamespace(add=add, next=next_id, position=position, db=db, records=records)
     engine.dispose()
 
 
@@ -110,3 +118,80 @@ def test_unavailable_source_photo_returns_404(archive, removed):
         archive.next(10)
     assert error.value.status_code == 404
     archive.db.scalar.assert_not_called()
+
+
+def test_return_to_photo_resolves_its_page_and_row_with_equal_timestamps(archive):
+    for id in range(1, 76):
+        archive.add(id)
+    assert archive.position(32, page=1) == (2, 13)
+    assert archive.position(15, page=2) == (3, 0)
+    assert archive.position(75, page=3) == (1, 0)
+    assert archive.position(1, page_size=10) == (8, 4)
+
+
+def test_return_position_ignores_newer_ids_with_older_received_dates(archive):
+    archive.add(10)
+    archive.add(20)
+    archive.add(99, received_at=datetime(2026, 10, 16))
+    assert archive.position(99, page_size=1) == (3, 0)
+    assert archive.position(10, page_size=1) == (2, 0)
+
+
+def test_return_position_keeps_filters_and_adapts_to_new_arrivals(archive):
+    archive.add(30)
+    archive.add(20)
+    archive.add(10)
+    assert archive.position(10, work_type="BIN_EMPTYING", page_size=2) == (2, 0)
+    archive.add(60, work_type="SWEEPING")
+    archive.add(50, is_spam=True)
+    archive.add(40, preview_removed_at=datetime(2026, 10, 17))
+    assert archive.position(10, work_type="BIN_EMPTYING", page_size=2) == (2, 0)
+    archive.add(70)
+    archive.add(80)
+    assert archive.position(10, work_type="BIN_EMPTYING", page_size=2) == (3, 0)
+
+
+def test_return_to_photo_no_longer_in_filters_uses_nearest_remaining_row(archive):
+    archive.add(50)
+    archive.add(40, work_type="SWEEPING")
+    archive.add(30)
+    archive.add(20)
+    archive.add(10, work_type="SWEEPING")
+    assert archive.position(40, work_type="BIN_EMPTYING", page_size=2) == (1, 1)
+    assert archive.position(10, work_type="BIN_EMPTYING", page_size=2) == (2, 0)
+
+
+def test_return_to_missing_photo_preserves_page_and_clamps_a_shrunken_list(archive):
+    for id in range(1, 36):
+        archive.add(id)
+    assert archive.position(page=2) == (2, None)
+    assert archive.position(page=3) == (2, None)
+    assert archive.position(1, status="SPAM", page=2) == (1, None)
+
+
+@pytest.mark.parametrize("anchor", [
+    None,
+    Photo(id=99, is_spam=True),
+    Photo(id=99, preview_removed_at=datetime(2026, 10, 18)),
+])
+def test_list_ignores_missing_or_inaccessible_anchor_without_disclosing_its_position(monkeypatch, anchor):
+    db = Mock()
+    db.get.return_value = anchor
+    db.scalar.return_value = 37
+    db.scalars.return_value = [Photo(id=7)]
+    monkeypatch.setattr("app.api.dictionaries", lambda db: ({}, {}))
+    user = SimpleNamespace(role="OPERATOR", permissions=["photos_view"])
+    result = photos(db, user, PhotoListFilters(anchor_id=99, page=2))
+    assert result["page"] == 2 and result["focus_id"] is None
+    assert [photo["id"] for photo in result["items"]] == [7]
+    db.scalar.assert_called_once()
+
+
+def test_list_response_selects_the_resolved_page_and_photo_to_focus(monkeypatch):
+    db = Mock()
+    db.get.return_value = Photo(id=3, received_at=datetime(2026, 10, 18))
+    db.scalar.side_effect = [35, 31]
+    db.scalars.return_value = [Photo(id=id) for id in [4, 3, 2, 1]]
+    monkeypatch.setattr("app.api.dictionaries", lambda db: ({}, {}))
+    result = photos(db, SimpleNamespace(role="ADMIN_OPERATOR"), PhotoListFilters(anchor_id=3))
+    assert result["page"] == 2 and result["focus_id"] == 3

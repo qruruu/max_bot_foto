@@ -62,13 +62,14 @@ from app.permissions import (
     permission_catalog,
 )
 from app.receiver import connection_status, received
-from app.reports import export_excel, filtered, photo_dict, summarize
+from app.reports import export_excel, filtered, photo_dict, photo_list_position, summarize
 from app.schemas import (
     ChatInput,
     DistrictInput,
     ExchangeModeInput,
     PhotoEdit,
     PhotoFilters,
+    PhotoListFilters,
     PhotoMapFilters,
     PhotoVersionInput,
     UserCreate,
@@ -185,21 +186,29 @@ def dictionaries(db):
 
 
 @app.get("/api/photos")
-def photos(db: Db, user: PhotosReader, filters: Filters):
+def photos(db: Db, user: PhotosReader, filters: Annotated[PhotoListFilters, Query()]):
     check_spam_filter(user, filters)
     stmt = filtered(filters)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = db.scalars(
+    anchor = db.get(Photo, filters.anchor_id) if filters.anchor_id else None
+    if anchor and (
+        anchor.preview_removed_at is not None
+        or (anchor.is_spam and not has_permission(user, Permission.SPAM_VIEW))
+    ):
+        anchor = None
+    page, focus_index = photo_list_position(db, filters, total, anchor)
+    rows = list(db.scalars(
         stmt.order_by(Photo.received_at.desc(), Photo.id.desc())
-        .offset((filters.page - 1) * filters.page_size)
+        .offset((page - 1) * filters.page_size)
         .limit(filters.page_size)
-    )
+    ))
     districts, operators = dictionaries(db)
     return {
         "items": [photo_dict(p, districts, operators) for p in rows],
         "total": total,
-        "page": filters.page,
+        "page": page,
         "page_size": filters.page_size,
+        "focus_id": rows[focus_index].id if focus_index is not None and focus_index < len(rows) else None,
     }
 
 

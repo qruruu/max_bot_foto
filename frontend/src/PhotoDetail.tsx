@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpRight, Camera, Check, ChevronRight, MapPin, RefreshCw } from 'lucide-react';
 import { api, dateLabel, reasonNames, processingErrorLabel } from './api';
 import { ErrorBox, StatusBadge, useApp } from './App';
 import type { Photo } from './types';
 import RemoveMissingPreview from './RemoveMissingPreview';
 import { hasPermission } from './permissions';
-import { nextPhotoId } from './photoNavigation';
+import { nextPhotoId, photoListBackLink } from './photoNavigation';
 
 export default function PhotoDetail() {
   const {id}=useParams();const [params]=useSearchParams();const navigate=useNavigate();const {meta,notify,user}=useApp();
   const [photo,setPhoto]=useState<Photo|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[form,setForm]=useState<Record<string,string>>({});
   const review=params.get('review')==='1';
+  const location=useLocation();
   const loadRevision = useRef(0);
   async function load() {
     const revision = ++loadRevision.current;
@@ -38,14 +39,14 @@ export default function PhotoDetail() {
     void load();
     return () => { loadRevision.current++; };
   }, [id]);
-  const back=()=>{const q=new URLSearchParams(params);q.delete('review');q.delete('spam');q.delete('from_map');navigate((params.get('from_map')==='1'?'/photo-map':review?'/review':params.get('spam')==='1'?'/spam':'/photos')+'?'+q.toString());};
+  const back=()=>navigate(photoListBackLink(Number(id),params),{state:location.state});
   const field=(name:string,value:string)=>setForm(f=>({...f,[name]:value}));
   async function save(e:FormEvent){e.preventDefault();if(!photo||busy)return;setBusy(true);setError('');try{
     const advance=review||(e.nativeEvent as SubmitEvent).submitter?.getAttribute('value')!=='save';
     const nextId=advance?await nextPhotoId(photo.id,params):null;
     const result=await api<{status:string}>('/photos/'+id,'PATCH',form.work_type==='SPAM'?{version:photo.version,is_spam:true}:{version:photo.version,is_spam:false,photo_date:form.photo_date||null,photo_time:form.photo_time||null,latitude:form.latitude===''?null:Number(form.latitude),longitude:form.longitude===''?null:Number(form.longitude),work_type:form.work_type||null,district_id:form.district_id?Number(form.district_id):null});
     notify(result.status==='SPAM'?'Фотография перемещена в спам. Файл будет синхронизирован.':result.status==='ACCEPTED'?'Фотография принята. Файл будет синхронизирован.':'Изменения сохранены. Остались вопросы для проверки.');
-    if(advance){if(nextId!==null)navigate(`/photos/${nextId}?${params.toString()}`);else back();}else await load();
+    if(advance){if(nextId!==null)navigate(`/photos/${nextId}?${params.toString()}`,{state:location.state});else back();}else await load();
   }catch(e){setError((e as Error).message);}finally{setBusy(false);}}
   if(!photo)return <><ErrorBox error={error}/><p className="loading">{error?'Не удалось открыть фотографию':'Открываем фотографию…'}</p><button onClick={back}>Вернуться к списку</button></>;
   const canEdit=hasPermission(user,'photos_edit');

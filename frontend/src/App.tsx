@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { NavLink, Navigate, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom';
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MapPin, MessageSquare, RefreshCw, Search, ShieldCheck, Users } from 'lucide-react';
 import { api, dateLabel, photoLink, query, shiftDate, statusNames } from './api';
 import type { Filters, Meta, PhotoPage, Report, User } from './types';
@@ -16,6 +16,8 @@ import OperatorChats from './OperatorChats';
 import { OperatorChatBadge, OperatorChatsProvider } from './OperatorChatsProvider';
 import { hasPermission } from './permissions';
 import { PhotoNotificationsProvider } from './PhotoNotifications';
+import { photoListPage } from './photoNavigation';
+import type { PhotoListPosition } from './photoNavigation';
 
 const Context = createContext<{ user: User; meta: Meta; refresh: () => Promise<void>; notify: (text: string) => void; updateUser: (user: User) => void }>(null!);
 export const useApp = () => useContext(Context);
@@ -109,6 +111,7 @@ export function useFilters(review=false,spam=false,today=false) {
   const defaultDate=today?meta.today:shiftDate(meta.today,-1);
   const filters:Filters={...(!review&&!spam&&!params.has('date_from')&&!params.has('date_to')&&!params.has('all_dates')?{date_from:defaultDate,date_to:defaultDate}:{}),...Object.fromEntries(params),...(review?{status:'NEEDS_REVIEW'}:spam?{status:'SPAM'}:{})};
   delete filters.all_dates; delete filters.review; delete filters.spam; delete filters.from_map;
+  delete filters.page; delete filters.anchor_id;
   const change=(values:Filters)=>{const updated={...filters,...values}; if(!updated.date_from&&!updated.date_to)updated.all_dates='1';setParams(Object.fromEntries(Object.entries(updated).filter(([,v])=>v!=='')));};
   return {filters,change};
 }
@@ -128,9 +131,49 @@ function Overview() {
 }
 
 function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boolean}) {
-  const {filters,change}=useFilters(review,spam);const [data,setData]=useState<PhotoPage|null>(null),[error,setError]=useState(''),[page,setPage]=useState(1),[revision,setRevision]=useState(0);const key=query(filters);const navigate=useNavigate();
+  const {filters,change}=useFilters(review,spam);
+  const [params,setParams]=useSearchParams();
+  const location=useLocation();const navigate=useNavigate();
+  const position=(location.state as {photoListPosition?:PhotoListPosition}|null)?.photoListPosition;
+  const requestedPage=photoListPage(params.get('page'));
+  const requestedAnchor=Number(params.get('anchor_id'));
+  const anchorId=Number.isSafeInteger(requestedAnchor)&&requestedAnchor>0?requestedAnchor:position?.photoId;
+  const [data,setData]=useState<PhotoPage|null>(null),[error,setError]=useState(''),[revision,setRevision]=useState(0);
+  const key=query({...filters,page:String(requestedPage),...(anchorId?{anchor_id:String(anchorId)}:{})});
+  const loadedKey=useRef(''),restoredLocation=useRef('');
+  const page=data?.page??requestedPage;
   useEffect(()=>{const refresh=()=>setRevision(value=>value+1);window.addEventListener('refresh-photo-list',refresh);return()=>window.removeEventListener('refresh-photo-list',refresh);},[]);
-  useEffect(()=>setPage(1),[key,review,spam]);
-  useEffect(()=>{const c=new AbortController();setData(null);setError('');api<PhotoPage>(`/photos?${key}&page=${page}`,'GET',undefined,c.signal).then(setData).catch(e=>{if(e.name!=='AbortError')setError(e.message);});return()=>c.abort();},[key,page,revision]);
-  return <><header className="page-header"><div><span className="eyebrow">{review?'РУЧНАЯ ПРОВЕРКА':spam?'СЛУЧАЙНЫЕ И НЕПОДХОДЯЩИЕ ФОТО':'АРХИВ ФОТОГРАФИЙ'}</span><h1>{review?'Требуют проверки':spam?'Спам':'Фотографии'}</h1><p>{review?'Помогите системе там, где нужен взгляд человека.':spam?'Не учитываются в работах и обучении. Для возврата откройте фото и выберите вид работы.':'Все снимки из разрешённых чатов MAX, кроме спама.'}</p></div><div className="photo-map-actions"><button onClick={()=>navigate('/photo-map?'+query({...filters,...(!filters.date_from&&!filters.date_to?{all_dates:'1'}:{})}))}><MapPin size={18}/>На карте</button><button onClick={()=>setRevision(x=>x+1)} aria-label="Обновить список"><RefreshCw size={18}/></button></div></header><FilterBar filters={filters} change={change} fixedStatus={review||spam} hideWork={spam}/><ErrorBox error={error}/>{data?<section className="panel photo-panel"><div className="section-title"><h2>{review?'Очередь проверки':spam?'Спам':'Все фотографии'} <span className="count-pill">{data.total}</span></h2><Search size={18}/></div>{data.items.length===0?<Empty>{review?'В этой выборке нет фотографий, требующих проверки.':'Измените фильтры, чтобы найти нужные фотографии.'}</Empty>:<div className="table-scroll"><table className="photos-table"><thead><tr><th>Фотография</th><th>Дата / время</th><th>Чат / микрорайон</th><th>Координаты</th><th>Вид работы</th><th>Статус</th><th>Нейросеть</th><th>Оператор</th><th/></tr></thead><tbody>{data.items.map(p=><tr key={p.id}><td><button className="photo-thumb" onClick={()=>navigate(photoLink(p.id,filters,review,spam))}>{p.preview_url?<img src={p.preview_url} loading="lazy" alt={'Фото №'+p.id}/>:<Camera size={22}/>}<small>#{p.id}</small></button></td><td>{dateLabel(p.photo_date)}<small>{p.photo_time||'Время не указано'}</small><small>Получено {new Date(p.received_at).toLocaleString('ru-RU')}</small></td><td>{p.chat_name}<small>{p.district_name||'Микрорайон не определён'}</small></td><td className="mono">{p.latitude?.toFixed(5)||'—'}<small>{p.longitude?.toFixed(5)||'—'}</small></td><td>{p.work_type_name||<span className="muted">Не определён</span>}</td><td><StatusBadge value={p.status}/>{p.storage_status==='ERROR'&&<small className="danger-text">Ошибка хранения</small>}</td><td>{p.ai_confidence===null?'—':Math.round(p.ai_confidence*100)+'%'}</td><td>{p.operator_name||'—'}</td><td><button className="text-button" onClick={()=>navigate(photoLink(p.id,filters,review,spam))}>Открыть<ChevronRight size={14}/></button></td></tr>)}</tbody></table></div>}<div className="pagination"><span>Страница {page} из {Math.max(1,Math.ceil(data.total/data.page_size))}</span><button disabled={page<=1} onClick={()=>setPage(p=>p-1)}><ChevronLeft size={16}/>Назад</button><button disabled={page*data.page_size>=data.total} onClick={()=>setPage(p=>p+1)}>Далее<ChevronRight size={16}/></button></div></section>:!error&&<p className="loading">Загружаем фотографии…</p>}</>;
+  useEffect(()=>{
+    const c=new AbortController();setData(null);setError('');
+    api<PhotoPage>('/photos?'+key,'GET',undefined,c.signal).then(value=>{
+      if(!c.signal.aborted){loadedKey.current=key;setData(value);}
+    }).catch(e=>{if(e.name!=='AbortError')setError(e.message);});
+    return()=>c.abort();
+  },[key,revision]);
+  useLayoutEffect(()=>{
+    if(!data||loadedKey.current!==key||restoredLocation.current===location.key)return;
+    restoredLocation.current=location.key;
+    const row=document.getElementById('photo-row-'+(data.focus_id??anchorId));
+    const table=document.querySelector<HTMLElement>('.photo-panel .table-scroll');
+    if(table&&position)table.scrollLeft=position.scrollLeft;
+    if(row){
+      const offset=position?.rowOffset??Math.max(20,(window.innerHeight-row.getBoundingClientRect().height)/2);
+      window.scrollTo({top:Math.max(0,window.scrollY+row.getBoundingClientRect().top-offset),behavior:'instant'});
+      row.querySelector<HTMLButtonElement>('.photo-thumb')?.focus({preventScroll:true});
+    }else if(position)window.scrollTo({top:position.scrollY,behavior:'instant'});
+  },[data,key,location.key,anchorId,position]);
+  function setPage(value:number){
+    const updated=new URLSearchParams(params);updated.set('page',String(value));updated.delete('anchor_id');
+    setParams(updated);
+  }
+  function openPhoto(id:number){
+    const row=document.getElementById('photo-row-'+id);
+    const state={photoListPosition:{photoId:id,rowOffset:row?.getBoundingClientRect().top??0,scrollY:window.scrollY,scrollLeft:document.querySelector('.photo-panel .table-scroll')?.scrollLeft??0}};
+    // Save the position in the list's own history entry as well, for browser Back.
+    const listParams=new URLSearchParams(params);listParams.set('page',String(page));listParams.set('anchor_id',String(id));
+    navigate(location.pathname+'?'+listParams.toString(),{replace:true,state});
+    navigate(photoLink(id,{...filters,page:String(page)},review,spam),{state});
+    window.scrollTo({top:0,behavior:'instant'});
+  }
+  return <><header className="page-header"><div><span className="eyebrow">{review?'РУЧНАЯ ПРОВЕРКА':spam?'СЛУЧАЙНЫЕ И НЕПОДХОДЯЩИЕ ФОТО':'АРХИВ ФОТОГРАФИЙ'}</span><h1>{review?'Требуют проверки':spam?'Спам':'Фотографии'}</h1><p>{review?'Помогите системе там, где нужен взгляд человека.':spam?'Не учитываются в работах и обучении. Для возврата откройте фото и выберите вид работы.':'Все снимки из разрешённых чатов MAX, кроме спама.'}</p></div><div className="photo-map-actions"><button onClick={()=>navigate('/photo-map?'+query({...filters,...(!filters.date_from&&!filters.date_to?{all_dates:'1'}:{})}))}><MapPin size={18}/>На карте</button><button onClick={()=>setRevision(x=>x+1)} aria-label="Обновить список"><RefreshCw size={18}/></button></div></header><FilterBar filters={filters} change={change} fixedStatus={review||spam} hideWork={spam}/><ErrorBox error={error}/>{data?<section className="panel photo-panel"><div className="section-title"><h2>{review?'Очередь проверки':spam?'Спам':'Все фотографии'} <span className="count-pill">{data.total}</span></h2><Search size={18}/></div>{data.items.length===0?<Empty>{review?'В этой выборке нет фотографий, требующих проверки.':'Измените фильтры, чтобы найти нужные фотографии.'}</Empty>:<div className="table-scroll"><table className="photos-table"><thead><tr><th>Фотография</th><th>Дата / время</th><th>Чат / микрорайон</th><th>Координаты</th><th>Вид работы</th><th>Статус</th><th>Нейросеть</th><th>Оператор</th><th/></tr></thead><tbody>{data.items.map(p=><tr key={p.id} id={'photo-row-'+p.id} className={p.id===(data.focus_id??anchorId)?'photo-return-row':undefined}><td><button className="photo-thumb" onClick={()=>openPhoto(p.id)}>{p.preview_url?<img src={p.preview_url} loading="lazy" alt={'Фото №'+p.id}/>:<Camera size={22}/>}<small>#{p.id}</small></button></td><td>{dateLabel(p.photo_date)}<small>{p.photo_time||'Время не указано'}</small><small>Получено {new Date(p.received_at).toLocaleString('ru-RU')}</small></td><td>{p.chat_name}<small>{p.district_name||'Микрорайон не определён'}</small></td><td className="mono">{p.latitude?.toFixed(5)||'—'}<small>{p.longitude?.toFixed(5)||'—'}</small></td><td>{p.work_type_name||<span className="muted">Не определён</span>}</td><td><StatusBadge value={p.status}/>{p.storage_status==='ERROR'&&<small className="danger-text">Ошибка хранения</small>}</td><td>{p.ai_confidence===null?'—':Math.round(p.ai_confidence*100)+'%'}</td><td>{p.operator_name||'—'}</td><td><button className="text-button" onClick={()=>openPhoto(p.id)}>Открыть<ChevronRight size={14}/></button></td></tr>)}</tbody></table></div>}<div className="pagination"><span>Страница {page} из {Math.max(1,Math.ceil(data.total/data.page_size))}</span><button disabled={page<=1} onClick={()=>setPage(page-1)}><ChevronLeft size={16}/>Назад</button><button disabled={page*data.page_size>=data.total} onClick={()=>setPage(page+1)}>Далее<ChevronRight size={16}/></button></div></section>:!error&&<p className="loading">Загружаем фотографии…</p>}</>;
 }

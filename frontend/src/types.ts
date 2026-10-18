@@ -17,6 +17,6 @@ export type Photo = {
   processing_error: string | null; ai_result: unknown; ocr_raw_text: string | null; analyzed_at: string | null;
   history: Audit[]; work_type_source: string | null;
 };
-export type PhotoPage = { items: Photo[]; total: number; page: number; page_size: number };
+export type PhotoPage = { items: Photo[]; total: number; page: number; page_size: number; focus_id?: number | null };
 export type Breakdown = { id: string | number; name: string; count: number };
 export type Report = { total: number; accepted: number; counts: Record<string, number>; chats: Breakdown[]; districts: Breakdown[]; work_types: Breakdown[]; matrix: { chat_id: number; district_id: number; count: number }[] };

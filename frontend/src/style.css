@@ -14,3 +14,5 @@
 .account-link{display:flex;align-items:center;gap:10px;flex:1;min-width:0;padding:6px;border-radius:8px}.account-link .avatar{flex-shrink:0}.account-info{min-width:0}.account-link:hover,.account-link.active{background:#edf4ec}.account-link:focus-visible{outline:2px solid #7aaa90;outline-offset:2px}@media(max-width:850px){.account-link{flex:0 0 auto;justify-content:center}.account-info{display:none}}
 
 .photo-save-actions{display:grid;gap:10px}
+
+.photos-table .photo-return-row td{background:color-mix(in srgb,var(--green) 8%,transparent)}
