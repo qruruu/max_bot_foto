@@ -11,6 +11,7 @@ from app.catalog import NON_WORK_STATUSES, WORK_TYPES, Status, work_type_label
 from app.chat_access import chat_condition
 from app.config import settings
 from app.models import District, Photo, User
+from app.photo_ordering import photo_order, photo_position
 from app.schemas import PhotoFilters
 
 
@@ -61,8 +62,7 @@ def photo_list_position(db, filters: PhotoFilters, total: int, anchor: Photo | N
     # If an edit removed it from the selection, return to its nearest remaining row.
     preceding = db.scalar(
         select(func.count()).select_from(filtered(filters, user).with_only_columns(Photo.id).where(
-            (Photo.received_at > anchor.received_at)
-            | ((Photo.received_at == anchor.received_at) & (Photo.id > anchor.id))
+            photo_position(filters, anchor, before=True)
         ).subquery())
     )
     index = min(preceding, total - 1)
@@ -180,7 +180,7 @@ def export_excel(db: Session, filters: PhotoFilters, user=None) -> bytes:
     operators = dict(db.execute(select(User.id, User.name)).all())
 
     def photo_rows():
-        for p in db.scalars(filtered(filters, user).order_by(Photo.id).execution_options(yield_per=500)):
+        for p in db.scalars(filtered(filters, user).order_by(*photo_order(filters)).execution_options(yield_per=500)):
             yield [
                 p.id,
                 p.photo_date,

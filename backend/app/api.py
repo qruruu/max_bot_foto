@@ -73,6 +73,7 @@ from app.permissions import (
     has_permission,
     permission_catalog,
 )
+from app.photo_ordering import photo_order, photo_position
 from app.receiver import connection_status, received
 from app.reports import export_excel, filtered, photo_dict, photo_list_position, summarize
 from app.schemas import (
@@ -214,7 +215,7 @@ def photos(db: Db, user: PhotosReader, filters: Annotated[PhotoListFilters, Quer
         anchor = None
     page, focus_index = photo_list_position(db, filters, total, anchor, user)
     rows = list(db.scalars(
-        stmt.order_by(Photo.received_at.desc(), Photo.id.desc())
+        stmt.order_by(*photo_order(filters))
         .offset((page - 1) * filters.page_size)
         .limit(filters.page_size)
     ))
@@ -350,20 +351,19 @@ def preview(photo_id: int, db: Db, user: PhotosReader):
 def next_photo(photo_id: int, db: Db, user: PhotosReader, filters: Annotated[PhotoBrowseFilters, Query()]):
     photo = require_photo(db, photo_id, user)
     check_spam_filter(user, filters)
-    # Match the archive order, including ties, without depending on table pagination
-    # or whether the current photo still matches the filters after an edit.
+    # Match the selected table order, including partial timestamps and ties,
+    # without depending on pagination or whether an edit changed the filters.
     candidate = db.scalar(
         filtered(filters, user).with_only_columns(Photo.id).where(
-            (Photo.received_at < photo.received_at)
-            | ((Photo.received_at == photo.received_at) & (Photo.id < photo.id))
-        ).order_by(Photo.received_at.desc(), Photo.id.desc()).limit(1)
+            photo_position(filters, photo)
+        ).order_by(*photo_order(filters)).limit(1)
     )
     if candidate is None and filters.status == Status.NEEDS_REVIEW:
         # Finish the remaining rows before returning to unresolved photos above
         # the cursor. Accepted photos have already left this filtered queue.
         candidate = db.scalar(
             filtered(filters, user).with_only_columns(Photo.id).where(Photo.id != photo.id)
-            .order_by(Photo.received_at.desc(), Photo.id.desc()).limit(1)
+            .order_by(*photo_order(filters)).limit(1)
         )
     return {"id": candidate}
 

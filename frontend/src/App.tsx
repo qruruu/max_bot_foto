@@ -17,6 +17,7 @@ import { OperatorChatBadge, OperatorChatsProvider } from './OperatorChatsProvide
 import { hasPermission } from './permissions';
 import { PhotoNotificationsProvider } from './PhotoNotifications';
 import FilterBar from './FilterBar';
+import { photoSortFilters, photoSortValue } from './photoSorting';
 import { photoListPage } from './photoNavigation';
 import type { PhotoListPosition } from './photoNavigation';
 import { canEditPhoto, updatePhotoDefect } from './photoWork';
@@ -114,6 +115,7 @@ export function useFilters(review=false,spam=false,today=false,workOnly=false) {
   const {meta}=useApp(); const [params,setParams]=useSearchParams();
   const defaultDate=today?meta.today:shiftDate(meta.today,-1);
   const filters:Filters={...(workOnly?{work_only:'true'}:{}),...(!review&&!spam&&!params.has('date_from')&&!params.has('date_to')&&!params.has('all_dates')?{date_from:defaultDate,date_to:defaultDate}:{}),...Object.fromEntries(params),...(review?{status:'NEEDS_REVIEW'}:spam?{status:'SPAM'}:{})};
+  Object.assign(filters,photoSortFilters(photoSortValue(filters)));
   delete filters.all_dates; delete filters.review; delete filters.spam; delete filters.from_map;
   delete filters.page; delete filters.anchor_id;
   const change=(values:Filters)=>{const updated={...filters,...values}; if(!updated.date_from&&!updated.date_to)updated.all_dates='1';setParams(Object.fromEntries(Object.entries(updated).filter(([,v])=>v!=='')));};

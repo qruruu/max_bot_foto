@@ -4,6 +4,7 @@ import { useApp } from './App';
 import { api, dateLabel, query, shiftDate, statusNames } from './api';
 import { filterOptionLabel } from './filterCounts';
 import { hasPermission } from './permissions';
+import { photoSortFilters, photoSortOptions, photoSortValue } from './photoSorting';
 import type { FilterCounts, Filters } from './types';
 
 export default function FilterBar({filters, change, fixedStatus = false, hideWork = false, refreshKey = 0}: {
@@ -14,6 +15,7 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
   refreshKey?: number;
 }) {
   const {meta, user} = useApp();
+  const sortValue = photoSortValue(filters);
   const current = filters.date_to || meta.today;
   const key = query(filters);
   const [loaded, setLoaded] = useState<{key: string; counts: FilterCounts} | null>(null);
@@ -73,10 +75,11 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
         <option value="0">{label('Не проверено', 'operator_id', '0')}</option>
         {meta.operators.map(o => <option key={o.id} value={o.id}>{label(o.name, 'operator_id', String(o.id))}</option>)}
       </select></label>
-      <label>Дата отчёта<select aria-label="Дата отчёта" value={filters.date_basis || 'photo'} onChange={e => change({date_basis: e.target.value})}>
-        <option value="photo">Дата фотографии</option><option value="received">Дата получения</option>
+      <label>Сортировка<select aria-label="Сортировка" value={sortValue} onChange={e => change(photoSortFilters(e.target.value))}>
+        {photoSortOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select></label>
     </div>
+    {sortValue.startsWith('photo_') && <p className="hint filter-sort-hint">По дате и времени съёмки. Фото без времени — в конце своего дня, без даты — в конце списка.</p>}
     {error && <p className="hint filter-counts-error" role="status">Не удалось обновить количество фото. <button type="button" className="text-button" onClick={() => setRetry(value => value + 1)}>Повторить</button></p>}
   </div>;
 }

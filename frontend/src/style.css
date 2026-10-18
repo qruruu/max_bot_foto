@@ -31,6 +31,7 @@
 .chat-access-editor input { flex-shrink: 0; margin-top: 3px; }
 .chat-access-list small { display: block; margin-top: 4px; color: var(--muted); }
 
+.filter-sort-hint { padding: 0 18px 15px; margin: 0; }
 .chat-row-actions, .sender-row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .chat-senders-modal { width: 800px; max-width: 100%; }
 .chat-senders-modal h2 { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
