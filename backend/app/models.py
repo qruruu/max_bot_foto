@@ -112,6 +112,17 @@ class Chat(Timestamps, Base):
     work_rule_version: Mapped[int] = mapped_column(default=1, server_default="1")
 
 
+class ChatSender(Timestamps, Base):
+    __tablename__ = "chat_senders"
+    chat_id: Mapped[int] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), primary_key=True)
+    sender_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    name: Mapped[str] = mapped_column(String(150))
+    __table_args__ = (
+        CheckConstraint("sender_id > 0", name="ck_chat_sender_id"),
+        CheckConstraint("length(trim(name)) BETWEEN 1 AND 150", name="ck_chat_sender_name"),
+    )
+
+
 class DiscoveredChat(Base):
     __tablename__ = "discovered_chats"
     max_chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)

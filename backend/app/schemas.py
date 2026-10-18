@@ -82,6 +82,10 @@ class ExchangeModeInput(StrictModel):
     cohort: Literal["test", "production"]
 
 
+class ChatSenderInput(StrictModel):
+    name: str = Field(min_length=1, max_length=150)
+
+
 class DistrictInput(StrictModel):
     name: str = Field(min_length=1, max_length=120)
     active: bool = True

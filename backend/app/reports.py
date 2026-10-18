@@ -133,6 +133,9 @@ def photo_dict(photo: Photo, districts: dict[int, str], operators: dict[int, str
         col.name: getattr(photo, col.name) for col in Photo.__table__.columns if col.name not in excluded
     }
     result.update(
+        # MAX IDs can exceed JavaScript's safe integer range.
+        sender_id=str(photo.sender_id) if photo.sender_id is not None else None,
+        sender_name=None,
         district_name=districts.get(photo.district_id),
         operator_name=photo_operator_name(photo, operators),
         work_type_name="Спам"

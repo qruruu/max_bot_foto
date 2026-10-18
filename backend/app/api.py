@@ -43,6 +43,8 @@ from app.chat_access import (
     require_all_chats,
     validate_chat_access,
 )
+from app.chat_senders import photo_sender_name
+from app.chat_senders import router as chat_senders_router
 from app.config import settings
 from app.domain import audit, enqueue, now, reassess
 from app.exchange_housekeeping import ARCHIVE_JOB_KEY
@@ -95,6 +97,7 @@ app = FastAPI(
 )
 app.include_router(auth_router)
 app.include_router(operator_chats_router)
+app.include_router(chat_senders_router)
 Filters = Annotated[PhotoFilters, Query()]
 
 
@@ -323,6 +326,7 @@ def get_photo(photo_id: int, db: Db, user: PhotosReader):
     photo = require_photo(db, photo_id, user)
     districts, operators = dictionaries(db)
     result = photo_dict(photo, districts, operators, detail=True)
+    result["sender_name"] = photo_sender_name(db, photo)
     result["history"] = [
         audit_dict(a)
         for a in db.scalars(

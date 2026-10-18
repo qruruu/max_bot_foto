@@ -2,6 +2,7 @@ export type User = { id: number; login: string; name: string; role: string; acti
 export type PermissionDefinition = { code: string; name: string; group: string; requires: string[]; default_operator: boolean };
 export type Chat = { id: number; max_chat_id: string; name: string; active: boolean; cv_work_type_enabled: boolean; fixed_work_type_code: string | null; work_rule_version: number };
 export type DiscoveredChat = { max_chat_id: string; message_preview: string | null; last_message_at: string; first_seen_at: string; last_seen_at: string };
+export type ChatSender = { sender_id: string; name: string | null; photo_count: number; last_photo_at: string | null };
 export type District = { id: number; name: string; active: boolean };
 export type Meta = { permission_catalog: PermissionDefinition[]; yandex_maps_api_key: string; today: string; timezone: string; work_types: { code: string; name: string }[]; statuses: string[]; chats: Chat[]; districts: District[]; operators: { id: number; name: string }[] };
 export type Filters = Record<string, string>;
@@ -16,6 +17,7 @@ export type Photo = {
   district_name: string | null; work_type: string | null; work_type_name: string | null; ai_confidence: number | null;
   ai_alternatives: string[]; review_reason: string[]; detected_address: string | null; detected_city: string | null;
   max_message_id: string; yandex_disk_path: string | null; operator_name: string | null; preview_url: string | null;
+  sender_id: string | null; sender_name: string | null;
   processing_error: string | null; ai_result: unknown; ocr_raw_text: string | null; analyzed_at: string | null;
   history: Audit[]; work_type_source: string | null;
 };
