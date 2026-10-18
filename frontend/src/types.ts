@@ -10,7 +10,7 @@ export type FilterCounts = Record<'work_type' | 'district_id' | 'chat_id' | 'ope
 export type Audit = {id: number; user_id: number | null; at: string; action: string; object_type: string; object_id: number; old_value: unknown; new_value: unknown};
 export type Photo = {
   cohort: 'test' | 'production';
-  id: number; version: number; is_spam: boolean; status: string; storage_status: string; photo_date: string | null; photo_time: string | null;
+  id: number; version: number; is_spam: boolean; is_defect: boolean; status: string; storage_status: string; photo_date: string | null; photo_time: string | null;
   received_at: string; latitude: number | null; longitude: number | null; chat_name: string; district_id: number | null;
   district_source: 'COORDINATES' | 'OPERATOR' | null;
   district_name: string | null; work_type: string | null; work_type_name: string | null; ai_confidence: number | null;
@@ -20,5 +20,6 @@ export type Photo = {
   history: Audit[]; work_type_source: string | null;
 };
 export type PhotoPage = { items: Photo[]; total: number; page: number; page_size: number; focus_id?: number | null };
+export type PhotoEditResult = Pick<Photo, 'id' | 'version' | 'is_spam' | 'is_defect' | 'work_type_name' | 'status' | 'storage_status' | 'review_reason' | 'district_id' | 'district_source'>;
 export type Breakdown = { id: string | number; name: string; count: number };
 export type Report = { total: number; accepted: number; counts: Record<string, number>; chats: Breakdown[]; districts: Breakdown[]; work_types: Breakdown[]; matrix: { chat_id: number; district_id: number; count: number }[] };

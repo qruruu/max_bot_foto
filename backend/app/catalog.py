@@ -48,3 +48,8 @@ WORK_TYPE_DISPLAY_ORDER = _PRIORITY_WORK_TYPES + tuple(
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".tif", ".tiff", ".bmp", ".heic", ".webp"}
 ACCEPTED_STATUSES = {Status.ACCEPTED, Status.NEEDS_REVIEW}
 REJECTED_STATUSES = {Status.REJECTED, Status.DUPLICATE, Status.FORWARDED}
+
+
+def work_type_label(code: str | None, is_defect: bool = False) -> str | None:
+    name = WORK_TYPES[code][0] if code in WORK_TYPES else None
+    return f"{name or 'Не определён'} · НЕИСПРАВНОСТЬ" if is_defect else name

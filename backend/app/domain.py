@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.catalog import WORK_TYPES, Status
+from app.catalog import WORK_TYPES, Status, work_type_label
 from app.config import settings
 from app.models import Audit, District, Job, Photo
 
@@ -117,6 +117,8 @@ def storage_path(photo: Photo, district_name: str | None):
         cohort = "training" if getattr(photo, "cohort", "production") == "test" else "production"
         return f"disk:/{settings().spam_folder}/{cohort}/{folder_date}/{district}/Спам_{photo.id}{photo.extension}"
     work = WORK_TYPES[photo.work_type][1] if photo.work_type else "НЕ_ОПРЕДЕЛЕНО"
+    if getattr(photo, "is_defect", False):
+        work += "_НЕИСПРАВНОСТЬ"
     filename = f"{district}_{work}_{photo.id}{photo.extension}"
     return f"{root}/{folder_date}/{district}/{filename}"
 
@@ -142,5 +144,5 @@ def bot_reply(photos: list[Photo], district_names: dict[int, str]) -> str:
     if photo.district_id in district_names:
         text += f"\nМикрорайон: {district_names[photo.district_id]}"
         if photo.work_type:
-            text += f"\nВид работы: {WORK_TYPES[photo.work_type][0]}"
+            text += f"\nВид работы: {work_type_label(photo.work_type, getattr(photo, 'is_defect', False))}"
     return text

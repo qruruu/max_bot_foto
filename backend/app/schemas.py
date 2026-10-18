@@ -87,6 +87,7 @@ class PhotoVersionInput(StrictModel):
 class PhotoEdit(StrictModel):
     version: int = Field(ge=1)
     is_spam: bool = False
+    is_defect: bool = False
     photo_date: date | None = None
     photo_time: time | None = None
     latitude: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)

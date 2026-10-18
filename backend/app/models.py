@@ -157,6 +157,7 @@ class Photo(Timestamps, Base):
     )
     is_forwarded: Mapped[bool] = mapped_column(default=False)
     is_spam: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    is_defect: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     photo_date: Mapped[date | None] = mapped_column(Date, index=True)
     photo_time: Mapped[time | None] = mapped_column(Time)
     ocr_raw_text: Mapped[str | None] = mapped_column(Text)

@@ -19,6 +19,9 @@ import { PhotoNotificationsProvider } from './PhotoNotifications';
 import FilterBar from './FilterBar';
 import { photoListPage } from './photoNavigation';
 import type { PhotoListPosition } from './photoNavigation';
+import { canEditPhoto, updatePhotoDefect } from './photoWork';
+import type { Photo } from './types';
+import DefectCheckbox from './DefectCheckbox';
 
 const Context = createContext<{ user: User; meta: Meta; refresh: () => Promise<void>; notify: (text: string) => void; updateUser: (user: User) => void }>(null!);
 export const useApp = () => useContext(Context);
@@ -128,6 +131,7 @@ function Overview() {
 }
 
 function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boolean}) {
+  const {meta,user,notify}=useApp();
   const {filters,change}=useFilters(review,spam);
   const [params,setParams]=useSearchParams();
   const location=useLocation();const navigate=useNavigate();
@@ -138,10 +142,12 @@ function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boolean}) {
   const [data,setData]=useState<PhotoPage|null>(null),[error,setError]=useState(''),[revision,setRevision]=useState(0);
   const key=query({...filters,page:String(requestedPage),...(anchorId?{anchor_id:String(anchorId)}:{})});
   const loadedKey=useRef(''),restoredLocation=useRef('');
+  const preserveRows=useRef(false);
+  const [defectBusy,setDefectBusy]=useState<number|null>(null);
   const page=data?.page??requestedPage;
   useEffect(()=>{const refresh=()=>setRevision(value=>value+1);window.addEventListener('refresh-photo-list',refresh);return()=>window.removeEventListener('refresh-photo-list',refresh);},[]);
   useEffect(()=>{
-    const c=new AbortController();setData(null);setError('');
+    const c=new AbortController();if(!preserveRows.current)setData(null);preserveRows.current=false;setError('');
     api<PhotoPage>('/photos?'+key,'GET',undefined,c.signal).then(value=>{
       if(!c.signal.aborted){loadedKey.current=key;setData(value);}
     }).catch(e=>{if(e.name!=='AbortError')setError(e.message);});
@@ -172,5 +178,16 @@ function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boolean}) {
     navigate(photoLink(id,{...filters,page:String(page)},review,spam),{state});
     window.scrollTo({top:0,behavior:'instant'});
   }
-  return <><header className="page-header"><div><span className="eyebrow">{review?'РУЧНАЯ ПРОВЕРКА':spam?'СЛУЧАЙНЫЕ И НЕПОДХОДЯЩИЕ ФОТО':'АРХИВ ФОТОГРАФИЙ'}</span><h1>{review?'Требуют проверки':spam?'Спам':'Фотографии'}</h1><p>{review?'Помогите системе там, где нужен взгляд человека.':spam?'Не учитываются в работах и обучении. Для возврата откройте фото и выберите вид работы.':'Все снимки из разрешённых чатов MAX, кроме спама.'}</p></div><div className="photo-map-actions"><button onClick={()=>navigate('/photo-map?'+query({...filters,...(!filters.date_from&&!filters.date_to?{all_dates:'1'}:{})}))}><MapPin size={18}/>На карте</button><button onClick={()=>setRevision(x=>x+1)} aria-label="Обновить список"><RefreshCw size={18}/></button></div></header><FilterBar filters={filters} change={change} fixedStatus={review||spam} hideWork={spam} refreshKey={revision}/><ErrorBox error={error}/>{data?<section className="panel photo-panel"><div className="section-title"><h2>{review?'Очередь проверки':spam?'Спам':'Все фотографии'} <span className="count-pill">{data.total}</span></h2><Search size={18}/></div>{data.items.length===0?<Empty>{review?'В этой выборке нет фотографий, требующих проверки.':'Измените фильтры, чтобы найти нужные фотографии.'}</Empty>:<div className="table-scroll"><table className="photos-table"><thead><tr><th>Фотография</th><th>Дата / время</th><th>Чат / микрорайон</th><th>Координаты</th><th>Вид работы</th><th>Статус</th><th>Нейросеть</th><th>Оператор</th><th/></tr></thead><tbody>{data.items.map(p=><tr key={p.id} id={'photo-row-'+p.id} className={p.id===(data.focus_id??anchorId)?'photo-return-row':undefined}><td><button className="photo-thumb" onClick={()=>openPhoto(p.id)}>{p.preview_url?<img src={p.preview_url} loading="lazy" alt={'Фото №'+p.id}/>:<Camera size={22}/>}<small>#{p.id}</small></button></td><td>{dateLabel(p.photo_date)}<small>{p.photo_time||'Время не указано'}</small><small>Получено {new Date(p.received_at).toLocaleString('ru-RU')}</small></td><td>{p.chat_name}<small>{p.district_name||'Микрорайон не определён'}</small></td><td className="mono">{p.latitude?.toFixed(5)||'—'}<small>{p.longitude?.toFixed(5)||'—'}</small></td><td>{p.work_type_name||<span className="muted">Не определён</span>}</td><td><StatusBadge value={p.status}/>{p.storage_status==='ERROR'&&<small className="danger-text">Ошибка хранения</small>}</td><td>{p.ai_confidence===null?'—':Math.round(p.ai_confidence*100)+'%'}</td><td>{p.operator_name||'—'}</td><td><button className="text-button" onClick={()=>openPhoto(p.id)}>Открыть<ChevronRight size={14}/></button></td></tr>)}</tbody></table></div>}<div className="pagination"><span>Страница {page} из {Math.max(1,Math.ceil(data.total/data.page_size))}</span><button disabled={page<=1} onClick={()=>setPage(page-1)}><ChevronLeft size={16}/>Назад</button><button disabled={page*data.page_size>=data.total} onClick={()=>setPage(page+1)}>Далее<ChevronRight size={16}/></button></div></section>:!error&&<p className="loading">Загружаем фотографии…</p>}</>;
+  async function markDefect(photo:Photo,checked:boolean){
+    if(defectBusy!==null||!canEditPhoto(user,photo)||photo.is_spam)return;
+    setDefectBusy(photo.id);setError('');
+    try{
+      const saved=await updatePhotoDefect(photo,checked);
+      setData(value=>value?{...value,items:value.items.map(item=>item.id===photo.id?{...item,...saved,operator_name:user.name}:item)}:value);
+      preserveRows.current=true;setRevision(value=>value+1);
+      notify(checked?'Неисправность отмечена':'Отметка о неисправности снята');
+    }catch(e){setError((e as Error).message);throw e;}
+    finally{setDefectBusy(null);}
+  }
+  return <><header className="page-header"><div><span className="eyebrow">{review?'РУЧНАЯ ПРОВЕРКА':spam?'СЛУЧАЙНЫЕ И НЕПОДХОДЯЩИЕ ФОТО':'АРХИВ ФОТОГРАФИЙ'}</span><h1>{review?'Требуют проверки':spam?'Спам':'Фотографии'}</h1><p>{review?'Помогите системе там, где нужен взгляд человека.':spam?'Не учитываются в работах и обучении. Для возврата откройте фото и выберите вид работы.':'Все снимки из разрешённых чатов MAX, кроме спама.'}</p></div><div className="photo-map-actions"><button onClick={()=>navigate('/photo-map?'+query({...filters,...(!filters.date_from&&!filters.date_to?{all_dates:'1'}:{})}))}><MapPin size={18}/>На карте</button><button onClick={()=>setRevision(x=>x+1)} aria-label="Обновить список"><RefreshCw size={18}/></button></div></header><FilterBar filters={filters} change={change} fixedStatus={review||spam} hideWork={spam} refreshKey={revision}/><ErrorBox error={error}/>{data?<section className="panel photo-panel"><div className="section-title"><h2>{review?'Очередь проверки':spam?'Спам':'Все фотографии'} <span className="count-pill">{data.total}</span></h2><Search size={18}/></div>{data.items.length===0?<Empty>{review?'В этой выборке нет фотографий, требующих проверки.':'Измените фильтры, чтобы найти нужные фотографии.'}</Empty>:<div className="table-scroll"><table className="photos-table"><thead><tr><th>Фотография</th><th>Дата / время</th><th>Чат / микрорайон</th><th>Координаты</th><th>Вид работы</th><th className="defect-column" scope="col">Неисправность</th><th>Статус</th><th>Нейросеть</th><th>Оператор</th><th/></tr></thead><tbody>{data.items.map(p=><tr key={p.id} id={'photo-row-'+p.id} className={p.id===(data.focus_id??anchorId)?'photo-return-row':undefined}><td><button className="photo-thumb" onClick={()=>openPhoto(p.id)}>{p.preview_url?<img src={p.preview_url} loading="lazy" alt={'Фото №'+p.id}/>:<Camera size={22}/>}<small>#{p.id}</small></button></td><td>{dateLabel(p.photo_date)}<small>{p.photo_time||'Время не указано'}</small><small>Получено {new Date(p.received_at).toLocaleString('ru-RU')}</small></td><td>{p.chat_name}<small>{p.district_name||'Микрорайон не определён'}</small></td><td className="mono">{p.latitude?.toFixed(5)||'—'}<small>{p.longitude?.toFixed(5)||'—'}</small></td><td className="photo-work-cell"><span className="photo-work-name">{p.work_type_name||<span className="muted">Не определён</span>}</span></td><td className="defect-column"><DefectCheckbox hideLabel photoId={p.id} workTypeName={meta.work_types.find(w=>w.code===p.work_type)?.name||'Не определён'} checked={!!p.is_defect} disabled={defectBusy!==null||p.is_spam||!canEditPhoto(user,p)} inputLabel={'Неисправность на фото №'+p.id} saveImmediately onConfirm={checked=>markDefect(p,checked)}/></td><td><StatusBadge value={p.status}/>{p.storage_status==='ERROR'&&<small className="danger-text">Ошибка хранения</small>}</td><td>{p.ai_confidence===null?'—':Math.round(p.ai_confidence*100)+'%'}</td><td>{p.operator_name||'—'}</td><td><button className="text-button" onClick={()=>openPhoto(p.id)}>Открыть<ChevronRight size={14}/></button></td></tr>)}</tbody></table></div>}<div className="pagination"><span>Страница {page} из {Math.max(1,Math.ceil(data.total/data.page_size))}</span><button disabled={page<=1} onClick={()=>setPage(page-1)}><ChevronLeft size={16}/>Назад</button><button disabled={page*data.page_size>=data.total} onClick={()=>setPage(page+1)}>Далее<ChevronRight size={16}/></button></div></section>:!error&&<p className="loading">Загружаем фотографии…</p>}</>;
 }

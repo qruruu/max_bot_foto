@@ -7,7 +7,7 @@ from openpyxl.styles import Font, PatternFill
 from sqlalchemy import Date, cast, func, select
 from sqlalchemy.orm import Session
 
-from app.catalog import WORK_TYPES, Status
+from app.catalog import WORK_TYPES, Status, work_type_label
 from app.config import settings
 from app.models import District, Photo, User
 from app.schemas import PhotoFilters
@@ -136,9 +136,7 @@ def photo_dict(photo: Photo, districts: dict[int, str], operators: dict[int, str
         operator_name=photo_operator_name(photo, operators),
         work_type_name="Спам"
         if photo.is_spam
-        else WORK_TYPES[photo.work_type][0]
-        if photo.work_type in WORK_TYPES
-        else None,
+        else work_type_label(photo.work_type, photo.is_defect),
         preview_url=f"/api/photos/{photo.id}/preview" if photo.sha256 else None,
     )
     return result
@@ -183,7 +181,7 @@ def export_excel(db: Session, filters: PhotoFilters) -> bytes:
                 p.received_at.astimezone(ZoneInfo(settings().app_timezone)).replace(tzinfo=None),
                 p.chat_name,
                 districts.get(p.district_id),
-                "Спам" if p.is_spam else WORK_TYPES[p.work_type][0] if p.work_type else None,
+                "Спам" if p.is_spam else work_type_label(p.work_type, p.is_defect),
                 p.latitude,
                 p.longitude,
                 p.detected_address,

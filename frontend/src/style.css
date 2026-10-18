@@ -18,3 +18,7 @@
 .photos-table .photo-return-row td{background:color-mix(in srgb,var(--green) 8%,transparent)}
 
 .photo-thumb{min-width:144px;align-items:center;gap:6px}.photo-thumb img{width:144px;height:108px;border-radius:8px}.photo-thumb>svg{width:44px;height:108px}.photo-thumb small{font-size:11px}.filter-counts-error{padding:0 18px 15px;margin:0}
+
+.photo-work-name{display:block}.photo-defect-toggle{display:inline-flex;flex-direction:row;align-items:center;gap:8px;margin:8px 0 0;font-size:11px;cursor:pointer}.photo-defect-toggle input[type=checkbox]{width:20px;height:20px;min-height:20px;padding:0;accent-color:var(--green);cursor:pointer}.photo-defect-toggle input:disabled{cursor:default}.review-form .defect-control{display:flex;margin:6px 0 12px;font-size:12px}.defect-summary{font-size:12px;font-weight:600;line-height:1.5;color:var(--green);margin:0 0 16px}.defect-confirm-preview{font-weight:600;overflow-wrap:anywhere}.defect-confirm-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:20px}.defect-confirmation .section-title{align-items:flex-start}.defect-confirmation .section-title button{padding:4px;flex-shrink:0}
+
+.photos-table .defect-column{width:100px;text-align:center}.photo-defect-toggle.defect-icon-only{margin:0;padding:8px;line-height:1}

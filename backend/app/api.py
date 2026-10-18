@@ -34,7 +34,7 @@ from app.auth import (
     user_dict,
 )
 from app.auth import router as auth_router
-from app.catalog import WORK_TYPE_DISPLAY_ORDER, WORK_TYPES, Role, Status
+from app.catalog import WORK_TYPE_DISPLAY_ORDER, WORK_TYPES, Role, Status, work_type_label
 from app.config import settings
 from app.domain import audit, enqueue, now, reassess
 from app.exchange_housekeeping import ARCHIVE_JOB_KEY
@@ -251,7 +251,7 @@ def photo_map(
     after_id, snapshot_id = filters.after_id, filters.snapshot_id
     source = filtered(filters).with_only_columns(
         Photo.id, Photo.latitude, Photo.longitude, Photo.photo_date, Photo.photo_time,
-        Photo.received_at, Photo.chat_name, Photo.work_type, Photo.status, Photo.sha256,
+        Photo.received_at, Photo.chat_name, Photo.work_type, Photo.is_defect, Photo.status, Photo.sha256,
     ).subquery()
     if snapshot_id is None:
         snapshot_id = db.scalar(select(func.max(source.c.id))) or 0
@@ -276,7 +276,7 @@ def photo_map(
             "photo_date": p["photo_date"], "photo_time": p["photo_time"],
             "received_at": p["received_at"], "chat_name": p["chat_name"],
             "status": p["status"],
-            "work_type_name": WORK_TYPES[p["work_type"]][0] if p["work_type"] in WORK_TYPES else None,
+            "work_type_name": work_type_label(p["work_type"], p["is_defect"]),
             "preview_url": f"/api/photos/{p['id']}/preview" if p["sha256"] else None,
         }
         for p in rows[:1000]
@@ -387,9 +387,12 @@ def edit_photo(photo_id: int, body: PhotoEdit, db: Db, user: PhotoEditor):
     if changes.get("is_spam"):
         check_permission(user, Permission.SPAM_VIEW)
         changes["work_type"] = None
+        changes["is_defect"] = False
     elif changes.get("work_type"):
         # Selecting a real work category restores a previously archived photo.
         changes["is_spam"] = False
+    if changes.get("is_defect") and changes.get("is_spam", photo.is_spam):
+        raise HTTPException(422, "Неисправность можно отметить только у рабочей фотографии")
     before = {key: getattr(photo, key) for key in changes}
     before.update(
         district_id=photo.district_id,
@@ -398,6 +401,7 @@ def edit_photo(photo_id: int, body: PhotoEdit, db: Db, user: PhotoEditor):
         status=photo.status,
         work_type_source=photo.work_type_source,
         is_spam=photo.is_spam,
+        is_defect=bool(photo.is_defect),
     )
     for key, value in changes.items():
         setattr(photo, key, value)
@@ -417,6 +421,8 @@ def edit_photo(photo_id: int, body: PhotoEdit, db: Db, user: PhotoEditor):
         "id": photo.id,
         "status": photo.status,
         "is_spam": photo.is_spam,
+        "is_defect": bool(photo.is_defect),
+        "work_type_name": "Спам" if photo.is_spam else work_type_label(photo.work_type, photo.is_defect),
         "version": photo.version,
         "review_reason": photo.review_reason,
         "storage_status": photo.storage_status,
