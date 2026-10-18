@@ -6,6 +6,7 @@ import { filterOptionLabel } from './filterCounts';
 import { hasPermission } from './permissions';
 import { photoSortFilters, photoSortOptions, photoSortValue } from './photoSorting';
 import type { FilterCounts, Filters } from './types';
+import CountedSelect from './CountedSelect';
 
 export default function FilterBar({filters, change, fixedStatus = false, hideWork = false, refreshKey = 0}: {
   filters: Filters;
@@ -30,6 +31,9 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
     return () => controller.abort();
   }, [key, refreshKey, retry]);
   const label = (name: string, facet: keyof FilterCounts, value?: string) => filterOptionLabel(name, counts?.[facet], value);
+  const workOptions = [{value:'',name:'Все виды работ'}, {value:'NONE',name:'Не определён'}, ...meta.work_types.map(work => ({value:work.code,name:work.name}))]
+    .map(option => ({value:option.value,label:label(option.name,'work_type',option.value||undefined),
+      count:counts ? option.value ? counts.work_type.values[option.value]??0 : counts.work_type.total : undefined}));
 
   return <div className="filter-panel">
     <div className="period-row">
@@ -59,11 +63,7 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
         <option value="">{label('Все чаты', 'chat_id')}</option>
         {meta.chats.map(c => <option key={c.id} value={c.max_chat_id}>{label(c.name, 'chat_id', c.max_chat_id)}</option>)}
       </select></label>
-      {!hideWork && <label>Вид работы<select aria-label="Вид работы" value={filters.work_type || ''} onChange={e => change({work_type: e.target.value})}>
-        <option value="">{label('Все виды работ', 'work_type')}</option>
-        <option value="NONE">{label('Не определён', 'work_type', 'NONE')}</option>
-        {meta.work_types.map(w => <option key={w.code} value={w.code}>{label(w.name, 'work_type', w.code)}</option>)}
-      </select></label>}
+      {!hideWork && <CountedSelect label="Вид работы" value={filters.work_type || ''} options={workOptions} onChange={value => change({work_type:value})}/>}
       <label>Статус<select aria-label="Статус" disabled={fixedStatus} value={filters.accepted_only === 'true' ? 'ACCEPTED_ALL' : filters.status || ''}
         onChange={e => change({status: e.target.value === 'ACCEPTED_ALL' ? '' : e.target.value, accepted_only: e.target.value === 'ACCEPTED_ALL' ? 'true' : ''})}>
         <option value="">{label(filters.work_only === 'true' ? 'Для разбора' : 'Все статусы', 'status')}</option>
