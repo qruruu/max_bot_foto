@@ -136,6 +136,7 @@ class PhotoFilters(BaseModel):
     work_type: WorkCode | None = None
     status: Status | None = None
     operator_id: int | None = None
+    sender_id: int | None = Field(default=None, ge=0, lt=2**63)
     date_basis: Literal["photo", "received"] = "photo"
     sort_order: Literal["received_desc", "asc", "desc"] = "received_desc"
 

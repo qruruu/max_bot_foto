@@ -6,8 +6,8 @@ export type ChatSender = { sender_id: string; name: string | null; photo_count: 
 export type District = { id: number; name: string; active: boolean };
 export type Meta = { permission_catalog: PermissionDefinition[]; yandex_maps_api_key: string; today: string; timezone: string; work_types: { code: string; name: string }[]; statuses: string[]; chats: Chat[]; districts: District[]; operators: { id: number; name: string }[] };
 export type Filters = Record<string, string>;
-export type FilterFacet = { total: number; values: Record<string, number> };
-export type FilterCounts = Record<'work_type' | 'district_id' | 'chat_id' | 'operator_id' | 'status', FilterFacet>;
+export type FilterFacet = { total: number; values: Record<string, number>; options?: {value: string; name: string | null}[] };
+export type FilterCounts = Record<'work_type' | 'district_id' | 'chat_id' | 'operator_id' | 'sender_id' | 'status', FilterFacet>;
 export type Audit = {id: number; user_id: number | null; at: string; action: string; object_type: string; object_id: number; old_value: unknown; new_value: unknown};
 export type Photo = {
   cohort: 'test' | 'production';

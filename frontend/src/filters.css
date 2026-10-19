@@ -1,0 +1,79 @@
+.filter-panel .filters {
+  align-items: start;
+}
+
+.filter-panel .filters > label,
+.filter-panel .filters > .counted-select {
+  min-width: 0;
+  gap: 7px;
+  line-height: 14px;
+}
+
+.filter-panel .filters .counted-select-label {
+  line-height: 14px;
+}
+
+/* Native macOS menus otherwise ignore the size used by date fields and buttons. */
+.filter-panel .filters :is(input, select, .counted-select-trigger) {
+  box-sizing: border-box;
+  width: 100%;
+  height: 36px;
+  min-height: 36px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #dce5dc);
+  border-radius: 7px;
+  background-color: var(--field, #fff);
+  color: var(--text, #2b4033);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.filter-panel .filters select {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 34px;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.filter-panel .filters select:disabled {
+  cursor: default;
+}
+
+.filter-panel .filters > label:has(select) {
+  position: relative;
+}
+
+.filter-panel .filters > label:has(select)::after {
+  content: '';
+  position: absolute;
+  right: 10px;
+  bottom: 11px;
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  pointer-events: none;
+}
+
+.filter-panel .filters input[type='date'] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-inline-size: 0;
+  text-align: left;
+}
+
+.filter-panel .filters input[type='date']::-webkit-date-and-time-value {
+  text-align: left;
+}
+
+.filter-panel .filters input[type='date']::-webkit-datetime-edit {
+  padding: 0;
+}
+
+.filter-panel .filters .counted-select-trigger > svg {
+  width: 14px;
+  height: 14px;
+}

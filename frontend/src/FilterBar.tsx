@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowDownToLine, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useApp } from './App';
 import { api, dateLabel, query, shiftDate, statusNames } from './api';
-import { filterOptionLabel } from './filterCounts';
+import { filterOptionLabel, senderFilterOptions } from './filterCounts';
 import { hasPermission } from './permissions';
 import { photoSortFilters, photoSortOptions, photoSortValue } from './photoSorting';
 import type { FilterCounts, Filters } from './types';
@@ -34,6 +34,7 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
   const workOptions = [{value:'',name:'Все виды работ'}, {value:'NONE',name:'Не определён'}, ...meta.work_types.map(work => ({value:work.code,name:work.name}))]
     .map(option => ({value:option.value,label:label(option.name,'work_type',option.value||undefined),
       count:counts ? option.value ? counts.work_type.values[option.value]??0 : counts.work_type.total : undefined}));
+  const senders = senderFilterOptions(counts?.sender_id, filters.sender_id);
 
   return <div className="filter-panel">
     <div className="period-row">
@@ -74,6 +75,11 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
         <option value="">{label('Все операторы', 'operator_id')}</option>
         <option value="0">{label('Не проверено', 'operator_id', '0')}</option>
         {meta.operators.map(o => <option key={o.id} value={o.id}>{label(o.name, 'operator_id', String(o.id))}</option>)}
+      </select></label>
+      <label>Отправитель<select aria-label="Отправитель" value={filters.sender_id || ''} onChange={e => change({sender_id: e.target.value})}>
+        <option value="">{label('Все отправители', 'sender_id')}</option>
+        <option value="0">{label('Не указан', 'sender_id', '0')}</option>
+        {senders.map(sender => <option key={sender.value} value={sender.value}>{label(sender.name, 'sender_id', sender.value)}</option>)}
       </select></label>
       <label>Сортировка<select aria-label="Сортировка" value={sortValue} onChange={e => change(photoSortFilters(e.target.value))}>
         {photoSortOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}

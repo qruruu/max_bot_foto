@@ -52,6 +52,10 @@ def filtered(filters: PhotoFilters, user=None):
         stmt = stmt.where(
             Photo.reviewed_by == filters.operator_id if filters.operator_id else Photo.reviewed_by.is_(None)
         )
+    if filters.sender_id is not None:
+        stmt = stmt.where(
+            Photo.sender_id == filters.sender_id if filters.sender_id else Photo.sender_id.is_(None)
+        )
     return stmt
 
 

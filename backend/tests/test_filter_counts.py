@@ -19,7 +19,7 @@ from app.schemas import PhotoFilters
 def count_db():
     names = (
         "id", "received_at", "preview_removed_at", "is_spam", "photo_date",
-        "max_chat_id", "district_id", "work_type", "status", "reviewed_by",
+        "max_chat_id", "district_id", "work_type", "status", "reviewed_by", "sender_id",
     )
     table = Table("photos", MetaData(), *(
         Column(name, Photo.__table__.c[name].type, primary_key=name == "id") for name in names

@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MapPin, MessageSquare, RefreshCw, Search, ShieldCheck, Users } from 'lucide-react';
+import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MapPin, MessageSquare, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, ShieldCheck, Users } from 'lucide-react';
 import { api, dateLabel, photoLink, query, shiftDate, statusNames } from './api';
 import type { Filters, Meta, PhotoPage, Report, User } from './types';
 import PhotoDetail from './PhotoDetail';
@@ -24,6 +24,7 @@ import type { PhotoListPosition } from './photoNavigation';
 import { canEditPhoto, updatePhotoDefect } from './photoWork';
 import type { Photo } from './types';
 import DefectCheckbox from './DefectCheckbox';
+import useSidebar from './useSidebar';
 
 const Context = createContext<{ user: User; meta: Meta; refresh: () => Promise<void>; notify: (text: string) => void; updateUser: (user: User) => void }>(null!);
 export const useApp = () => useContext(Context);
@@ -38,6 +39,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
 }
 
 export default function App() {
+  const sidebar = useSidebar();
   const [user,setUser] = useState<User|null>(null), [meta,setMeta] = useState<Meta|null>(null), [loading,setLoading] = useState(true), [error,setError] = useState(''), [toast,setToast] = useState('');
   const navigate = useNavigate();
   async function refresh() { setMeta(await api<Meta>('/meta')); }
@@ -70,11 +72,12 @@ export default function App() {
   return <Context.Provider value={{user,meta,refresh,notify:setToast,updateUser:setUser}}>
     <OperatorChatsProvider key={user.id}>
     <PhotoNotificationsProvider key={user.id} userId={user.id} canViewPhotos={hasPermission(user,'photos_view')}>
-    <div className="app">
+    <div className={'app ' + (sidebar.collapsed ? 'sidebar-collapsed' : 'sidebar-expanded')}>
+      {!sidebar.collapsed&&<button type="button" className="sidebar-backdrop" aria-label="Закрыть боковую панель" onClick={sidebar.toggle}/>}
       <aside className="sidebar">
-        <NavLink className="brand" to={home}><span className="brand-mark"><Layers size={23}/></span><span>MAX Фото<small>Контроль городских работ</small></span></NavLink>
-        <div className="nav-label">РАБОЧЕЕ ПРОСТРАНСТВО</div>
-        <nav>{links.map(({to,label,Icon}) => <NavLink key={to} to={to} title={label} className={to==='/messages'?'operator-chats-link':undefined} end={to==='/'}><Icon size={19}/>{label}{to==='/messages'&&<OperatorChatBadge/>}</NavLink>)}</nav>
+        <NavLink className="brand" to={home} aria-label="MAX Фото — главная"><span className="brand-mark"><Layers size={23}/></span><span className="brand-copy">MAX Фото<small>Контроль городских работ</small></span></NavLink>
+        <div className="sidebar-nav-heading"><div className="nav-label">РАБОЧЕЕ ПРОСТРАНСТВО</div><button type="button" className="sidebar-toggle" title={sidebar.collapsed?'Развернуть панель':'Свернуть панель'} aria-label={sidebar.collapsed?'Развернуть панель':'Свернуть панель'} aria-expanded={!sidebar.collapsed} aria-controls="workspace-navigation" onClick={sidebar.toggle}>{sidebar.collapsed?<PanelLeftOpen size={18}/>:<PanelLeftClose size={18}/>}</button></div>
+        <nav id="workspace-navigation" aria-label="Основная навигация">{links.map(({to,label,Icon}) => <NavLink key={to} to={to} title={label} aria-label={label} className={to==='/messages'?'operator-chats-link':undefined} end={to==='/'}><Icon size={19}/><span className="nav-item-label">{label}</span>{to==='/messages'&&<OperatorChatBadge/>}</NavLink>)}</nav>
         <div className="sidebar-bottom">
           <NavLink to="/settings" className="account-link" title="Настройки" aria-label="Настройки">
             <Avatar name={user.name} src={user.avatar_url}/>
