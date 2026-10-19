@@ -342,6 +342,14 @@ class MaxReceiverState(Base):
     inbox_received: Mapped[int] = mapped_column(BigInteger, default=0)
 
 
+class DiskFolderSettings(Base):
+    __tablename__ = "disk_folder_settings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    folder_sets: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'"))
+    __table_args__ = (CheckConstraint("id=1"),)
+
+
 class ExchangeState(Base):
     __tablename__ = "exchange_state"
     id: Mapped[int] = mapped_column(primary_key=True)

@@ -1,0 +1,11 @@
+.disk-folder-settings { margin-bottom: 24px; }
+.disk-folder-settings .section-title { align-items: center; }
+.disk-folder-settings h2 { display: flex; align-items: center; gap: 9px; }
+.disk-folder-settings form > label { max-width: 520px; }
+.disk-folder-settings form > label input { width: 100%; }
+.disk-folder-preview { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1px; margin: 20px 0; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; background: var(--border); }
+.disk-folder-preview > div { padding: 14px 16px; background: var(--field,#f7faf6); }
+.disk-folder-preview dt { font-size: 11px; color: var(--secondary,#718176); margin-bottom: 7px; }
+.disk-folder-preview dd { margin: 0; overflow-wrap: anywhere; font-size: 12px; font-weight: 550; color: var(--text,#273730); }
+.disk-folder-settings .disk-folder-scope { max-width: 850px; font-size: 12px; line-height: 1.8; margin-bottom: 20px; }
+@media(max-width:650px) { .disk-folder-preview { grid-template-columns: minmax(0,1fr); } }

@@ -46,6 +46,8 @@ from app.chat_access import (
 from app.chat_senders import photo_sender_name
 from app.chat_senders import router as chat_senders_router
 from app.config import settings
+from app.disk_folders import current_disk_roots
+from app.disk_folders import router as disk_folders_router
 from app.domain import audit, enqueue, now, reassess
 from app.exchange_housekeeping import ARCHIVE_JOB_KEY
 from app.filter_counts import photo_filter_counts
@@ -105,6 +107,7 @@ app.include_router(operator_chats_router)
 app.include_router(chat_senders_router)
 app.include_router(work_types_router)
 app.include_router(news_router)
+app.include_router(disk_folders_router)
 Filters = Annotated[PhotoFilters, Query()]
 
 
@@ -933,15 +936,16 @@ def exchange_status(db: Db, user: ExchangeManager):
     from app.exchange import exchange_root
 
     state = db.get(ExchangeState, 1)
+    cfg = current_disk_roots(db)
     counts = dict(db.execute(select(Photo.cohort, func.count()).group_by(Photo.cohort)).all())
     return {
         "intake_cohort": state.intake_cohort,
         "production_started_at": state.production_started_at,
         "source_timezone": state.source_timezone,
-        "roots": {c: exchange_root(state, c) for c in ("test", "production")},
-        "photo_root": f"disk:/{settings().yandex_disk_root}",
-        "training_root": f"disk:/{settings().training_folder}",
-        "spam_root": f"disk:/{settings().spam_folder}",
+        "roots": {c: exchange_root(state, c, cfg) for c in ("test", "production")},
+        "photo_root": f"disk:/{cfg.photo_root}",
+        "training_root": f"disk:/{cfg.training_root}",
+        "spam_root": f"disk:/{cfg.spam_root}",
         "organizing": db.scalar(select(Job.status).where(Job.dedupe_key == ARCHIVE_JOB_KEY)),
         "counts": {c: counts.get(c, 0) for c in ("test", "production")},
         "publications": [

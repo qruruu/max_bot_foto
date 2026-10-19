@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.catalog import Status
 from app.config import settings
 from app.db import engine
+from app.disk_folders import current_disk_roots
 from app.domain import enqueue, now
 from app.exchange_files import checked_files, content_hash, register_existing, register_manifest
 from app.integrations import YandexDisk
@@ -116,9 +117,9 @@ def json_bytes(value: dict) -> bytes:
     ).encode("utf-8")
 
 
-def exchange_root(state: ExchangeState, cohort: str) -> str:
+def exchange_root(state: ExchangeState, cohort: str, roots=None) -> str:
     external_cohort = "training" if cohort == "test" else cohort
-    return f"disk:/{settings().exchange_folder}/{external_cohort}/{state.instance_id}"
+    return f"disk:/{(roots or settings()).exchange_folder}/{external_cohort}/{state.instance_id}"
 
 
 def record(photo: Photo) -> PhotoRecord:
@@ -158,7 +159,7 @@ def prepare(publication_id: int):
         db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
         pub = db.get(Publication, publication_id)
         state = db.get(ExchangeState, 1)
-        root = exchange_root(state, pub.cohort)
+        root = pub.payload["root"] if pub.payload else exchange_root(state, pub.cohort, current_disk_roots(db))
         register_existing(db, root)
         if pub.payload is not None:
             checked_files(pub, root)

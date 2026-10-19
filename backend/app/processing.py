@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.catalog import ACCEPTED_STATUSES, IMAGE_EXTENSIONS, REJECTED_STATUSES, Status
 from app.config import settings
 from app.db import engine
+from app.disk_folders import known_photo_roots, roots_for_photo
 from app.domain import audit, bot_reply, enqueue, now, reassess, storage_path
 from app.integrations import DownloadRejected, MaxClient, OriginalMissing, YandexDisk
 from app.media import InvalidImage, digest_file, inspect_image, media_path, write_preview
@@ -103,7 +104,7 @@ def transfer_target(db: Session, photo: Photo, desired: str) -> str:
         and plan.new_value.get("sha256") == photo.sha256
     ):
         target = plan.new_value.get("path", "")
-        roots = (settings().yandex_disk_root, settings().training_folder, settings().spam_folder)
+        roots = known_photo_roots(db)
         if ".." in PurePosixPath(target).parts or not any(
             target.startswith(f"disk:/{root}/") for root in roots
         ):
@@ -158,7 +159,7 @@ def _synchronize(db: Session, photo: Photo, disk: YandexDisk):
     if photo.preview_removed_at is not None:
         return
     district = db.get(District, photo.district_id) if photo.district_id else None
-    desired = storage_path(photo, district.name if district else None, work_catalog(db))
+    desired = storage_path(photo, district.name if district else None, work_catalog(db), roots_for_photo(db, photo))
     target = transfer_target(db, photo, desired)
     transfer_original(db, photo, disk, target)
     if target != desired:

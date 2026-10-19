@@ -16,7 +16,7 @@ from app.api import app
 from app.auth import digest
 from app.db import get_db
 from app.domain import now
-from app.models import Audit, Chat, Inbox, Job, LoginSession, Photo, User, WorkType
+from app.models import Audit, Chat, DiskFolderSettings, Inbox, Job, LoginSession, Photo, User, WorkType
 from app.permissions import PERMISSIONS
 from app.schemas import UserCreate, UserUpdate
 
@@ -43,7 +43,7 @@ class AccessSession(Session):
 def access_api(monkeypatch):
     engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     metadata = MetaData()
-    for model in (User, Chat, Photo, Audit, Job, Inbox, LoginSession):
+    for model in (User, Chat, Photo, Audit, Job, Inbox, LoginSession, DiskFolderSettings):
         Table(model.__tablename__, metadata, *(
             Column(c.name, JSON(none_as_null=True) if isinstance(c.type, JSONB) else c.type,
                    primary_key=c.primary_key)
@@ -59,6 +59,7 @@ def access_api(monkeypatch):
     metadata.create_all(engine)
     WorkType.__table__.create(engine)
     with AccessSession(engine) as db:
+        db.add(DiskFolderSettings(id=1,version=1,folder_sets=[]))
         from app.catalog import WORK_TYPE_DISPLAY_ORDER, WORK_TYPES
         db.add_all([WorkType(code=code, name=names[0], filename_label=names[1],
                              model_index=i, sort_order=WORK_TYPE_DISPLAY_ORDER.index(code)+1)

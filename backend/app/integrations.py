@@ -135,6 +135,9 @@ class MaxClient:
 class YandexDisk:
     API = "https://cloud-api.yandex.net/v1/disk"
 
+    def __init__(self, folder_config=None):
+        self.folder_config = folder_config
+
     def request(self, method: str, path: str, **kwargs) -> httpx.Response:
         if not settings().yandex_disk_token:
             raise RuntimeError("YANDEX_DISK_NOT_CONFIGURED")
@@ -288,7 +291,7 @@ class YandexDisk:
         """Retire only the two obsolete service trees; no active JSON or photo root is eligible."""
         from pathlib import PurePosixPath
 
-        cfg = settings()
+        cfg = self.folder_config or settings()
         allowed = {
             f"disk:/{cfg.yandex_disk_root}/ARM_EXCHANGE",
             f"disk:/{cfg.exchange_folder}/legacy/ARM_EXCHANGE",
@@ -334,7 +337,7 @@ class YandexDisk:
 
     def trash_empty_photo_folder(self, path: str):
         """Only empty photo descendants or numbered copies of our roots can go to trash."""
-        cfg = settings()
+        cfg = self.folder_config or settings()
         roots = (cfg.yandex_disk_root, cfg.training_folder, cfg.spam_folder)
         copy_pattern = (
             r"disk:/(?:"

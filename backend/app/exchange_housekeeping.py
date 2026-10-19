@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import engine
+from app.disk_folders import configured_disk_roots, current_disk_roots, known_photo_roots, roots_for_photo
 from app.domain import audit, now, reassess, storage_path
 from app.exchange import exchange_root
 from app.exchange_files import checked_files, register_existing
@@ -83,7 +84,7 @@ def collect_generations(disk=None):
         state = db.get(ExchangeState, 1)
         cutoff = now() - timedelta(hours=settings().exchange_read_window_hours)
         for cohort in ("test", "production"):
-            root = exchange_root(state, cohort)
+            root = exchange_root(state, cohort, current_disk_roots(db))
             register_existing(db, root)
             db.commit()
             publications = list(
@@ -174,13 +175,13 @@ def collect_generations(disk=None):
 
 
 def organize_archive(disk=None):
-    disk = disk or YandexDisk()
-    cfg = settings()
-    old_root = f"disk:/{cfg.yandex_disk_root}/"
-    photo_roots = (cfg.yandex_disk_root, cfg.training_folder, cfg.spam_folder)
     with publisher_lock():
+        cfg = configured_disk_roots()
+        disk = disk or YandexDisk(folder_config=cfg)
+        old_root = f"disk:/{cfg.yandex_disk_root}/"
         failures = []
         with Session(engine()) as db:
+            photo_roots = known_photo_roots(db)
             ids = list(
                 db.scalars(
                     select(Photo.id)
@@ -204,7 +205,7 @@ def organize_archive(disk=None):
                 ):
                     continue
                 district = db.get(District, photo.district_id) if photo.district_id else None
-                desired = storage_path(photo, district.name if district else None, work_catalog(db))
+                desired = storage_path(photo, district.name if district else None, work_catalog(db), roots_for_photo(db, photo))
                 if (
                     source == desired
                     and photo.storage_status == "SYNCED"
@@ -266,7 +267,7 @@ def organize_archive(disk=None):
 
 
 def move_legacy_test_tree(disk):
-    cfg = settings()
+    cfg = configured_disk_roots()
     source = f"disk:/{cfg.yandex_disk_root}/ТЕСТОВЫЕ"
     with storage_lock(shared=False):
         with Session(engine()) as db:
@@ -284,7 +285,7 @@ def move_legacy_test_tree(disk):
 
 
 def retire_legacy_exchange(disk):
-    cfg = settings()
+    cfg = configured_disk_roots()
     roots = (f"disk:/{cfg.yandex_disk_root}/ARM_EXCHANGE", f"disk:/{cfg.exchange_folder}/legacy/ARM_EXCHANGE")
     with Session(engine()) as db:
         state = db.get(ExchangeState, 1)
@@ -355,7 +356,7 @@ def retire_legacy_exchange(disk):
 def prune_empty_photo_folders(disk):
     # Service transfers hold the shared lock. Cleanup runs only once they have committed their paths.
     # The complete inventory is validated before the first empty directory is retired.
-    cfg = settings()
+    cfg = configured_disk_roots()
     roots = [f"disk:/{root}" for root in (cfg.yandex_disk_root, cfg.training_folder, cfg.spam_folder)]
     with storage_lock(shared=False):
         folders = list(roots)
@@ -379,7 +380,7 @@ def prune_empty_photo_folders(disk):
 
 
 def prune_empty_archive_copies(disk):
-    cfg = settings()
+    cfg = configured_disk_roots()
     roots = (cfg.yandex_disk_root, cfg.training_folder, cfg.spam_folder, cfg.exchange_folder)
     pattern = re.compile(r"disk:/(?:" + "|".join(re.escape(root) for root in roots) + r") \([1-9]\d*\)")
     with storage_lock(shared=False):

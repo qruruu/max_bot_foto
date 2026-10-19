@@ -65,7 +65,8 @@ def db(database_url, monkeypatch):
         conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
     with Session(engine(), expire_on_commit=False) as session:
         from app.catalog import WORK_TYPE_DISPLAY_ORDER, WORK_TYPES
-        from app.models import ExchangeState, WorkType
+        from app.models import DiskFolderSettings, ExchangeState, WorkType
+        session.add(DiskFolderSettings(id=1, version=1, folder_sets=[]))
         session.add_all([WorkType(code=code, name=names[0], filename_label=names[1],
                                  model_index=i, sort_order=WORK_TYPE_DISPLAY_ORDER.index(code)+1)
                          for i, (code, names) in enumerate(WORK_TYPES.items())])

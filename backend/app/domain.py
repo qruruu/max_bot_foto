@@ -107,16 +107,17 @@ def safe_component(value: str, limit: int = 45) -> str:
     return (value or "Без_названия")[:limit]
 
 
-def storage_path(photo: Photo, district_name: str | None, catalog=None):
+def storage_path(photo: Photo, district_name: str | None, catalog=None, roots=None):
     catalog = WORK_TYPES if catalog is None else catalog
+    cfg = roots or settings()
     folder_date = photo.photo_date.isoformat() if photo.photo_date else "ДАТА_НЕ_ОПРЕДЕЛЕНА"
     district = safe_component(district_name, 35) if district_name else "МР_НЕ_ОПРЕДЕЛЕН"
-    root = f"disk:/{settings().yandex_disk_root}"
+    root = f"disk:/{cfg.yandex_disk_root}"
     if getattr(photo, "cohort", "production") == "test":
-        root = f"disk:/{settings().training_folder}"
+        root = f"disk:/{cfg.training_folder}"
     if photo.is_spam:
         cohort = "training" if getattr(photo, "cohort", "production") == "test" else "production"
-        return f"disk:/{settings().spam_folder}/{cohort}/{folder_date}/{district}/Спам_{photo.id}{photo.extension}"
+        return f"disk:/{cfg.spam_folder}/{cohort}/{folder_date}/{district}/Спам_{photo.id}{photo.extension}"
     work = safe_component(catalog.get(photo.work_type, (None, photo.work_type))[1]) if photo.work_type else "НЕ_ОПРЕДЕЛЕНО"
     if getattr(photo, "is_defect", False):
         work += "_НЕИСПРАВНОСТЬ"
