@@ -19,6 +19,7 @@ class Permission(StrEnum):
     JOBS_MANAGE = "jobs_manage"
     EXCHANGE_MANAGE = "exchange_manage"
     LEARNING_MANAGE = "learning_manage"
+    NEWS_VIEW = "news_view"
 
 
 PERMISSIONS = {
@@ -65,6 +66,7 @@ PERMISSIONS = {
     Permission.JOBS_MANAGE: ("Очередь обработки и повтор задач", "Настройка сервиса", ()),
     Permission.EXCHANGE_MANAGE: ("Обмен с АРМ и структура папок", "Настройка сервиса", ()),
     Permission.LEARNING_MANAGE: ("Обучение нейросети", "Настройка сервиса", ()),
+    Permission.NEWS_VIEW: ("Просмотр новостей", "Информация", ()),
 }
 
 # Preserve the capabilities of operators created before per-function access was introduced.

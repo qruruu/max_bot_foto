@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MapPin, MessageSquare, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, ShieldCheck, Users } from 'lucide-react';
+import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MapPin, MessageSquare, Newspaper, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, ShieldCheck, Users } from 'lucide-react';
 import { api, dateLabel, photoLink, query, reportPhotoLink, shiftDate, statusNames } from './api';
 import type { Filters, Meta, PhotoPage, Report, User } from './types';
 import PhotoDetail from './PhotoDetail';
@@ -12,6 +12,7 @@ import Learning from './Learning';
 import Exchange from './Exchange';
 import Settings from './Settings';
 import WorkTypes from './WorkTypes';
+import News from './News';
 import Avatar from './Avatar';
 import OperatorChats from './OperatorChats';
 import { OperatorChatBadge, OperatorChatsProvider } from './OperatorChatsProvider';
@@ -52,6 +53,7 @@ export default function App() {
   const admin=user.role==='ADMIN_OPERATOR';
   const links = [
     {to:'/', label:'Обзор', Icon:ChartNoAxesCombined, allowed:hasPermission(user,'reports_view')},
+    {to:'/news', label:'Новости', Icon:Newspaper, allowed:hasPermission(user,'news_view')},
     {to:'/photos', label:'Фотографии', Icon:Camera, allowed:hasPermission(user,'photos_view')},
     {to:'/photo-map', label:'Карта фотографий', Icon:MapPin, allowed:hasPermission(user,'photos_view')},
     {to:'/review', label:'Требуют проверки', Icon:ClipboardCheck, allowed:hasPermission(user,'photos_edit')},
@@ -66,7 +68,7 @@ export default function App() {
     {to:'/exchange', label:'Обмен с АРМ', Icon:ArrowDownToLine, allowed:hasPermission(user,'exchange_manage')},
     {to:'/learning', label:'Обучение нейросети', Icon:Layers, allowed:hasPermission(user,'learning_manage')},
   ].filter(link => link.allowed);
-  const home = links[0]?.to || '/settings';
+  const home = links.find(link => link.to !== '/news')?.to || '/news';
   const denied = <Navigate to={home} replace/>;
   const protectedPage = (code:string, element:ReactNode) => hasPermission(user,code) ? element : denied;
   return <Context.Provider value={{user,meta,refresh,notify:setToast,updateUser:setUser}}>
@@ -90,6 +92,8 @@ export default function App() {
         <div className="topbar"><span><span className="dot"/>Операторская панель</span><span>{dateLabel(meta.today)} <span className="timezone">{meta.timezone}</span></span></div>
         <Routes>
           <Route path="/" element={protectedPage('reports_view',<Overview/>)}/>
+          <Route path="/news" element={protectedPage('news_view',<News/>)}/>
+          <Route path="/news/:slug" element={protectedPage('news_view',<News/>)}/>
           <Route path="/photos" element={protectedPage('photos_view',<PhotoList/>)}/>
           <Route path="/photo-map" element={protectedPage('photos_view',<PhotoMap/>)}/>
           <Route path="/review" element={protectedPage('photos_edit',<PhotoList review/>)}/>

@@ -65,6 +65,7 @@ from app.models import (
     Publication,
     User,
 )
+from app.news import router as news_router
 from app.operator_chats import router as operator_chats_router
 from app.permissions import (
     DEFAULT_OPERATOR_PERMISSIONS,
@@ -103,6 +104,7 @@ app.include_router(auth_router)
 app.include_router(operator_chats_router)
 app.include_router(chat_senders_router)
 app.include_router(work_types_router)
+app.include_router(news_router)
 Filters = Annotated[PhotoFilters, Query()]
 
 
