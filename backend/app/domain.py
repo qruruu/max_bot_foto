@@ -127,7 +127,9 @@ def storage_path(photo: Photo, district_name: str | None, catalog=None):
 def bot_reply(photos: list[Photo], district_names: dict[int, str], catalog=None) -> str:
     if len(photos) > 1:
         accepted = sum(p.status in {Status.ACCEPTED, Status.NEEDS_REVIEW} for p in photos)
-        return f"✅ Обработано фотографий: {len(photos)}\nПринято: {accepted}\nНе принято: {len(photos) - accepted}"
+        not_accepted = len(photos) - accepted
+        icon = "❌" if accepted == 0 else "❗" if not_accepted else "✅"
+        return f"{icon} Обработано фотографий: {len(photos)}\nПринято: {accepted}\nНе принято: {not_accepted}"
     photo = photos[0]
     if photo.is_spam:
         return "❌ Не принято: фотография отмечена как спам."

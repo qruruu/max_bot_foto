@@ -72,7 +72,25 @@ def test_reply_hides_review_and_no_work_without_district():
     )
     assert (
         bot_reply([photo(), photo(status=Status.DUPLICATE)], {})
-        == "✅ Обработано фотографий: 2\nПринято: 1\nНе принято: 1"
+        == "❗ Обработано фотографий: 2\nПринято: 1\nНе принято: 1"
+    )
+
+
+@pytest.mark.parametrize(
+    "statuses,icon,accepted",
+    [
+        ([Status.ACCEPTED, Status.NEEDS_REVIEW], "✅", 2),
+        ([Status.NEEDS_REVIEW] * 10, "✅", 10),
+        ([Status.ACCEPTED] * 9 + [Status.REJECTED], "❗", 9),
+        ([Status.ACCEPTED, Status.DUPLICATE, Status.FORWARDED, Status.SPAM, Status.ERROR], "❗", 1),
+        ([Status.REJECTED] * 10, "❌", 0),
+        ([Status.DUPLICATE, Status.FORWARDED, Status.SPAM, Status.ERROR], "❌", 0),
+    ],
+)
+def test_album_reply_icon_reflects_acceptance(statuses, icon, accepted):
+    assert bot_reply([photo(status=status) for status in statuses], {}) == (
+        f"{icon} Обработано фотографий: {len(statuses)}\n"
+        f"Принято: {accepted}\nНе принято: {len(statuses) - accepted}"
     )
 
 

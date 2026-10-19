@@ -563,5 +563,5 @@ def test_album_one_aggregate_outbox(db, monkeypatch):
     process_batch(p.inbox_id)
     process_batch(p.inbox_id)
     inbox = db.get(Inbox, p.inbox_id)
-    assert inbox.reply_text == "✅ Обработано фотографий: 2\nПринято: 1\nНе принято: 1"
+    assert inbox.reply_text == "❗ Обработано фотографий: 2\nПринято: 1\nНе принято: 1"
     assert db.scalar(select(func.count()).select_from(Job).where(Job.kind == "REPLY")) == 1
