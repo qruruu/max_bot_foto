@@ -52,6 +52,8 @@ def test_migration_seeds_only_existing_installations_without_changing_data(exist
         # Simulate later reads/restarts: user edits remain durable and no boot seeding exists.
         if existing_table:
             conn.execute(text("UPDATE work_types SET name='Пользовательское название' WHERE code='BIN_EMPTYING'"))
+        with Operations.context(MigrationContext.configure(conn)):
+            runpy.run_path(str(MIGRATION.with_name('0025_work_type_descriptions.py')))['upgrade']()
     with Session(engine) as db:
         assert len(work_catalog(db)) == (16 if existing_table else 0)
         if existing_table:
@@ -148,6 +150,59 @@ def test_catalog_writes_require_admin_validate_names_and_prevent_stale_or_code_c
     assert client.get('/api/photos?work_type=NONEXISTENT').status_code == 422
     assert client.post('/api/chats', json={'max_chat_id': '300', 'name': 'Новый',
         'cv_work_type_enabled': False, 'fixed_work_type_code': 'NONEXISTENT'}).status_code == 422
+
+
+def test_descriptions_are_shared_persisted_audited_and_keep_codes_and_storage_names(access_api):
+    client, engine = access_api
+    actor(client, 1)
+    row = next(work for work in client.get('/api/work-types').json() if work['code'] == 'BIN_EMPTYING')
+    assert row['description'] == ''
+    with AccessSession(engine) as db:
+        old_index = db.get(WorkType, row['id']).model_index
+        old_path = storage_path(db.get(Photo, 10), None, work_catalog(db))
+    description = 'Опорожнение урн.\nНе путать с мойкой урн.'
+    response = client.put(f"/api/work-types/{row['id']}", json={
+        'name':row['name'], 'sort_order':row['sort_order'], 'version':row['version'],
+        'description':'  '+description+'  ',
+    })
+    assert response.status_code == 200
+    assert response.json()['description'] == description
+    with AccessSession(engine) as db:
+        assert db.get(WorkType, row['id']).description == description
+        assert db.get(WorkType, row['id']).model_index == old_index
+        assert db.get(Photo, 10).work_type == row['code']
+        assert storage_path(db.get(Photo, 10), None, work_catalog(db)) == old_path
+        event = db.scalar(select(Audit).where(Audit.action == 'WORK_TYPE_UPDATED'))
+        assert event.old_value['description'] == '' and event.new_value['description'] == description
+    # A pre-update browser editing only the title must not clear the new field.
+    renamed = client.put(f"/api/work-types/{row['id']}", json={
+        'name':'Урны', 'sort_order':row['sort_order'], 'version':response.json()['version'],
+    })
+    assert renamed.json()['description'] == description
+    actor(client, 2)
+    assert next(work for work in client.get('/api/meta').json()['work_types']
+                if work['code'] == row['code'])['description'] == description
+    assert next(work for work in client.get('/api/work-types').json()
+                if work['code'] == row['code'])['description'] == description
+    assert client.put(f"/api/work-types/{row['id']}", json={
+        'name':'Урны', 'sort_order':1, 'version':renamed.json()['version'], 'description':'Чужая правка',
+    }).status_code == 403
+
+
+def test_description_creation_clearing_validation_and_stale_edits(access_api):
+    client, _ = access_api
+    actor(client, 1)
+    created = client.post('/api/work-types', json={
+        'name':'Новая работа', 'sort_order':1, 'description':'Пример выбора',
+    })
+    assert created.status_code == 201 and created.json()['description'] == 'Пример выбора'
+    row = created.json()
+    body = {'name':row['name'], 'sort_order':1, 'version':row['version']}
+    for bad in ['x'*2001, 'Текст\x00', 'Текст\x1f', None]:
+        assert client.put(f"/api/work-types/{row['id']}", json={**body, 'description':bad}).status_code == 422
+    cleared = client.put(f"/api/work-types/{row['id']}", json={**body, 'description':' \n '})
+    assert cleared.status_code == 200 and cleared.json()['description'] == ''
+    assert client.put(f"/api/work-types/{row['id']}", json={**body, 'description':'Устаревшая правка'}).status_code == 409
 
 
 def test_legacy_and_new_model_heads_have_independent_immutable_code_maps(tmp_path):

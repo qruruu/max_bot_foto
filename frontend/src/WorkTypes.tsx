@@ -3,8 +3,9 @@ import type { FormEvent } from 'react';
 import { Pencil, Plus, X } from 'lucide-react';
 import { api } from './api';
 import { ErrorBox, useApp } from './App';
+import WorkTypeHint from './WorkTypeHint';
 
-type WorkType = { id: number; code: string; name: string; sort_order: number; version: number };
+type WorkType = { id: number; code: string; name: string; description?: string; sort_order: number; version: number };
 
 export default function WorkTypes() {
   const {refresh, notify} = useApp();
@@ -14,6 +15,7 @@ export default function WorkTypes() {
   const [formError, setFormError] = useState('');
   const [editing, setEditing] = useState<WorkType | null | undefined>();
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [position, setPosition] = useState(1);
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -30,7 +32,7 @@ export default function WorkTypes() {
     function key(event: KeyboardEvent) {
       if (event.key === 'Escape' && !busy) setEditing(undefined);
       if (event.key !== 'Tab') return;
-      const elements = Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)') || []);
+      const elements = Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled)') || []);
       const first = elements[0], last = elements[elements.length - 1];
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
       if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -42,6 +44,7 @@ export default function WorkTypes() {
   function open(row: WorkType | null) {
     opener.current = document.activeElement as HTMLElement;
     setName(row?.name || '');
+    setDescription(row?.description || '');
     setPosition(row?.sort_order ?? Math.max(0, ...rows.map(w => w.sort_order)) + 1);
     setFormError(''); setEditing(row);
   }
@@ -50,7 +53,7 @@ export default function WorkTypes() {
     let saved = false;
     try {
       await api('/work-types' + (editing ? '/' + editing.id : ''), editing ? 'PUT' : 'POST', {
-        name: name.trim(), sort_order: position, ...(editing ? {version: editing.version} : {}),
+        name: name.trim(), description: description.trim(), sort_order: position, ...(editing ? {version: editing.version} : {}),
       });
       // A subsequent refresh failure must not leave a submitted create form open for resubmission.
       saved = true; setEditing(undefined);
@@ -61,23 +64,25 @@ export default function WorkTypes() {
   }
   return <>
     <header className="page-header"><div><span className="eyebrow">СПРАВОЧНИК</span><h1>Виды работ</h1>
-      <p>Добавляйте виды работ, меняйте названия и порядок в списке.</p></div>
+      <p>Добавляйте виды работ, описания для операторов и меняйте порядок в списке.</p></div>
       <button className="primary" disabled={!loaded} onClick={() => open(null)}><Plus size={16}/>Добавить вид работы</button>
     </header>
     <ErrorBox error={error}/>
     <section className="panel">
       {!loaded && !error ? <p className="loading">Загружаем справочник…</p> : rows.length ? <div className="table-scroll"><table>
         <thead><tr><th>Порядок</th><th>Вид работы</th><th/></tr></thead>
-        <tbody>{rows.map(row => <tr key={row.code}><td>{row.sort_order}</td><td><strong>{row.name}</strong></td>
+        <tbody>{rows.map(row => <tr key={row.code}><td>{row.sort_order}</td><td><div className="work-type-name"><strong>{row.name}</strong><WorkTypeHint name={row.name} description={row.description}/></div><small className="work-type-description">{row.description || 'Описание пока не добавлено'}</small></td>
           <td><button onClick={() => open(row)} aria-label={'Изменить ' + row.name}><Pencil size={15}/>Изменить</button></td></tr>)}</tbody>
       </table></div> : loaded && <p className="empty">Виды работ ещё не добавлены. Создайте первый вид работы.</p>}
     </section>
     <p className="footnote">Изменение названия и порядка сохраняет привязки фотографий и обученной нейросети. Новые виды работ доступны для ручного выбора сразу; для распознавания нужны размеченные примеры и обучение.</p>
-    {editing !== undefined && <div className="modal-backdrop"><form ref={dialog} className="modal" role="dialog" aria-modal="true" aria-labelledby="work-type-title" onSubmit={save}>
+    {editing !== undefined && <div className="modal-backdrop"><form ref={dialog} className="modal work-type-modal" role="dialog" aria-modal="true" aria-labelledby="work-type-title" onSubmit={save}>
       <div className="section-title"><h2 id="work-type-title">{editing ? 'Изменить вид работы' : 'Добавить вид работы'}</h2>
         <button type="button" disabled={busy} aria-label="Закрыть" onClick={() => setEditing(undefined)}><X size={18}/></button></div>
       <ErrorBox error={formError}/>
       <label>Название<input ref={input} required maxLength={100} disabled={busy} value={name} onChange={e => setName(e.target.value)}/></label>
+      <label>Описание <span className="optional-label">необязательно</span><textarea rows={4} maxLength={2000} disabled={busy} value={description} onChange={e => setDescription(e.target.value)} placeholder="Что относится к этому виду работ и в каких случаях его выбирать" aria-describedby="work-type-description-note"/></label>
+      <div className="work-type-description-note" id="work-type-description-note"><span>Оператор увидит описание в подсказке рядом с видом работы.</span><span>{description.length}/2000</span></div>
       <label>Порядок в списке<input required type="number" min={1} max={1000000} step={1} disabled={busy} value={position} onChange={e => setPosition(Number(e.target.value))}/></label>
       <button className="primary" disabled={busy || !name.trim()}>{busy ? 'Сохранение…' : 'Сохранить'}</button>
     </form></div>}

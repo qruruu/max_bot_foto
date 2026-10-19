@@ -90,7 +90,7 @@ from app.schemas import (
     UserUpdate,
     validate_polygon,
 )
-from app.work_types import require_work_type, work_catalog
+from app.work_types import catalog_rows, require_work_type, work_catalog
 from app.work_types import router as work_types_router
 
 app = FastAPI(
@@ -164,7 +164,8 @@ def max_status(db: Db, user: ChatManager):
 def meta(db: Db, user: CurrentUser):
     browse = has_permission(user, Permission.PHOTOS_VIEW) or has_permission(user, Permission.REPORTS_VIEW)
     return {
-        "work_types": [{"code": code, "name": names[0]} for code, names in work_catalog(db).items()],
+        "work_types": [{"code": row.code, "name": row.name, "description": row.description}
+                       for row in catalog_rows(db)],
         "statuses": list(Status),
         "timezone": settings().app_timezone,
         "yandex_maps_api_key": settings().yandex_maps_api_key

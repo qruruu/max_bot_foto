@@ -3,7 +3,7 @@
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
-from pydantic import Field
+from pydantic import Field, field_validator
 from sqlalchemy import func, select, text
 
 from app.auth import AdminUser, CurrentUser, Db
@@ -29,7 +29,7 @@ def require_work_type(db, code):
 
 
 def work_dict(row):
-    return {key: getattr(row, key) for key in ("id", "code", "name", "sort_order", "version")}
+    return {key: getattr(row, key) for key in ("id", "code", "name", "description", "sort_order", "version")}
 
 
 def set_position(db, row, position):
@@ -45,6 +45,12 @@ def set_position(db, row, position):
 class WorkTypeInput(StrictModel):
     name: str = Field(min_length=1, max_length=100, pattern=r"^[^\x00-\x1f\x7f]+$")
     sort_order: int = Field(ge=1, le=1000000)
+    description: str = Field(default="", max_length=2000, pattern=r"^[^\x00-\x08\x0b\x0c\x0e-\x1f\x7f]*$")
+
+    @field_validator("description")
+    @classmethod
+    def trim_description(cls, value):
+        return value.strip()
 
 
 class WorkTypeEdit(WorkTypeInput):
@@ -62,6 +68,7 @@ def create_work_type(body: WorkTypeInput, db: Db, user: AdminUser):
     db.execute(text("SELECT pg_advisory_xact_lock(7009, 1)"))
     index = db.scalar(select(func.max(WorkType.model_index)))
     row = WorkType(code="CUSTOM_" + uuid4().hex.upper(), name=body.name,
+                   description=body.description,
                    filename_label=body.name, sort_order=body.sort_order,
                    model_index=0 if index is None else index + 1)
     db.add(row)
@@ -82,6 +89,9 @@ def edit_work_type(work_id: int, body: WorkTypeEdit, db: Db, user: AdminUser):
         raise HTTPException(409, "Справочник изменён другим администратором. Обновите список.")
     before = work_dict(row)
     row.name = body.name
+    # Older clients can still edit names/order without erasing existing descriptions.
+    if "description" in body.model_fields_set:
+        row.description = body.description
     set_position(db, row, body.sort_order)
     row.version += 1
     audit(db, user.id, "WORK_TYPE_UPDATED", "work_type", row.id, before, work_dict(row))

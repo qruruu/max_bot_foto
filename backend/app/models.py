@@ -38,6 +38,7 @@ class WorkType(Timestamps, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(60), unique=True)
     name: Mapped[str] = mapped_column(String(100))
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
     # Kept immutable when the display name changes, so existing disk paths stay valid.
     filename_label: Mapped[str] = mapped_column(String(100))
     model_index: Mapped[int] = mapped_column(Integer, unique=True)

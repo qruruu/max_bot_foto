@@ -1,10 +1,11 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown, Info } from 'lucide-react';
+import WorkTypeHint from './WorkTypeHint';
 import './counted-select.css';
 
-type Option = {value: string; label: string; count?: number};
+type Option = {value: string; label: string; count?: number; description?: string; name?: string};
 
 export default function CountedSelect({label, value, options, onChange}: {
   label: string;
@@ -88,7 +89,7 @@ export default function CountedSelect({label, value, options, onChange}: {
   }
 
   return <div className="counted-select" ref={root}>
-    <span id={id+'-label'} className="counted-select-label">{label}</span>
+    <div className="counted-select-heading"><span id={id+'-label'} className="counted-select-label">{label}</span><WorkTypeHint name={current?.name||current?.label||label} description={current?.description}/></div>
     <button ref={trigger} type="button" role="combobox" aria-labelledby={id+'-label'} aria-expanded={open}
       aria-haspopup="listbox" aria-controls={id+'-list'} aria-activedescendant={open?id+'-option-'+active:undefined}
       className={'counted-select-trigger'+((current?.count??0)>0?' has-photos':'')}
@@ -97,8 +98,10 @@ export default function CountedSelect({label, value, options, onChange}: {
     {open && createPortal(<div ref={menu} id={id+'-list'} role="listbox" aria-labelledby={id+'-label'} className="counted-select-options" style={position}>
       {options.map((option,index) => <div key={option.value} id={id+'-option-'+index} role="option" aria-selected={option.value===value}
         className={'counted-select-option'+((option.count??0)>0?' has-photos':'')} data-highlighted={active===index}
+        title={option.description || undefined} aria-description={option.description || undefined}
         onPointerDown={event => event.preventDefault()} onMouseEnter={() => setActive(index)} onClick={() => choose(index)}>
         <span className="counted-select-check">{option.value===value && <Check size={14} aria-hidden="true"/>}</span><span>{option.label}</span>
+        {option.description && <span className="work-option-info" aria-hidden="true"><Info size={14}/></span>}
       </div>)}
     </div>,document.body)}
   </div>;

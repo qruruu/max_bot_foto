@@ -31,8 +31,8 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
     return () => controller.abort();
   }, [key, refreshKey, retry]);
   const label = (name: string, facet: keyof FilterCounts, value?: string) => filterOptionLabel(name, counts?.[facet], value);
-  const workOptions = [{value:'',name:'Все виды работ'}, {value:'NONE',name:'Не определён'}, ...meta.work_types.map(work => ({value:work.code,name:work.name}))]
-    .map(option => ({value:option.value,label:label(option.name,'work_type',option.value||undefined),
+  const workOptions = [{value:'',name:'Все виды работ',description:''}, {value:'NONE',name:'Не определён',description:''}, ...meta.work_types.map(work => ({value:work.code,name:work.name,description:work.description||''}))]
+    .map(option => ({value:option.value,name:option.name,description:option.description,label:label(option.name,'work_type',option.value||undefined),
       count:counts ? option.value ? counts.work_type.values[option.value]??0 : counts.work_type.total : undefined}));
   const senders = senderFilterOptions(counts?.sender_id, filters.sender_id);
 
