@@ -6,6 +6,7 @@ from enum import StrEnum
 class Permission(StrEnum):
     REPORTS_VIEW = "reports_view"
     PHOTOS_VIEW = "photos_view"
+    PHOTOS_SORT = "photos_sort"
     ORIGINALS_VIEW = "originals_view"
     PHOTOS_EDIT = "photos_edit"
     SPAM_VIEW = "spam_view"
@@ -23,6 +24,11 @@ class Permission(StrEnum):
 PERMISSIONS = {
     Permission.REPORTS_VIEW: ("Обзор и отчёты", "Фотографии и отчёты", ()),
     Permission.PHOTOS_VIEW: ("Просмотр фотографий", "Фотографии и отчёты", ()),
+    Permission.PHOTOS_SORT: (
+        "Изменение сортировки фотографий",
+        "Фотографии и отчёты",
+        (Permission.PHOTOS_VIEW,),
+    ),
     Permission.ORIGINALS_VIEW: (
         "Открытие и скачивание оригиналов",
         "Фотографии и отчёты",

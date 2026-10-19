@@ -7,7 +7,8 @@ from openpyxl import load_workbook
 from test_chat_access import AccessSession, actor
 from test_chat_access import access_api as access_api
 
-from app.models import Photo
+from app.models import Audit, LoginSession, Photo, User
+from app.permissions import DEFAULT_OPERATOR_PERMISSIONS, Permission
 
 ASC_PHOTO = [30,90,20,70,10,50,100,40,80,60]
 DESC_PHOTO = [100,40,10,70,20,90,50,30,80,60]
@@ -106,3 +107,78 @@ def test_sorting_does_not_change_filter_counts_or_access_scope(time_api):
 def test_invalid_sort_modes_are_rejected(time_api,path):
     client, _ = time_api
     assert client.get(path+'?sort_order=invalid').status_code == 422
+
+
+@pytest.mark.parametrize('basis,order', [
+    ('photo','asc'), ('photo','desc'), ('received','asc'),
+    ('received','desc'), ('photo','received_desc'), ('received','received_desc'),
+])
+def test_operator_without_sort_permission_cannot_override_order_in_links(time_api,basis,order):
+    client, engine = time_api
+    with AccessSession(engine) as db:
+        db.get(User,4).permissions = list(DEFAULT_OPERATOR_PERMISSIONS)
+        db.commit()
+    actor(client,4)
+    query = f'date_basis={basis}&sort_order={order}'
+    result = client.get('/api/photos?'+query).json()
+    assert [p['id'] for p in result['items']] == DESC_PHOTO
+    for index, id in enumerate(DESC_PHOTO):
+        assert client.get(f'/api/photos/{id}/next?{query}').json()['id'] == (
+            DESC_PHOTO[index+1] if index+1<len(DESC_PHOTO) else None
+        )
+    returned = client.get(f'/api/photos?{query}&page_size=3&anchor_id={DESC_PHOTO[7]}').json()
+    assert returned['page'] == 3 and returned['focus_id'] == DESC_PHOTO[7]
+    assert [p['id'] for p in returned['items']] == DESC_PHOTO[6:9]
+    book = load_workbook(BytesIO(client.get('/api/export.xlsx?'+query).content))
+    assert [row[0] for row in list(book['Все фото'].values)[1:]] == DESC_PHOTO
+
+
+def test_locked_sort_date_basis_agrees_across_list_reports_map_counts_and_export(time_api):
+    client, engine = time_api
+    expected = [10,70,20,90,50]
+    with AccessSession(engine) as db:
+        db.get(User,4).permissions = list(DEFAULT_OPERATOR_PERMISSIONS)
+        for id in expected:
+            db.get(Photo,id).latitude, db.get(Photo,id).longitude = 61.1, 72.6
+        db.commit()
+    actor(client,4)
+    query = 'date_from=2026-10-18&date_to=2026-10-18&date_basis=received&sort_order=asc'
+    assert [p['id'] for p in client.get('/api/photos?'+query).json()['items']] == expected
+    assert client.get('/api/reports?'+query).json()['total'] == len(expected)
+    assert {p['id'] for p in client.get('/api/photos/map?'+query).json()['items']} == set(expected)
+    assert client.get('/api/photos/filter-counts?'+query).json()['work_type']['total'] == len(expected)
+    book = load_workbook(BytesIO(client.get('/api/export.xlsx?'+query).content))
+    assert [row[0] for row in list(book['Все фото'].values)[1:]] == expected
+
+
+def test_only_admin_can_enable_sorting_and_permissions_remain_opt_in(time_api):
+    client, engine = time_api
+    assert Permission.PHOTOS_SORT not in DEFAULT_OPERATOR_PERMISSIONS
+    permission = next(p for p in client.get('/api/meta').json()['permission_catalog'] if p['code']=='photos_sort')
+    assert permission['requires'] == ['photos_view'] and not permission['default_operator']
+    assert client.patch('/api/users/4',json={'permissions':['photos_sort']}).status_code == 422
+    enabled = client.patch('/api/users/4',json={'permissions':['photos_view','photos_sort']})
+    assert enabled.status_code == 200 and enabled.json()['permissions'] == ['photos_view','photos_sort']
+    with AccessSession(engine) as db:
+        assert db.get(User,4).permissions == ['photos_view','photos_sort']
+        assert db.query(LoginSession).filter_by(user_id=4).count() == 0
+        audit = db.query(Audit).filter_by(action='USER_UPDATED',object_id=4).order_by(Audit.id.desc()).first()
+        assert audit.new_value['permissions'] == ['photos_view','photos_sort']
+    disabled = client.patch('/api/users/4',json={'permissions':['photos_view']})
+    assert disabled.status_code == 200 and disabled.json()['permissions'] == ['photos_view']
+    actor(client,2)
+    assert client.patch('/api/users/4',json={'permissions':['photos_view','photos_sort']}).status_code == 403
+
+
+def test_enabled_operator_and_admin_keep_all_sort_choices(time_api):
+    client, engine = time_api
+    for user_id in (4,1):
+        with AccessSession(engine) as db:
+            db.get(User,user_id).permissions = ['photos_view','photos_sort'] if user_id==4 else []
+            db.commit()
+        actor(client,user_id)
+        assert 'photos_sort' in client.get('/api/auth/me').json()['permissions']
+        for basis,order,expected in [('photo','asc',ASC_PHOTO),('photo','desc',DESC_PHOTO),
+                                     ('received','asc',ASC_RECEIVED),('received','desc',DESC_RECEIVED)]:
+            result = client.get(f'/api/photos?date_basis={basis}&sort_order={order}').json()
+            assert [p['id'] for p in result['items']] == expected

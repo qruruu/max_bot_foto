@@ -3,6 +3,14 @@
 from sqlalchemy import and_, false, or_
 
 from app.models import Photo
+from app.permissions import Permission, has_permission
+
+
+def apply_sort_permission(filters, user):
+    if has_permission(user, Permission.PHOTOS_SORT):
+        return filters
+    # Old links and direct requests must follow the same order as the operator's UI.
+    return filters.model_copy(update={"date_basis": "photo", "sort_order": "desc"})
 
 
 def sort_keys(filters):

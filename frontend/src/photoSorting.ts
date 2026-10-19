@@ -1,4 +1,5 @@
-import type { Filters } from './types';
+import { hasPermission } from './permissions';
+import type { Filters, User } from './types';
 
 export const photoSortOptions = [
   {value: 'photo_asc', label: 'Сначала ранние фотографии', basis: 'photo', order: 'asc'},
@@ -17,4 +18,8 @@ export function photoSortValue(filters: Filters): string {
 export function photoSortFilters(value: string): Filters {
   const option = photoSortOptions.find(option => option.value === value) || photoSortOptions[3];
   return {date_basis: option.basis, sort_order: option.order};
+}
+
+export function photoSortForUser(filters: Filters, user: User): Filters {
+  return photoSortFilters(hasPermission(user, 'photos_sort') ? photoSortValue(filters) : 'photo_desc');
 }

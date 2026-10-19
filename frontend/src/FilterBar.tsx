@@ -4,7 +4,7 @@ import { useApp } from './App';
 import { api, dateLabel, query, shiftDate, statusNames } from './api';
 import { filterOptionLabel, senderFilterOptions } from './filterCounts';
 import { hasPermission } from './permissions';
-import { photoSortFilters, photoSortOptions, photoSortValue } from './photoSorting';
+import { photoSortFilters, photoSortForUser, photoSortOptions, photoSortValue } from './photoSorting';
 import type { FilterCounts, Filters } from './types';
 import CountedSelect from './CountedSelect';
 
@@ -16,7 +16,8 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
   refreshKey?: number;
 }) {
   const {meta, user} = useApp();
-  const sortValue = photoSortValue(filters);
+  const canSort = hasPermission(user, 'photos_sort');
+  const sortValue = photoSortValue(photoSortForUser(filters, user));
   const current = filters.date_to || meta.today;
   const key = query(filters);
   const [loaded, setLoaded] = useState<{key: string; counts: FilterCounts} | null>(null);
@@ -81,11 +82,11 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
         <option value="0">{label('Не указан', 'sender_id', '0')}</option>
         {senders.map(sender => <option key={sender.value} value={sender.value}>{label(sender.name, 'sender_id', sender.value)}</option>)}
       </select></label>
-      <label>Сортировка<select aria-label="Сортировка" value={sortValue} onChange={e => change(photoSortFilters(e.target.value))}>
+      {canSort && <label>Сортировка<select aria-label="Сортировка" value={sortValue} onChange={e => change(photoSortFilters(e.target.value))}>
         {photoSortOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select></label>
+      </select></label>}
     </div>
-    {sortValue.startsWith('photo_') && <p className="hint filter-sort-hint">По дате и времени съёмки. Фото без времени — в конце своего дня, без даты — в конце списка.</p>}
+    {sortValue.startsWith('photo_') && <p className="hint filter-sort-hint">{!canSort && 'Сначала поздние фотографии. '}По дате и времени съёмки. Фото без времени — в конце своего дня, без даты — в конце списка.</p>}
     {error && <p className="hint filter-counts-error" role="status">Не удалось обновить количество фото. <button type="button" className="text-button" onClick={() => setRetry(value => value + 1)}>Повторить</button></p>}
   </div>;
 }

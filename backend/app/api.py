@@ -73,7 +73,7 @@ from app.permissions import (
     has_permission,
     permission_catalog,
 )
-from app.photo_ordering import photo_order, photo_position
+from app.photo_ordering import apply_sort_permission, photo_order, photo_position
 from app.receiver import connection_status, received
 from app.reports import export_excel, filtered, photo_dict, photo_list_position, summarize
 from app.schemas import (
@@ -207,6 +207,7 @@ def dictionaries(db):
 
 @app.get("/api/photos")
 def photos(db: Db, user: PhotosReader, filters: Annotated[PhotoListFilters, Query()]):
+    filters = apply_sort_permission(filters, user)
     check_spam_filter(user, filters, db)
     stmt = filtered(filters, user)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
@@ -238,6 +239,7 @@ def photos(db: Db, user: PhotosReader, filters: Annotated[PhotoListFilters, Quer
 def photo_filter_options(db: Db, user: CurrentUser, filters: Filters):
     if not (has_permission(user, Permission.PHOTOS_VIEW) or has_permission(user, Permission.REPORTS_VIEW)):
         raise HTTPException(403, "Нет доступа к этой функции")
+    filters = apply_sort_permission(filters, user)
     check_spam_filter(user, filters, db)
     return photo_filter_counts(db, filters, include_spam=has_permission(user, Permission.SPAM_VIEW), user=user)
 
@@ -269,6 +271,7 @@ def photo_map(
     filters: Annotated[PhotoMapFilters, Query()],
 ):
     """Compact map batches, independent of the photo table's 30-row pagination."""
+    filters = apply_sort_permission(filters, user)
     check_spam_filter(user, filters, db)
     after_id, snapshot_id = filters.after_id, filters.snapshot_id
     source = filtered(filters, user).with_only_columns(
@@ -357,6 +360,7 @@ def preview(photo_id: int, db: Db, user: PhotosReader):
 
 @app.get("/api/photos/{photo_id}/next")
 def next_photo(photo_id: int, db: Db, user: PhotosReader, filters: Annotated[PhotoBrowseFilters, Query()]):
+    filters = apply_sort_permission(filters, user)
     photo = require_photo(db, photo_id, user)
     check_spam_filter(user, filters, db)
     # Match the selected table order, including partial timestamps and ties,
@@ -557,12 +561,14 @@ def retry_photo(photo_id: int, db: Db, user: PhotoEditor):
 
 @app.get("/api/reports")
 def reports(db: Db, user: ReportsReader, filters: Filters):
+    filters = apply_sort_permission(filters, user)
     check_spam_filter(user, filters, db)
     return summarize(db, filters, user)
 
 
 @app.get("/api/export.xlsx")
 def excel(db: Db, user: ReportsExporter, filters: Filters):
+    filters = apply_sort_permission(filters, user)
     check_spam_filter(user, filters, db)
     # One snapshot keeps detailed rows and the summary sheets consistent during concurrent review.
     db.commit()
