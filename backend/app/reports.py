@@ -75,7 +75,7 @@ def summarize(db: Session, filters: PhotoFilters, user=None):
     source = filtered(filters, user).subquery()
     counts = dict(db.execute(select(source.c.status, func.count()).group_by(source.c.status)).all())
     chats = [
-        {"id": cid, "name": name, "count": n}
+        {"id": str(cid), "name": name, "count": n}
         for cid, name, n in db.execute(
             select(source.c.max_chat_id, func.max(source.c.chat_name), func.count())
             .group_by(source.c.max_chat_id)
@@ -104,7 +104,7 @@ def summarize(db: Session, filters: PhotoFilters, user=None):
         )
     ]
     matrix = [
-        {"chat_id": cid, "district_id": did or 0, "count": n}
+        {"chat_id": str(cid), "district_id": did or 0, "count": n}
         for cid, did, n in db.execute(
             select(source.c.max_chat_id, source.c.district_id, func.count()).group_by(
                 source.c.max_chat_id, source.c.district_id
@@ -139,6 +139,7 @@ def photo_dict(photo: Photo, districts: dict[int, str], operators: dict[int, str
     }
     result.update(
         # MAX IDs can exceed JavaScript's safe integer range.
+        max_chat_id=str(photo.max_chat_id),
         sender_id=str(photo.sender_id) if photo.sender_id is not None else None,
         sender_name=None,
         district_name=districts.get(photo.district_id),

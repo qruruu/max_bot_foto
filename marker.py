@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 MARKER_FILE = Path("max_marker.txt")
 
 

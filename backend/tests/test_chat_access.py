@@ -118,7 +118,7 @@ def test_lists_meta_filters_map_reports_and_notifications_share_the_chat_scope(a
     assert [c["id"] for c in client.get("/api/meta").json()["chats"]] == [1]
     assert [c["id"] for c in client.get("/api/chats").json()] == [1]
     report = client.get("/api/reports").json()
-    assert report["total"] == 2 and [c["id"] for c in report["chats"]] == [100]
+    assert report["total"] == 2 and [c["id"] for c in report["chats"]] == ["100"]
     assert client.get("/api/photos/arrivals").json()["photo_ids"] == [10,50]
     mapped = client.get("/api/photos/map").json()
     assert mapped["summary"]["total"] == 2 and {p["id"] for p in mapped["items"]} == {10,50}
@@ -126,6 +126,27 @@ def test_lists_meta_filters_map_reports_and_notifications_share_the_chat_scope(a
     assert counts["chat_id"] == {"total":2, "values":{"100":2}}
     assert counts["work_type"]["total"] == 0
     assert client.get("/api/photos?status=SPAM").json()["total"] == 1
+
+
+def test_large_max_chat_ids_survive_reports_and_photo_links_without_rounding(access_api):
+    client, engine = access_api
+    large_ids = {100: 9007199254740992, 200: 9007199254740993}
+    with AccessSession(engine) as db:
+        for old, exact in large_ids.items():
+            db.scalar(select(Chat).where(Chat.max_chat_id == old)).max_chat_id = exact
+            for model in (Photo, Inbox):
+                for row in db.scalars(select(model).where(model.max_chat_id == old)):
+                    row.max_chat_id = exact
+        db.commit()
+    actor(client, 1)
+    report = client.get("/api/reports").json()
+    expected = {str(value) for value in large_ids.values()}
+    assert expected.issubset({chat["id"] for chat in report["chats"]})
+    assert expected.issubset({row["chat_id"] for row in report["matrix"]})
+    for exact in expected:
+        photos = client.get("/api/photos", params={"chat_id": exact}).json()
+        assert photos["total"] > 0
+        assert {photo["max_chat_id"] for photo in photos["items"]} == {exact}
 
 
 @pytest.mark.parametrize("method,path,body", [

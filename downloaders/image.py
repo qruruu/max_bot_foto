@@ -1,6 +1,6 @@
 import mimetypes
 from pathlib import Path
-from urllib.parse import urlparse, unquote
+from urllib.parse import unquote, urlparse
 
 import requests
 

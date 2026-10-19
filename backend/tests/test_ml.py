@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 
 from app import ml
 from app.config import settings
 from app.domain import now
 from app.media import digest_file, media_path
-from app.models import Inbox, Job, ModelVersion, Photo, User
+from app.models import Inbox, Job, ModelVersion, Photo, User, WorkType
 
 
 def examples(per_class=60):
@@ -251,6 +251,26 @@ def test_learning_api_requires_admin_and_data(admin):
     admin.headers["X-CSRF-Token"] = admin.cookies["csrf"]
     assert admin.get("/api/ml").status_code == 403
     assert admin.post("/api/ml/train").status_code == 403
+
+
+def test_manual_training_uses_the_company_catalog(admin, db, monkeypatch):
+    small_training_config(monkeypatch)
+    seed_dataset(db)
+    # A new company has its own categories, without any of the legacy 16 codes.
+    db.execute(delete(WorkType))
+    codes = ["CUSTOM_FIRST", "CUSTOM_SECOND"]
+    for index, code in enumerate(codes):
+        db.add(WorkType(code=code, name=code, filename_label=code,
+                        model_index=index, sort_order=index + 1))
+        db.execute(update(Photo).where(Photo.work_type == ml.CODES[index]).values(work_type=code))
+    db.commit()
+
+    plan = admin.get("/api/ml").json()["plan"]
+    assert plan["ready"] and plan["eligible_classes"] == codes
+    assert admin.post("/api/ml/train").status_code == 200
+    job = db.scalar(select(Job).where(Job.kind == "TRAIN"))
+    assert job.status == "PENDING" and job.object_id == 1
+    assert admin.post("/api/ml/train").status_code == 409
 
 
 def test_training_can_resume_after_labels_are_removed_then_restored(db, monkeypatch):

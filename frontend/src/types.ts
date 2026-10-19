@@ -24,4 +24,4 @@ export type Photo = {
 export type PhotoPage = { items: Photo[]; total: number; page: number; page_size: number; focus_id?: number | null };
 export type PhotoEditResult = Pick<Photo, 'id' | 'version' | 'is_spam' | 'is_defect' | 'work_type_name' | 'status' | 'storage_status' | 'review_reason' | 'district_id' | 'district_source'>;
 export type Breakdown = { id: string | number; name: string; count: number };
-export type Report = { total: number; accepted: number; counts: Record<string, number>; chats: Breakdown[]; districts: Breakdown[]; work_types: Breakdown[]; matrix: { chat_id: number; district_id: number; count: number }[] };
+export type Report = { total: number; accepted: number; counts: Record<string, number>; chats: (Breakdown & {id: string})[]; districts: Breakdown[]; work_types: Breakdown[]; matrix: { chat_id: string; district_id: number; count: number }[] };

@@ -59,6 +59,29 @@ def test_open_original_handles_disk_failure_without_server_error(db, monkeypatch
     assert response.status_code == expected and "Яндекс.Диск" in response.json()["detail"]
 
 
+@pytest.mark.parametrize("failure", [httpx.ReadTimeout, httpx.ConnectError])
+def test_open_original_handles_network_failures_without_leaking_details(db, monkeypatch, admin, failure):
+    photo, _ = stored_photo(db, monkeypatch)
+
+    def offline(*_args, **_kwargs):
+        raise failure("private signed URL and upstream credentials")
+
+    monkeypatch.setattr(YandexDisk, "request", offline)
+    response = admin.get(f"/api/photos/{photo.id}/original", follow_redirects=False)
+    assert response.status_code == 502
+    assert "private" not in response.text and "Яндекс.Диск" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("payload", [{}, [], {"href": None}, {"href": "http://private.invalid/secret"}])
+def test_open_original_handles_invalid_download_response(db, monkeypatch, admin, payload):
+    photo, _ = stored_photo(db, monkeypatch)
+    upstream = httpx.Response(200, json=payload, request=httpx.Request("GET", YandexDisk.API))
+    monkeypatch.setattr(YandexDisk, "request", lambda *_args, **_kwargs: upstream)
+    response = admin.get(f"/api/photos/{photo.id}/original", follow_redirects=False)
+    assert response.status_code == 502
+    assert "private" not in response.text
+
+
 @respx.mock
 def test_confirmed_missing_source_and_target_not_generic_404(monkeypatch):
     monkeypatch.setenv("YANDEX_DISK_TOKEN", "test")

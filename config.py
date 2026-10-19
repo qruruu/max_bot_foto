@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 
-
 BASE_SAVE_DIR = Path("MAX_PHOTOS")
 
 CHAT_1 = os.getenv("chat_1")

@@ -174,6 +174,9 @@ def test_photo_read_permission_does_not_grant_edits_originals_or_exports(client,
 def test_original_access_is_explicit(client, users, db, photo, monkeypatch):
     restrict(db, ["photos_view", "originals_view"])
     sign_in(client)
+    # URL policy is still checked; permission tests must not depend on live DNS.
+    monkeypatch.setattr("app.integrations.socket.getaddrinfo",
+                        lambda *_args, **_kwargs: [(2, 1, 6, "", ("1.1.1.1", 443))])
     monkeypatch.setattr(
         "app.api.YandexDisk.request",
         lambda *a, **kw: httpx.Response(

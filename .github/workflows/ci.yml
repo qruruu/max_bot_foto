@@ -17,6 +17,7 @@ jobs:
       TEST_DATABASE_URL: postgresql+psycopg://postgres:test-password@127.0.0.1:5432/maxphotos_test
       APP_ENV: test
       COOKIE_SECURE: 'false'
+      OCR_MODEL_DIR: ${{ runner.temp }}/ocr-models
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -25,6 +26,7 @@ jobs:
       - run: uv sync --project backend --frozen --python 3.12
       - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-rus
       - run: uv run --project backend ruff check backend
+      - run: uv run --project backend python backend/app/ocr_models.py "$OCR_MODEL_DIR"
       - run: uv run --project backend pytest backend/tests --cov=app --cov-report=term-missing
   frontend:
     runs-on: ubuntu-latest

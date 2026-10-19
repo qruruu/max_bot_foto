@@ -384,17 +384,18 @@ def original(photo_id: int, db: Db, user: OriginalsReader):
         )
     if not photo.yandex_disk_path:
         raise HTTPException(409, "Загрузка оригинала ещё не завершена")
-    response = YandexDisk().request("GET", "/resources/download", params={"path": photo.yandex_disk_path})
-    if response.status_code == 404:
-        raise HTTPException(
-            409, "Оригинал не найден на Яндекс.Диске. Проверьте корзину Диска или обратитесь к оператору."
-        )
-    if response.status_code >= 400:
+    try:
+        response = YandexDisk().request("GET", "/resources/download", params={"path": photo.yandex_disk_path})
+        if response.status_code == 404:
+            raise HTTPException(
+                409, "Оригинал не найден на Яндекс.Диске. Проверьте корзину Диска или обратитесь к оператору."
+            )
+        response.raise_for_status()
+        url = safe_url(response.json()["href"], ("yandex.net", "yandex.ru", "yandex.com"))
+    except (httpx.HTTPError, RuntimeError, ValueError, KeyError, TypeError, OSError) as exc:
         raise HTTPException(
             502, "Яндекс.Диск временно недоступен или доступ к файлу ограничен. Повторите позже."
-        )
-    response.raise_for_status()
-    url = safe_url(response.json()["href"], ("yandex.net", "yandex.ru", "yandex.com"))
+        ) from exc
     return RedirectResponse(url, status_code=302)
 
 
@@ -909,7 +910,7 @@ def ml_train(db: Db, user: LearningManager):
     if db.scalar(select(Job.id).where(Job.kind == "TRAIN", Job.status != "DONE").limit(1)):
         raise HTTPException(409, "Обучение уже в очереди или выполняется")
     examples, _ = collect_examples(db)
-    plan = training_plan(examples)
+    plan = training_plan(examples, work_catalog(db))
     if not plan["ready"]:
         raise HTTPException(409, "; ".join(plan["reasons"]))
     enqueue(db, "TRAIN", 1, "train:manual:" + secrets.token_hex(16))

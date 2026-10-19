@@ -3,7 +3,6 @@ import os
 import requests
 from dotenv import load_dotenv
 
-
 load_dotenv()
 
 API = "https://platform-api2.max.ru"

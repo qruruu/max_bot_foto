@@ -98,7 +98,7 @@ def test_sorting_does_not_change_filter_counts_or_access_scope(time_api):
     actor(client,2)
     response = client.get('/api/photos?sort_order=asc')
     assert response.status_code == 200
-    assert {p['max_chat_id'] for p in response.json()['items']} == {100}
+    assert {p['max_chat_id'] for p in response.json()['items']} == {'100'}
     assert client.get('/api/photos/20/next?sort_order=asc').status_code == 404
 
 

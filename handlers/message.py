@@ -4,13 +4,13 @@ from pathlib import Path
 from config import (
     BASE_SAVE_DIR,
     CHAT_NAMES,
-    IMAGE_EXTENSIONS,
     FAIL_FILE,
+    IMAGE_EXTENSIONS,
 )
-
-from downloaders.image import download_photo
 from downloaders.file import download_file
+from downloaders.image import download_photo
 from services.max_api import send_message
+
 
 #создает папку для сохранения фото, если она не существует. Если не существует то не создает.
 def save_in_dir(chat_id):
@@ -177,7 +177,7 @@ def process_message(message):
 
                 send_message(
                     chat_id,
-                    f"✅ Снимок сохранён",
+                    "✅ Снимок сохранён",
                 )
 
             except Exception as e:
