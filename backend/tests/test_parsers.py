@@ -145,6 +145,28 @@ def test_coordinate_formats(value):
 
 
 @pytest.mark.parametrize(
+    "value",
+    [
+        "61.0972° N, 72.6320° E",
+        "61.0972° N, 72.6320 E",
+        "61.0972° N,72.6320°E",
+        "61,0972º N, 72,6320º E",
+        "N 61.0972°, E 72.6320°",
+        "61.0972 N, 72.6320 E",
+        "N61,0972,E72,6320",
+        "61.0972, 72.6320",
+        "61,0972; 72,6320",
+        "61°05'49.92\"N, 72°37'55.2\"E",
+    ],
+)
+def test_camera_decimal_degrees_and_coordinate_separators(value):
+    result = CoordinateParser().parse(value)
+    assert result.latitude == pytest.approx(61.0972)
+    assert result.longitude == pytest.approx(72.6320)
+    assert result.confidence >= 0.8
+
+
+@pytest.mark.parametrize(
     "value,lat,lon",
     [
         ("61.106S 72.578W", -61.106, -72.578),
@@ -175,6 +197,14 @@ def test_hemispheres(value, lat, lon):
         "61.106072.5780",
         "61.1060N72.57З0E",
         "61.1060N\n\n--- OCR ---\n\n72.5780E",
+        "91.0972° N, 72.6320° E",
+        "61.0972° N, 181.6320° E",
+        "61°60'0\"N, 72.6320° E",
+        "61°05'61\"N, 72.6320° E",
+        "61.0972° N, 72.6320° E\n62.0972° N, 72.6320° E",
+        "61.0972° N\n\n--- OCR ---\n\n72.6320° E",
+        "61.0972° N, 72.6320°",
+        "N 6775934 E 372323",
     ],
 )
 def test_invalid_coordinates_not_used(value):

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, photoLink, query, shiftDate } from './api';
+import { api, photoLink, query, reportPhotoLink, shiftDate } from './api';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -18,6 +18,36 @@ it('uploads the original image bytes with session credentials and CSRF protectio
 describe('report filters and calendar',()=>{
   it('preserves the unassigned district sentinel and removes empty filters',()=>{expect(query({district_id:'0',chat_id:'',status:'NEEDS_REVIEW'})).toBe('district_id=0&status=NEEDS_REVIEW');});
   it('crosses month and year boundaries consistently',()=>{expect(shiftDate('2026-01-01',-1)).toBe('2025-12-31');expect(shiftDate('2024-03-01',-1)).toBe('2024-02-29');});
+});
+
+describe('opening the photos counted in a report', () => {
+  it('includes archived statuses in the unassigned district with the same sender and date range', () => {
+    const filters = {date_from:'2026-10-18', date_to:'2026-10-18', sender_id:'455424204', date_basis:'received', sort_order:'desc'};
+    const link = new URL(reportPhotoLink(filters, {district_id:'0'}), 'http://test');
+    expect(link.pathname).toBe('/photos');
+    expect(Object.fromEntries(link.searchParams)).toEqual({...filters, district_id:'0', work_only:'false'});
+  });
+
+  it('keeps all dates rather than reverting to the list default of yesterday', () => {
+    const link = new URL(reportPhotoLink({sender_id:'9007199254740993'}, {chat_id:'9007199254740995', work_type:'NONE'}), 'http://test');
+    expect(Object.fromEntries(link.searchParams)).toEqual({
+      sender_id:'9007199254740993', chat_id:'9007199254740995', work_type:'NONE', work_only:'false', all_dates:'1',
+    });
+  });
+
+  it('preserves a report restricted to the operator queue and its existing status filters', () => {
+    const link = new URL(reportPhotoLink({work_only:'true', status:'NEEDS_REVIEW', accepted_only:'true', operator_id:'0'}, {district_id:'0'}), 'http://test');
+    expect(Object.fromEntries(link.searchParams)).toEqual({
+      work_only:'true', status:'NEEDS_REVIEW', accepted_only:'true', operator_id:'0', district_id:'0', all_dates:'1',
+    });
+  });
+
+  it('starts the chosen report group at its first page without stale photo navigation', () => {
+    const filters = {status:'NEEDS_REVIEW', page:'4', anchor_id:'999', review:'1', spam:'0', from_map:'1', operator_chat:'2'};
+    const link = new URL(reportPhotoLink(filters, {accepted_only:'true'}), 'http://test');
+    expect(Object.fromEntries(link.searchParams)).toEqual({status:'NEEDS_REVIEW', accepted_only:'true', work_only:'false', all_dates:'1'});
+    expect(filters.page).toBe('4');
+  });
 });
 
 describe('photo navigation', () => {

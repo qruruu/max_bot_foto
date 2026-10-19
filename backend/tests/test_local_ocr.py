@@ -62,6 +62,18 @@ def test_neural_passes_do_not_invent_coordinate_pair(monkeypatch):
     assert CoordinateParser().parse(LocalOCR().recognize(FIXTURES / "camera_stamp_photo.png")).latitude is None
 
 
+def test_decimal_degree_stamp_completes_on_first_neural_reading(monkeypatch):
+    recognize, fallback = setup_neural(monkeypatch, ["19.10.2026 15:10\n61.0972° N, 72.6320 E"])
+    text = LocalOCR().recognize(FIXTURES / "camera_stamp_photo.png")
+    timestamp, coordinates = DateTimeParser().parse(text), CoordinateParser().parse(text)
+    assert timestamp.photo_date == date(2026, 10, 19)
+    assert timestamp.photo_time == time(15, 10)
+    assert coordinates.latitude == pytest.approx(61.0972)
+    assert coordinates.longitude == pytest.approx(72.6320)
+    recognize.assert_called_once()
+    fallback.assert_not_called()
+
+
 def test_photo88_saved_readings_recover_metadata_without_truncated_time_conflict(monkeypatch):
     first = "14Hоя6.2025г.09:07.35\nC61 11892148333333N72.58083921666666E"
     highlighted = "14 нO96.2025г.09:07:35\n61.11892148333333N72.58083921666666E"

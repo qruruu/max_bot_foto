@@ -81,6 +81,31 @@ def test_overview_keeps_received_counts_and_no_records_are_removed(sorting_api):
         assert set(db.scalars(select(Photo.id))) == {10,20,30,40,50,60}
 
 
+def test_report_drilldown_opens_archived_photos_with_the_same_sender_and_period(sorting_api):
+    client, engine = sorting_api
+    with AccessSession(engine) as db:
+        for id in (20,60):
+            db.get(Photo,id).sender_id = 455424204
+        db.commit()
+    filters = {'sender_id':'455424204', 'date_from':'2026-10-18',
+               'date_to':'2026-10-18', 'date_basis':'photo'}
+    report = client.get('/api/reports', params=filters).json()
+    assert report['total'] == 2
+    assert report['districts'] == [{'id':0, 'name':'Не определён', 'count':2}]
+    # Reproduce the old link: the list's implicit work_only=true hides both photos.
+    assert client.get('/api/photos', params={**filters, 'district_id':'0'}).json()['total'] == 0
+    # The report link must explicitly retain the report's broader status scope.
+    selected = client.get('/api/photos', params={**filters, 'district_id':'0', 'work_only':'false'}).json()
+    assert selected['total'] == report['districts'][0]['count']
+    assert {p['id'] for p in selected['items']} == {20,60}
+    for chat in report['chats']:
+        selected = client.get('/api/photos', params={**filters, 'chat_id':chat['id'], 'work_only':'false'}).json()
+        assert selected['total'] == chat['count']
+    for work in report['work_types']:
+        selected = client.get('/api/photos', params={**filters, 'work_type':work['id'], 'work_only':'false'}).json()
+        assert selected['total'] == work['count']
+
+
 def test_sorting_scope_does_not_bypass_chat_or_spam_permissions(sorting_api):
     client, engine = sorting_api
     actor(client,2)

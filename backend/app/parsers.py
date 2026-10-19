@@ -96,7 +96,7 @@ class CoordinateResult:
 
 # Require decimals for a bare pair, so dates, times and street numbers aren't coordinates.
 DECIMAL = r"[+-]?\d{1,3}\.\d+"
-ANGLE = r"[+-]?\d{1,3}(?:\.\d+)?(?:\s*°\s*\d{1,2}(?:\.\d+)?\s*'(?:\s*\d{1,2}(?:\.\d+)?\s*\")?)?"
+ANGLE = r"[+-]?\d{1,3}(?:\.\d+)?(?:\s*°(?:\s*\d{1,2}(?:\.\d+)?\s*'(?:\s*\d{1,2}(?:\.\d+)?\s*\")?)?)?"
 
 
 class CoordinateParser:
@@ -119,8 +119,9 @@ class CoordinateParser:
 
     def parse(self, text: str) -> CoordinateResult:
         # Only punctuation normalization; never silently substitute digits or infer a city.
-        normalized = text.upper().translate(
-            str.maketrans({",": ".", "′": "'", "’": "'", "″": '"', "º": "°", "−": "-"})
+        # A comma between digits is a decimal mark; after a hemisphere it separates angles.
+        normalized = re.sub(r"(?<=\d),(?=\d)", ".", text.upper()).translate(
+            str.maketrans({",": ";", "′": "'", "’": "'", "″": '"', "º": "°", "−": "-"})
         )
         candidates = []
         for prefix in (True, False):

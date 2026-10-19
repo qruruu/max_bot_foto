@@ -7,6 +7,14 @@ export class ApiError extends Error {
 export function query(filters: Filters): string {
   return new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== '')).toString();
 }
+export function reportPhotoLink(filters: Filters, group: Filters = {}): string {
+  // The report includes duplicates and forwarded photos unless explicitly restricted.
+  // Make that scope explicit so the list's default does not change the selection.
+  const params: Filters = { ...filters, ...group, work_only: filters.work_only || 'false' };
+  if (!params.date_from && !params.date_to) params.all_dates = '1';
+  for (const key of ['page', 'anchor_id', 'review', 'spam', 'from_map', 'operator_chat']) delete params[key];
+  return `/photos?${query(params)}`;
+}
 export function photoLink(id: number, filters: Filters, review = false, spam = false): string {
   const params: Filters = { ...filters, review: review ? '1' : '0', spam: spam ? '1' : '0' };
   // Preserve an explicit all-dates choice when returning from a photo to the list.
