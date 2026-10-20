@@ -17,9 +17,10 @@ jobs:
       TEST_DATABASE_URL: postgresql+psycopg://postgres:test-password@127.0.0.1:5432/maxphotos_test
       APP_ENV: test
       COOKIE_SECURE: 'false'
-      OCR_MODEL_DIR: ${{ runner.temp }}/ocr-models
     steps:
       - uses: actions/checkout@v4
+      - name: Set OCR model directory
+        run: echo "OCR_MODEL_DIR=$RUNNER_TEMP/ocr-models" >> "$GITHUB_ENV"
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.8.22'
