@@ -8,9 +8,9 @@ export function query(filters: Filters): string {
   return new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== '')).toString();
 }
 export function reportPhotoLink(filters: Filters, group: Filters = {}): string {
-  // The report includes duplicates and forwarded photos unless explicitly restricted.
-  // Make that scope explicit so the list's default does not change the selection.
-  const params: Filters = { ...filters, ...group, work_only: filters.work_only || 'false' };
+  // Match the work breakdowns even when opening a report saved with the old scope.
+  // Explicit DUPLICATE/FORWARDED statuses still open their separate archives.
+  const params: Filters = { ...filters, ...group, work_only: 'true' };
   if (!params.date_from && !params.date_to) params.all_dates = '1';
   for (const key of ['page', 'anchor_id', 'review', 'spam', 'from_map', 'operator_chat']) delete params[key];
   return `/photos?${query(params)}`;

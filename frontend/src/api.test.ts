@@ -21,17 +21,28 @@ describe('report filters and calendar',()=>{
 });
 
 describe('opening the photos counted in a report', () => {
-  it('includes archived statuses in the unassigned district with the same sender and date range', () => {
+  it('excludes auxiliary archives from the unassigned district while preserving sender and date range', () => {
     const filters = {date_from:'2026-10-18', date_to:'2026-10-18', sender_id:'455424204', date_basis:'received', sort_order:'desc'};
     const link = new URL(reportPhotoLink(filters, {district_id:'0'}), 'http://test');
     expect(link.pathname).toBe('/photos');
-    expect(Object.fromEntries(link.searchParams)).toEqual({...filters, district_id:'0', work_only:'false'});
+    expect(Object.fromEntries(link.searchParams)).toEqual({...filters, district_id:'0', work_only:'true'});
+  });
+
+  it('does not restore duplicate rows from an old report link', () => {
+    const link = new URL(reportPhotoLink({work_only:'false', district_id:'0'}), 'http://test');
+    expect(link.searchParams.get('work_only')).toBe('true');
+    expect(link.searchParams.get('district_id')).toBe('0');
+  });
+
+  it.each(['DUPLICATE', 'FORWARDED'])('opens the separate %s archive with the same filters', status => {
+    const link = new URL(reportPhotoLink({chat_id:'123',sender_id:'45'}, {status}), 'http://test');
+    expect(Object.fromEntries(link.searchParams)).toEqual({chat_id:'123',sender_id:'45',status,work_only:'true',all_dates:'1'});
   });
 
   it('keeps all dates rather than reverting to the list default of yesterday', () => {
     const link = new URL(reportPhotoLink({sender_id:'9007199254740993'}, {chat_id:'9007199254740995', work_type:'NONE'}), 'http://test');
     expect(Object.fromEntries(link.searchParams)).toEqual({
-      sender_id:'9007199254740993', chat_id:'9007199254740995', work_type:'NONE', work_only:'false', all_dates:'1',
+      sender_id:'9007199254740993', chat_id:'9007199254740995', work_type:'NONE', work_only:'true', all_dates:'1',
     });
   });
 
@@ -45,7 +56,7 @@ describe('opening the photos counted in a report', () => {
   it('starts the chosen report group at its first page without stale photo navigation', () => {
     const filters = {status:'NEEDS_REVIEW', page:'4', anchor_id:'999', review:'1', spam:'0', from_map:'1', operator_chat:'2'};
     const link = new URL(reportPhotoLink(filters, {accepted_only:'true'}), 'http://test');
-    expect(Object.fromEntries(link.searchParams)).toEqual({status:'NEEDS_REVIEW', accepted_only:'true', work_only:'false', all_dates:'1'});
+    expect(Object.fromEntries(link.searchParams)).toEqual({status:'NEEDS_REVIEW', accepted_only:'true', work_only:'true', all_dates:'1'});
     expect(filters.page).toBe('4');
   });
 });

@@ -76,8 +76,14 @@ def photo_list_position(db, filters: PhotoFilters, total: int, anchor: Photo | N
 
 def summarize(db: Session, filters: PhotoFilters, user=None):
     catalog = work_catalog(db)
-    source = filtered(filters, user).subquery()
-    counts = dict(db.execute(select(source.c.status, func.count()).group_by(source.c.status)).all())
+    # Keep auxiliary archive counters, but never treat those events as work photos.
+    # Even an old work_only=false link or an explicit archive status cannot add
+    # duplicates/forwarded photos to district, chat or work-type breakdowns.
+    selection = filtered(filters.model_copy(update={"work_only": False}), user)
+    counts = dict(db.execute(
+        selection.with_only_columns(Photo.status, func.count()).group_by(Photo.status)
+    ).all())
+    source = selection.where(Photo.status.not_in(NON_WORK_STATUSES)).subquery()
     chats = [
         {"id": str(cid), "name": name, "count": n}
         for cid, name, n in db.execute(
@@ -116,7 +122,7 @@ def summarize(db: Session, filters: PhotoFilters, user=None):
         )
     ]
     return {
-        "total": sum(counts.values()),
+        "total": sum(count for status, count in counts.items() if status not in NON_WORK_STATUSES),
         "accepted": counts.get(Status.ACCEPTED, 0) + counts.get(Status.NEEDS_REVIEW, 0),
         "counts": {s: counts.get(s, 0) for s in Status},
         "chats": chats,
@@ -164,6 +170,9 @@ def literal(value):
 
 
 def export_excel(db: Session, filters: PhotoFilters, user=None) -> bytes:
+    # Normal exports follow the work report. An explicit auxiliary status can
+    # still export that separate archive through filtered()'s status exception.
+    filters = filters.model_copy(update={"work_only": True})
     catalog = work_catalog(db)
     wb = Workbook(write_only=True)
 
