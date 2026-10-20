@@ -20,6 +20,7 @@ class Permission(StrEnum):
     EXCHANGE_MANAGE = "exchange_manage"
     LEARNING_MANAGE = "learning_manage"
     NEWS_VIEW = "news_view"
+    DAYS_REVIEW = "days_review"
 
 
 PERMISSIONS = {
@@ -39,6 +40,11 @@ PERMISSIONS = {
         "Проверка, изменение и повторная обработка фото",
         "Фотографии и отчёты",
         (Permission.PHOTOS_VIEW,),
+    ),
+    Permission.DAYS_REVIEW: (
+        "Проверка и закрытие дней",
+        "Фотографии и отчёты",
+        (Permission.PHOTOS_VIEW, Permission.PHOTOS_EDIT, Permission.REPORTS_VIEW),
     ),
     Permission.SPAM_VIEW: (
         "Просмотр раздела «Спам»",

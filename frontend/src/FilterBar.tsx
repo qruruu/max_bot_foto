@@ -74,7 +74,7 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
       </select></label>
       <label>Оператор<select aria-label="Оператор" value={filters.operator_id || ''} onChange={e => change({operator_id: e.target.value})}>
         <option value="">{label('Все операторы', 'operator_id')}</option>
-        <option value="0">{label('Не проверено', 'operator_id', '0')}</option>
+        <option value="0">{label('Без ручного изменения', 'operator_id', '0')}</option>
         {meta.operators.map(o => <option key={o.id} value={o.id}>{label(o.name, 'operator_id', String(o.id))}</option>)}
       </select></label>
       <label>Отправитель<select aria-label="Отправитель" value={filters.sender_id || ''} onChange={e => change({sender_id: e.target.value})}>
@@ -84,6 +84,9 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
       </select></label>
       {canSort && <label>Сортировка<select aria-label="Сортировка" value={sortValue} onChange={e => change(photoSortFilters(e.target.value))}>
         {photoSortOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select></label>}
+      {hasPermission(user, 'days_review') && <label>Проверка дня<select aria-label="Проверка дня" value={filters.day_review || ''} onChange={e => change({day_review: e.target.value})}>
+        <option value="">Все рабочие фотографии</option><option value="confirmed">Только проверенные</option><option value="pending">Ещё не подтверждены</option>
       </select></label>}
     </div>
     {sortValue.startsWith('photo_') && <p className="hint filter-sort-hint">{!canSort && 'Сначала поздние фотографии. '}По дате и времени съёмки. Фото без времени — в конце своего дня, без даты — в конце списка.</p>}

@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MapPin, MessageSquare, Newspaper, RefreshCw, Search, ShieldCheck, Users } from 'lucide-react';
+import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, CheckCheck, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MapPin, MessageSquare, Newspaper, RefreshCw, Search, ShieldCheck, Users } from 'lucide-react';
 import { api, dateLabel, photoLink, query, reportPhotoLink, shiftDate, statusNames } from './api';
 import type { Filters, Meta, PhotoPage, Report, User } from './types';
 import PhotoDetail from './PhotoDetail';
@@ -24,9 +24,10 @@ import { photoListPage } from './photoNavigation';
 import type { PhotoListPosition } from './photoNavigation';
 import { canEditPhoto, updatePhotoDefect } from './photoWork';
 import type { Photo } from './types';
-import DefectCheckbox from './DefectCheckbox';
+import PhotoTable from './PhotoTable';
 import useSidebar from './useSidebar';
 import SidebarNavigation from './SidebarNavigation';
+import DayReviews from './DayReviews';
 
 const Context = createContext<{ user: User; meta: Meta; refresh: () => Promise<void>; notify: (text: string) => void; updateUser: (user: User) => void }>(null!);
 export const useApp = () => useContext(Context);
@@ -58,6 +59,7 @@ export default function App() {
     {to:'/photos', label:'Фотографии', Icon:Camera, allowed:hasPermission(user,'photos_view')},
     {to:'/photo-map', label:'Карта фотографий', Icon:MapPin, allowed:hasPermission(user,'photos_view')},
     {to:'/review', label:'Требуют проверки', Icon:ClipboardCheck, allowed:hasPermission(user,'photos_edit')},
+    {to:'/days', label:'Проверка дней', Icon:CheckCheck, allowed:hasPermission(user,'days_review')},
     {to:'/spam', label:'Спам', Icon:ArchiveX, allowed:hasPermission(user,'spam_view')},
     {to:'/districts', label:'Микрорайоны', Icon:Map, allowed:hasPermission(user,'districts_view')},
     {to:'/messages', label:'Чаты операторов', Icon:MessageSquare, allowed:true},
@@ -99,6 +101,7 @@ export default function App() {
           <Route path="/photos" element={protectedPage('photos_view',<PhotoList/>)}/>
           <Route path="/photo-map" element={protectedPage('photos_view',<PhotoMap/>)}/>
           <Route path="/review" element={protectedPage('photos_edit',<PhotoList review/>)}/>
+          <Route path="/days" element={protectedPage('days_review',<DayReviews/>)}/>
           <Route path="/spam" element={protectedPage('spam_view',<PhotoList spam/>)}/>
           <Route path="/photos/:id" element={protectedPage('photos_view',<PhotoDetail/>)}/>
           <Route path="/districts" element={protectedPage('districts_view',<DistrictMap/>)}/>
@@ -130,7 +133,7 @@ export function useFilters(review=false,spam=false,today=false,workOnly=false) {
   Object.assign(filters,photoSortForUser(filters,user));
   delete filters.all_dates; delete filters.review; delete filters.spam; delete filters.from_map;
   delete filters.page; delete filters.anchor_id;
-  const change=(values:Filters)=>{const updated={...filters,...values};Object.assign(updated,photoSortForUser(updated,user)); if(!updated.date_from&&!updated.date_to)updated.all_dates='1';setParams(Object.fromEntries(Object.entries(updated).filter(([,v])=>v!=='')));};
+  const change=(values:Filters)=>{const updated={...filters,...values};if('date_from' in values||'date_to' in values)delete updated.review_day;Object.assign(updated,photoSortForUser(updated,user)); if(!updated.date_from&&!updated.date_to)updated.all_dates='1';setParams(Object.fromEntries(Object.entries(updated).filter(([,v])=>v!=='')));};
   return {filters,change};
 }
 
@@ -204,5 +207,5 @@ function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boolean}) {
     finally{setDefectBusy(null);}
   }
   const archiveTitle=filters.status==='DUPLICATE'?'Дубли':filters.status==='FORWARDED'?'Пересланные фотографии':null;
-  return <><header className="page-header"><div><span className="eyebrow">{review?'РУЧНАЯ ПРОВЕРКА':spam?'СЛУЧАЙНЫЕ И НЕПОДХОДЯЩИЕ ФОТО':'АРХИВ ФОТОГРАФИЙ'}</span><h1>{review?'Требуют проверки':spam?'Спам':archiveTitle||'Фотографии'}</h1><p>{review?'Помогите системе там, где нужен взгляд человека.':spam?'Не учитываются в работах и обучении. Для возврата откройте фото и выберите вид работы.':archiveTitle?'Эти фотографии отображаются отдельно и не учитываются в отчётах о работах.':filters.work_only==='true'?'В обычном списке скрыты дубли, пересланные и спам. Для их просмотра выберите нужный статус.':'В этой выборке учитываются дубли и пересланные фотографии. Спам доступен отдельно по соответствующему статусу.'}</p></div><div className="photo-map-actions"><button onClick={()=>navigate('/photo-map?'+query({...filters,...(!filters.date_from&&!filters.date_to?{all_dates:'1'}:{})}))}><MapPin size={18}/>На карте</button><button onClick={()=>setRevision(x=>x+1)} aria-label="Обновить список"><RefreshCw size={18}/></button></div></header><FilterBar filters={filters} change={change} fixedStatus={review||spam} hideWork={spam} refreshKey={revision}/><ErrorBox error={error}/>{data?<section className="panel photo-panel"><div className="section-title"><h2>{review?'Очередь проверки':spam?'Спам':archiveTitle||'Все фотографии'} <span className="count-pill">{data.total}</span></h2><Search size={18}/></div>{data.items.length===0?<Empty>{review?'В этой выборке нет фотографий, требующих проверки.':'Измените фильтры, чтобы найти нужные фотографии.'}</Empty>:<div className="table-scroll"><table className="photos-table"><thead><tr><th>Фотография</th><th>Дата / время</th><th>Чат / микрорайон</th><th>Координаты</th><th>Вид работы</th><th className="defect-column" scope="col">Неисправность</th><th>Статус</th><th>Нейросеть</th><th>Оператор</th><th/></tr></thead><tbody>{data.items.map(p=><tr key={p.id} id={'photo-row-'+p.id} className={p.id===(data.focus_id??anchorId)?'photo-return-row':undefined}><td><button className="photo-thumb" onClick={()=>openPhoto(p.id)}>{p.preview_url?<img src={p.preview_url} loading="lazy" alt={'Фото №'+p.id}/>:<Camera size={22}/>}<small>#{p.id}</small></button></td><td>{dateLabel(p.photo_date)}<small>{p.photo_time||'Время не указано'}</small><small>Получено {new Date(p.received_at).toLocaleString('ru-RU')}</small></td><td>{p.chat_name}<small>{p.district_name||'Микрорайон не определён'}</small></td><td className="mono">{p.latitude?.toFixed(5)||'—'}<small>{p.longitude?.toFixed(5)||'—'}</small></td><td className="photo-work-cell"><span className="photo-work-name">{p.work_type_name||<span className="muted">Не определён</span>}</span></td><td className="defect-column"><DefectCheckbox hideLabel photoId={p.id} workTypeName={meta.work_types.find(w=>w.code===p.work_type)?.name||'Не определён'} checked={!!p.is_defect} disabled={defectBusy!==null||p.is_spam||!canEditPhoto(user,p)} inputLabel={'Неисправность на фото №'+p.id} saveImmediately onConfirm={checked=>markDefect(p,checked)}/></td><td><StatusBadge value={p.status}/>{p.storage_status==='ERROR'&&<small className="danger-text">Ошибка хранения</small>}</td><td>{p.ai_confidence===null?'—':Math.round(p.ai_confidence*100)+'%'}</td><td>{p.operator_name||'—'}</td><td><button className="text-button" onClick={()=>openPhoto(p.id)}>Открыть<ChevronRight size={14}/></button></td></tr>)}</tbody></table></div>}<div className="pagination"><span>Страница {page} из {Math.max(1,Math.ceil(data.total/data.page_size))}</span><button disabled={page<=1} onClick={()=>setPage(page-1)}><ChevronLeft size={16}/>Назад</button><button disabled={page*data.page_size>=data.total} onClick={()=>setPage(page+1)}>Далее<ChevronRight size={16}/></button></div></section>:!error&&<p className="loading">Загружаем фотографии…</p>}</>;
+  return <><header className="page-header"><div><span className="eyebrow">{review?'РУЧНАЯ ПРОВЕРКА':spam?'СЛУЧАЙНЫЕ И НЕПОДХОДЯЩИЕ ФОТО':'АРХИВ ФОТОГРАФИЙ'}</span><h1>{review?'Требуют проверки':spam?'Спам':archiveTitle||'Фотографии'}</h1><p>{review?'Помогите системе там, где нужен взгляд человека.':spam?'Не учитываются в работах и обучении. Для возврата откройте фото и выберите вид работы.':archiveTitle?'Эти фотографии отображаются отдельно и не учитываются в отчётах о работах.':filters.work_only==='true'?'В обычном списке скрыты дубли, пересланные и спам. Для их просмотра выберите нужный статус.':'В этой выборке учитываются дубли и пересланные фотографии. Спам доступен отдельно по соответствующему статусу.'}</p></div><div className="photo-map-actions"><button onClick={()=>navigate('/photo-map?'+query({...filters,...(!filters.date_from&&!filters.date_to?{all_dates:'1'}:{})}))}><MapPin size={18}/>На карте</button><button onClick={()=>setRevision(x=>x+1)} aria-label="Обновить список"><RefreshCw size={18}/></button></div></header><FilterBar filters={filters} change={change} fixedStatus={review||spam} hideWork={spam} refreshKey={revision}/><ErrorBox error={error}/>{data?<section className="panel photo-panel"><div className="section-title"><h2>{review?'Очередь проверки':spam?'Спам':archiveTitle||'Все фотографии'} <span className="count-pill">{data.total}</span></h2><Search size={18}/></div>{data.items.length===0?<Empty>{review?'В этой выборке нет фотографий, требующих проверки.':'Измените фильтры, чтобы найти нужные фотографии.'}</Empty>:<PhotoTable photos={data.items} openPhoto={openPhoto} focusId={data.focus_id??anchorId} defectBusy={defectBusy} onDefect={markDefect}/>}<div className="pagination"><span>Страница {page} из {Math.max(1,Math.ceil(data.total/data.page_size))}</span><button disabled={page<=1} onClick={()=>setPage(page-1)}><ChevronLeft size={16}/>Назад</button><button disabled={page*data.page_size>=data.total} onClick={()=>setPage(page+1)}>Далее<ChevronRight size={16}/></button></div></section>:!error&&<p className="loading">Загружаем фотографии…</p>}</>;
 }

@@ -16,7 +16,19 @@ from app.api import app
 from app.auth import digest
 from app.db import get_db
 from app.domain import now
-from app.models import Audit, Chat, DiskFolderSettings, Inbox, Job, LoginSession, Photo, User, WorkType
+from app.models import (
+    Audit,
+    Chat,
+    DayClosure,
+    DayPhotoReview,
+    DiskFolderSettings,
+    Inbox,
+    Job,
+    LoginSession,
+    Photo,
+    User,
+    WorkType,
+)
 from app.permissions import PERMISSIONS
 from app.schemas import UserCreate, UserUpdate
 
@@ -43,7 +55,7 @@ class AccessSession(Session):
 def access_api(monkeypatch):
     engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     metadata = MetaData()
-    for model in (User, Chat, Photo, Audit, Job, Inbox, LoginSession, DiskFolderSettings):
+    for model in (User, Chat, Photo, Audit, Job, Inbox, LoginSession, DiskFolderSettings, DayClosure, DayPhotoReview):
         Table(model.__tablename__, metadata, *(
             Column(c.name, JSON(none_as_null=True) if isinstance(c.type, JSONB) else c.type,
                    primary_key=c.primary_key)

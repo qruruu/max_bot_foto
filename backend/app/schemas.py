@@ -23,7 +23,7 @@ class PasswordInput(StrictModel):
 
 
 SIDEBAR_ROUTES = (
-    "/", "/news", "/photos", "/photo-map", "/review", "/spam", "/districts", "/messages",
+    "/", "/news", "/photos", "/photo-map", "/review", "/days", "/spam", "/districts", "/messages",
     "/chats", "/work-types", "/users", "/audit", "/jobs", "/exchange", "/learning",
 )
 
@@ -148,6 +148,9 @@ class PhotoFilters(BaseModel):
     date_from: date | None = None
     date_to: date | None = None
     day: date | None = None
+    review_day: date | None = None
+    day_review: Literal["confirmed", "pending"] | None = None
+    day_ai_only: bool = False
     district_id: int | None = None
     chat_id: int | None = None
     work_type: WorkCode | None = None

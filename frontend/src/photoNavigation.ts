@@ -8,6 +8,10 @@ export function photoListPage(value: string | null): number {
 }
 
 export function photoListBackLink(id: number, params: URLSearchParams): string {
+  const day = params.get('from_day');
+  if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    return '/days?' + query({day, view: params.get('day_review') === 'confirmed' ? 'confirmed' : 'pending', work: params.get('work_type') || '', page: params.get('page') || '1'});
+  }
   const peer = params.get('operator_chat');
   if (peer && /^[1-9]\d*$/.test(peer) && Number.isSafeInteger(Number(peer))) return '/messages?with=' + peer;
   const filters = new URLSearchParams(params);
@@ -25,7 +29,7 @@ export function photoListBackLink(id: number, params: URLSearchParams): string {
 
 export async function nextPhotoId(id: number, params: URLSearchParams): Promise<number | null> {
   const filters = Object.fromEntries(params);
-  for (const key of ['review', 'spam', 'from_map', 'all_dates', 'page', 'page_size', 'anchor_id', 'operator_chat']) delete filters[key];
+  for (const key of ['review', 'spam', 'from_map', 'from_day', 'all_dates', 'page', 'page_size', 'anchor_id', 'operator_chat']) delete filters[key];
 
   if (params.get('review') === '1') {
     filters.status = 'NEEDS_REVIEW';

@@ -46,6 +46,7 @@ from app.chat_access import (
 from app.chat_senders import photo_sender_name
 from app.chat_senders import router as chat_senders_router
 from app.config import settings
+from app.day_reviews import router as day_reviews_router
 from app.disk_folders import current_disk_roots
 from app.disk_folders import router as disk_folders_router
 from app.domain import audit, enqueue, now, reassess
@@ -108,6 +109,7 @@ app.include_router(chat_senders_router)
 app.include_router(work_types_router)
 app.include_router(news_router)
 app.include_router(disk_folders_router)
+app.include_router(day_reviews_router)
 Filters = Annotated[PhotoFilters, Query()]
 
 
@@ -325,6 +327,8 @@ def check_photo_access(user, photo):
 
 
 def check_spam_filter(user, filters, db):
+    if filters.review_day or filters.day_review or filters.day_ai_only:
+        check_permission(user, Permission.DAYS_REVIEW)
     if filters.work_type and filters.work_type != "NONE":
         require_work_type(db, filters.work_type)
     if filters.status == Status.SPAM:

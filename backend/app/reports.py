@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.catalog import NON_WORK_STATUSES, Status, work_type_label
 from app.chat_access import chat_condition
 from app.config import settings
+from app.day_verification import confirmed_condition
 from app.models import District, Photo, User
 from app.photo_ordering import photo_order, photo_position
 from app.schemas import PhotoFilters
@@ -18,6 +19,14 @@ from app.work_types import work_catalog
 
 def filtered(filters: PhotoFilters, user=None):
     stmt = select(Photo).where(Photo.preview_removed_at.is_(None), chat_condition(user))
+    if filters.review_day:
+        # Day closure always uses the date on the photograph, even with receipt sorting.
+        stmt = stmt.where(Photo.photo_date == filters.review_day)
+    if filters.day_review:
+        confirmed = confirmed_condition()
+        stmt = stmt.where(confirmed if filters.day_review == "confirmed" else ~confirmed)
+    if filters.day_ai_only:
+        stmt = stmt.where(Photo.work_type_source == "AI")
     # Spam is an explicit archive view; normal lists, work reports and exports omit it.
     if filters.status != Status.SPAM:
         stmt = stmt.where(Photo.is_spam.is_(False))
@@ -25,7 +34,7 @@ def filtered(filters: PhotoFilters, user=None):
     if filters.work_only and filters.status not in NON_WORK_STATUSES:
         stmt = stmt.where(Photo.status.not_in(NON_WORK_STATUSES))
     received_date = cast(func.timezone(settings().app_timezone, Photo.received_at), Date)
-    date_field = (
+    date_field = Photo.photo_date if filters.review_day else (
         func.coalesce(Photo.photo_date, received_date) if filters.date_basis == "photo" else received_date
     )
     if filters.day:

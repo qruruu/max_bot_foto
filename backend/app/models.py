@@ -286,6 +286,31 @@ class Photo(Timestamps, Base):
     )
 
 
+class DayClosure(Base):
+    __tablename__ = "day_closures"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    photo_count: Mapped[int] = mapped_column(Integer)
+
+
+class DayPhotoReview(Base):
+    __tablename__ = "day_photo_reviews"
+    photo_id: Mapped[int] = mapped_column(ForeignKey("photos.id"), primary_key=True)
+    closure_id: Mapped[int] = mapped_column(ForeignKey("day_closures.id"), index=True)
+    # A content snapshot, independent of storage sync/version and ML training labels.
+    photo_date: Mapped[date] = mapped_column(Date, index=True)
+    sha256: Mapped[str | None] = mapped_column(String(64))
+    photo_time: Mapped[time | None] = mapped_column(Time)
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
+    district_id: Mapped[int | None] = mapped_column(Integer)
+    work_type: Mapped[str | None] = mapped_column(String(60))
+    is_defect: Mapped[bool] = mapped_column(Boolean)
+    cohort: Mapped[str] = mapped_column(String(20))
+
+
 class Audit(Base):
     __tablename__ = "audit_logs"
     id: Mapped[int] = mapped_column(primary_key=True)

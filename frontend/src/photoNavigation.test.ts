@@ -16,6 +16,13 @@ function respond(value: unknown) {
 }
 
 describe('next photo in the current list', () => {
+  it('keeps the exact closed-day neural queue while omitting the return route', async () => {
+    respond({id: 70});
+    const params = new URLSearchParams('review_day=2026-10-16&day_review=pending&day_ai_only=true&from_day=2026-10-16&page=2&work_only=true&date_basis=photo&sort_order=desc');
+    expect(await nextPhotoId(80, params)).toBe(70);
+    const link = new URL(fetchMock.mock.calls[0][0], 'http://test');
+    expect(Object.fromEntries(link.searchParams)).toEqual({review_day:'2026-10-16',day_review:'pending',day_ai_only:'true',work_only:'true',date_basis:'photo',sort_order:'desc'});
+  });
   it('advances accepted photos with the same filters across table pages', async () => {
     respond({id: 38});
     const params = new URLSearchParams('review=0&spam=0&work_only=true&status=ACCEPTED&district_id=0&chat_id=123&work_type=SWEEPING&operator_id=2&sender_id=9007199254740993&date_from=2026-10-16&date_to=2026-10-17&date_basis=received&sort_order=asc&page=3&page_size=30&anchor_id=42');
