@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MapPin, MessageSquare, Newspaper, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, ShieldCheck, Users } from 'lucide-react';
+import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MapPin, MessageSquare, Newspaper, RefreshCw, Search, ShieldCheck, Users } from 'lucide-react';
 import { api, dateLabel, photoLink, query, reportPhotoLink, shiftDate, statusNames } from './api';
 import type { Filters, Meta, PhotoPage, Report, User } from './types';
 import PhotoDetail from './PhotoDetail';
@@ -26,6 +26,7 @@ import { canEditPhoto, updatePhotoDefect } from './photoWork';
 import type { Photo } from './types';
 import DefectCheckbox from './DefectCheckbox';
 import useSidebar from './useSidebar';
+import SidebarNavigation from './SidebarNavigation';
 
 const Context = createContext<{ user: User; meta: Meta; refresh: () => Promise<void>; notify: (text: string) => void; updateUser: (user: User) => void }>(null!);
 export const useApp = () => useContext(Context);
@@ -78,8 +79,9 @@ export default function App() {
       {!sidebar.collapsed&&<button type="button" className="sidebar-backdrop" aria-label="Закрыть боковую панель" onClick={sidebar.toggle}/>}
       <aside className="sidebar">
         <NavLink className="brand" to={home} aria-label="MAX Фото — главная"><span className="brand-mark"><Layers size={23}/></span><span className="brand-copy">MAX Фото<small>Контроль городских работ</small></span></NavLink>
-        <div className="sidebar-nav-heading"><div className="nav-label">РАБОЧЕЕ ПРОСТРАНСТВО</div><button type="button" className="sidebar-toggle" title={sidebar.collapsed?'Развернуть панель':'Свернуть панель'} aria-label={sidebar.collapsed?'Развернуть панель':'Свернуть панель'} aria-expanded={!sidebar.collapsed} aria-controls="workspace-navigation" onClick={sidebar.toggle}>{sidebar.collapsed?<PanelLeftOpen size={18}/>:<PanelLeftClose size={18}/>}</button></div>
-        <nav id="workspace-navigation" aria-label="Основная навигация">{links.map(({to,label,Icon}) => <NavLink key={to} to={to} title={label} aria-label={label} className={to==='/messages'?'operator-chats-link':undefined} end={to==='/'}><Icon size={19}/><span className="nav-item-label">{label}</span>{to==='/messages'&&<OperatorChatBadge/>}</NavLink>)}</nav>
+        <SidebarNavigation key={user.id} links={links.map(link=>({...link,badge:link.to==='/messages'?<OperatorChatBadge/>:undefined}))}
+          order={user.sidebar_order} collapsed={sidebar.collapsed} toggle={sidebar.toggle}
+          onSaved={sidebar_order=>setUser(current=>current?.id===user.id?{...current,sidebar_order}:current)}/>
         <div className="sidebar-bottom">
           <NavLink to="/settings" className="account-link" title="Настройки" aria-label="Настройки">
             <Avatar name={user.name} src={user.avatar_url}/>

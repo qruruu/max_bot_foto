@@ -58,6 +58,9 @@ class User(Timestamps, Base):
     name: Mapped[str] = mapped_column(String(150))
     password_hash: Mapped[str] = mapped_column(Text)
     avatar_image: Mapped[bytes | None] = mapped_column(LargeBinary)
+    sidebar_order: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False
+    )
     # NULL preserves unrestricted access; an empty array grants access to no chats.
     allowed_chat_ids: Mapped[list[int] | None] = mapped_column(JSONB(none_as_null=True))
     role: Mapped[str] = mapped_column(String(30))
@@ -71,6 +74,7 @@ class User(Timestamps, Base):
     )
     __table_args__ = (
         CheckConstraint("role IN ('ADMIN_OPERATOR', 'OPERATOR')"),
+        CheckConstraint("jsonb_typeof(sidebar_order)='array'", name="user_sidebar_order_array"),
         CheckConstraint("jsonb_typeof(permissions)='array'", name="user_permissions_array"),
         CheckConstraint(
             "allowed_chat_ids IS NULL OR jsonb_typeof(allowed_chat_ids)='array'",

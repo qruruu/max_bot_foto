@@ -55,7 +55,9 @@ def chat_test_engine(url="sqlite://"):
     users = User.__table__.to_metadata(metadata)
     users.c.permissions.type = JSON()
     users.c.allowed_chat_ids.type = JSON(none_as_null=True)
+    users.c.sidebar_order.type = JSON()
     users.c.permissions.server_default = DefaultClause(text("'[]'"))
+    users.c.sidebar_order.server_default = DefaultClause(text("'[]'"))
     sessions = LoginSession.__table__.to_metadata(metadata)
     sessions.c.id.server_default = None
     Table("photos", metadata, Column("id", Integer, primary_key=True))

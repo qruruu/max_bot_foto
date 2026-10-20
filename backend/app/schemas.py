@@ -22,6 +22,23 @@ class PasswordInput(StrictModel):
     new_password: str = Field(min_length=12, max_length=256)
 
 
+SIDEBAR_ROUTES = (
+    "/", "/news", "/photos", "/photo-map", "/review", "/spam", "/districts", "/messages",
+    "/chats", "/work-types", "/users", "/audit", "/jobs", "/exchange", "/learning",
+)
+
+
+class SidebarOrderInput(StrictModel):
+    sidebar_order: list[str] = Field(max_length=len(SIDEBAR_ROUTES))
+
+    @field_validator("sidebar_order")
+    @classmethod
+    def known_items(cls, value):
+        if len(value) != len(set(value)) or any(item not in SIDEBAR_ROUTES for item in value):
+            raise ValueError("Укажите пункты меню без повторов и неизвестных разделов")
+        return value
+
+
 class ChatAccessInput(StrictModel):
     allowed_chat_ids: list[Annotated[int, Field(strict=True, gt=0)]] | None = None
 

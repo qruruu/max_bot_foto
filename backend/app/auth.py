@@ -19,7 +19,7 @@ from app.db import get_db
 from app.domain import audit, now
 from app.models import LoginAttempt, LoginSession, User
 from app.permissions import Permission, effective_permissions, has_permission
-from app.schemas import LoginInput, PasswordInput
+from app.schemas import LoginInput, PasswordInput, SidebarOrderInput
 from app.session_details import client_address, session_dict
 
 hasher = PasswordHasher()
@@ -123,6 +123,7 @@ def user_dict(user: User):
         "active": user.active,
         "permissions": effective_permissions(user),
         "allowed_chat_ids": allowed_chat_ids(user),
+        "sidebar_order": user.sidebar_order or [],
         "avatar_url": f"/api/auth/avatar/{user.id}?v={hashlib.sha256(user.avatar_image).hexdigest()[:16]}"
         if user.avatar_image else None,
     }
@@ -196,6 +197,14 @@ def login(body: LoginInput, request: Request, response: Response, db: Db):
 @router.get("/me")
 def me(user: CurrentUser):
     return user_dict(user)
+
+
+@router.put("/sidebar-order")
+def update_sidebar_order(body: SidebarOrderInput, db: Db, user: CurrentUser):
+    # A personal display preference never changes permissions or other accounts.
+    user.sidebar_order = body.sidebar_order
+    db.commit()
+    return {"sidebar_order": user.sidebar_order}
 
 
 @router.get("/avatar/{user_id}")
