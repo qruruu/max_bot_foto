@@ -7,7 +7,13 @@ describe('day verification navigation', () => {
     const filters = dayPhotoFilters('2026-10-16', 'BIN_EMPTYING', 2);
     expect(filters).toMatchObject({review_day: '2026-10-16', day_review: 'pending', work_only: 'true'});
     const link = new URL(dayPhotoLink(70, '2026-10-16', filters), 'http://test');
-    expect(photoListBackLink(70, link.searchParams)).toBe('/days?day=2026-10-16&view=pending&work=BIN_EMPTYING&page=2');
+    expect(photoListBackLink(70, link.searchParams)).toBe('/days?day=2026-10-16&view=pending&work=BIN_EMPTYING&page=2&anchor_id=70');
+  });
+  it('returns to the current photo after advancing beyond the original table page', () => {
+    const link = new URL(dayPhotoLink(80, '2026-10-16', {...dayPhotoFilters('2026-10-16', 'BIN_EMPTYING', 2), anchor_id: '80'}), 'http://test');
+    const back = new URL(photoListBackLink(42, link.searchParams), 'http://test');
+    expect(Object.fromEntries(back.searchParams)).toEqual({day: '2026-10-16', view: 'pending', work: 'BIN_EMPTYING', page: '2', anchor_id: '42'});
+    expect(link.searchParams.get('anchor_id')).toBe('80');
   });
   it('opens all unresolved photos for that photo date independently of the AI gallery filter', () => {
     const link = new URL(dayNeedsReviewLink('2026-10-16'), 'http://test');

@@ -18,7 +18,7 @@ function respond(value: unknown) {
 describe('next photo in the current list', () => {
   it('keeps the exact closed-day neural queue while omitting the return route', async () => {
     respond({id: 70});
-    const params = new URLSearchParams('review_day=2026-10-16&day_review=pending&day_ai_only=true&from_day=2026-10-16&page=2&work_only=true&date_basis=photo&sort_order=desc');
+    const params = new URLSearchParams('review_day=2026-10-16&day_review=pending&day_ai_only=true&from_day=2026-10-16&page=2&anchor_id=80&work_only=true&date_basis=photo&sort_order=desc');
     expect(await nextPhotoId(80, params)).toBe(70);
     const link = new URL(fetchMock.mock.calls[0][0], 'http://test');
     expect(Object.fromEntries(link.searchParams)).toEqual({review_day:'2026-10-16',day_review:'pending',day_ai_only:'true',work_only:'true',date_basis:'photo',sort_order:'desc'});

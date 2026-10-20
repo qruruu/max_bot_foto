@@ -20,7 +20,7 @@ import { hasPermission } from './permissions';
 import { PhotoNotificationsProvider } from './PhotoNotifications';
 import FilterBar from './FilterBar';
 import { photoSortForUser } from './photoSorting';
-import { photoListPage } from './photoNavigation';
+import { capturePhotoListPosition, photoListAnchor, photoListPage, restorePhotoListPosition } from './photoNavigation';
 import type { PhotoListPosition } from './photoNavigation';
 import { canEditPhoto, updatePhotoDefect } from './photoWork';
 import type { Photo } from './types';
@@ -155,8 +155,7 @@ function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boolean}) {
   const location=useLocation();const navigate=useNavigate();
   const position=(location.state as {photoListPosition?:PhotoListPosition}|null)?.photoListPosition;
   const requestedPage=photoListPage(params.get('page'));
-  const requestedAnchor=Number(params.get('anchor_id'));
-  const anchorId=Number.isSafeInteger(requestedAnchor)&&requestedAnchor>0?requestedAnchor:position?.photoId;
+  const anchorId=photoListAnchor(params.get('anchor_id'),position);
   const [data,setData]=useState<PhotoPage|null>(null),[error,setError]=useState(''),[revision,setRevision]=useState(0);
   const key=query({...filters,page:String(requestedPage),...(anchorId?{anchor_id:String(anchorId)}:{})});
   const loadedKey=useRef(''),restoredLocation=useRef('');
@@ -174,22 +173,14 @@ function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boolean}) {
   useLayoutEffect(()=>{
     if(!data||loadedKey.current!==key||restoredLocation.current===location.key)return;
     restoredLocation.current=location.key;
-    const row=document.getElementById('photo-row-'+(data.focus_id??anchorId));
-    const table=document.querySelector<HTMLElement>('.photo-panel .table-scroll');
-    if(table&&position)table.scrollLeft=position.scrollLeft;
-    if(row){
-      const offset=position?.rowOffset??Math.max(20,(window.innerHeight-row.getBoundingClientRect().height)/2);
-      window.scrollTo({top:Math.max(0,window.scrollY+row.getBoundingClientRect().top-offset),behavior:'instant'});
-      row.querySelector<HTMLButtonElement>('.photo-thumb')?.focus({preventScroll:true});
-    }else if(position)window.scrollTo({top:position.scrollY,behavior:'instant'});
+    restorePhotoListPosition(data.focus_id??anchorId,position);
   },[data,key,location.key,anchorId,position]);
   function setPage(value:number){
     const updated=new URLSearchParams(params);updated.set('page',String(value));updated.delete('anchor_id');
     setParams(updated);
   }
   function openPhoto(id:number){
-    const row=document.getElementById('photo-row-'+id);
-    const state={photoListPosition:{photoId:id,rowOffset:row?.getBoundingClientRect().top??0,scrollY:window.scrollY,scrollLeft:document.querySelector('.photo-panel .table-scroll')?.scrollLeft??0}};
+    const state={photoListPosition:capturePhotoListPosition(id)};
     // Save the position in the list's own history entry as well, for browser Back.
     const listParams=new URLSearchParams(params);listParams.set('page',String(page));listParams.set('anchor_id',String(id));
     navigate(location.pathname+'?'+listParams.toString(),{replace:true,state});

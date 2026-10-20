@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { CalendarCheck, Camera, CheckCheck, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, RefreshCw } from 'lucide-react';
 import { ErrorBox, useApp } from './App';
 import { api, dateLabel, query, shiftDate } from './api';
 import { dayNeedsReviewLink, dayPhotoFilters, dayPhotoLink, dayReviewDate } from './dayReviewData';
 import type { DaySummary } from './dayReviewData';
 import type { Photo, PhotoPage } from './types';
-import { photoListPage } from './photoNavigation';
+import { capturePhotoListPosition, photoListAnchor, photoListPage, restorePhotoListPosition } from './photoNavigation';
+import type { PhotoListPosition } from './photoNavigation';
 import PhotoTable from './PhotoTable';
 import { canEditPhoto, updatePhotoDefect } from './photoWork';
 import './day-reviews.css';
@@ -15,10 +16,13 @@ export default function DayReviews() {
   const {meta, notify, user} = useApp();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const position = (location.state as {photoListPosition?: PhotoListPosition} | null)?.photoListPosition;
+  const anchorId = photoListAnchor(params.get('anchor_id'), position);
   const day = dayReviewDate(params.get('day'), shiftDate(meta.today, -1));
   const work = params.get('work') || '';
   const page = photoListPage(params.get('page'));
-  const filters = dayPhotoFilters(day, work, page);
+  const filters = {...dayPhotoFilters(day, work, page), ...(anchorId ? {anchor_id: String(anchorId)} : {})};
   const key = query(filters);
   const [data, setData] = useState<{summary: DaySummary; photos: PhotoPage} | null>(null);
   const [error, setError] = useState(''), [revision, setRevision] = useState(0), [busy, setBusy] = useState(false);
@@ -27,8 +31,11 @@ export default function DayReviews() {
   const [defectBusy, setDefectBusy] = useState<number | null>(null);
   const defectSaving = useRef(false);
   const loadRevision = useRef(0);
+  const loadedKey = useRef(''), restoredLocation = useRef('');
   function change(values: Record<string, string>) {
-    setParams({...Object.fromEntries(params), day, page: '1', ...values});
+    const updated: Record<string, string> = {...Object.fromEntries(params), day, page: '1', ...values};
+    delete updated.anchor_id;
+    setParams(updated);
   }
   useEffect(() => {
     const revision = ++loadRevision.current;
@@ -37,10 +44,25 @@ export default function DayReviews() {
     Promise.all([
       api<DaySummary>('/day-reviews/' + day, 'GET', undefined, controller.signal),
       api<PhotoPage>('/photos?' + key, 'GET', undefined, controller.signal),
-    ]).then(([summary, photos]) => {if (!controller.signal.aborted && revision === loadRevision.current) setData({summary, photos});})
+    ]).then(([summary, photos]) => {if (!controller.signal.aborted && revision === loadRevision.current) {loadedKey.current = key; setData({summary, photos});}})
       .catch(e => {if (!controller.signal.aborted && revision === loadRevision.current) setError(e.message);});
     return () => controller.abort();
   }, [day, key, revision]);
+  useLayoutEffect(() => {
+    if (!data || loadedKey.current !== key || restoredLocation.current === location.key) return;
+    restoredLocation.current = location.key;
+    restorePhotoListPosition(data.photos.focus_id ?? anchorId, position);
+  }, [data, key, location.key, anchorId, position]);
+  function openPhoto(id: number) {
+    const currentPage = data?.photos.page ?? page;
+    const state = {photoListPosition: capturePhotoListPosition(id)};
+    // Browser Back and the photo's return button restore the same row and viewport.
+    const listParams = new URLSearchParams(params);
+    listParams.set('day', day); listParams.set('page', String(currentPage)); listParams.set('anchor_id', String(id));
+    navigate(location.pathname + '?' + listParams.toString(), {replace: true, state});
+    navigate(dayPhotoLink(id, day, {...filters, page: String(currentPage)}), {state});
+    window.scrollTo({top: 0, behavior: 'instant'});
+  }
   async function markDefect(photo: Photo, checked: boolean) {
     if (defectSaving.current || closing.current || !canEditPhoto(user, photo) || photo.is_spam) return;
     defectSaving.current = true; setDefectBusy(photo.id); setError('');
@@ -104,8 +126,8 @@ export default function DayReviews() {
       <section className="panel photo-panel">
         <label className="day-work-filter">Вид работы<select value={work} onChange={e => change({work: e.target.value})}><option value="">Все виды работ</option>{summary.work_types.filter(w => w.pending).map(w => <option key={w.code} value={w.code}>{w.name} ({w.pending})</option>)}</select></label>
         <div className="section-title"><h2>Проверка за нейросетью</h2>
-          {!!data.photos.items.length && <button onClick={() => navigate(dayPhotoLink(data.photos.items[0].id, day, filters))}>Просмотреть подряд<ChevronRight size={16}/></button>}</div>
-        {!data.photos.items.length ? <p className="muted">{work ? 'В этом виде работ фотографий нейросети для проверки нет.' : 'Фотографий нейросети для проверки нет. Ручные решения повторно проверять не требуется.'}</p> : <PhotoTable photos={data.photos.items} openPhoto={id => navigate(dayPhotoLink(id, day, filters))} defectBusy={defectBusy} onDefect={markDefect}/>}
+          {!!data.photos.items.length && <button onClick={() => openPhoto(data.photos.items[0].id)}>Просмотреть подряд<ChevronRight size={16}/></button>}</div>
+        {!data.photos.items.length ? <p className="muted">{work ? 'В этом виде работ фотографий нейросети для проверки нет.' : 'Фотографий нейросети для проверки нет. Ручные решения повторно проверять не требуется.'}</p> : <PhotoTable photos={data.photos.items} openPhoto={openPhoto} focusId={data.photos.focus_id ?? anchorId} defectBusy={defectBusy} onDefect={markDefect}/>}
         <div className="pagination"><span>Страница {data.photos.page} из {Math.max(1, Math.ceil(data.photos.total / data.photos.page_size))}</span><button disabled={data.photos.page <= 1} onClick={() => change({page: String(data.photos.page - 1)})}>Назад</button><button disabled={data.photos.page * data.photos.page_size >= data.photos.total} onClick={() => change({page: String(data.photos.page + 1)})}>Далее</button></div>
       </section>
     </>}
