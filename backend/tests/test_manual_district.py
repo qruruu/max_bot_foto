@@ -39,6 +39,7 @@ def record():
 
 @pytest.fixture
 def session(record, monkeypatch):
+    monkeypatch.setattr("app.api.active_cohort", lambda db: "production")
     monkeypatch.setattr("app.api.work_catalog", lambda db: WORK_TYPES)
     monkeypatch.setattr("app.api.require_work_type", lambda db, code: None)
     districts = {

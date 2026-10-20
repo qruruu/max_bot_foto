@@ -86,7 +86,7 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
         {photoSortOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select></label>}
       {hasPermission(user, 'days_review') && <label>Проверка дня<select aria-label="Проверка дня" value={filters.day_review || ''} onChange={e => change({day_review: e.target.value})}>
-        <option value="">Все рабочие фотографии</option><option value="confirmed">Только проверенные</option><option value="pending">Ещё не подтверждены</option>
+        <option value="">Все фотографии режима</option><option value="confirmed">Только проверенные</option><option value="pending">Ещё не подтверждены</option>
       </select></label>}
     </div>
     {sortValue.startsWith('photo_') && <p className="hint filter-sort-hint">{!canSort && 'Сначала поздние фотографии. '}По дате и времени съёмки. Фото без времени — в конце своего дня, без даты — в конце списка.</p>}

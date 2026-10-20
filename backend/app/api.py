@@ -78,6 +78,7 @@ from app.permissions import (
     permission_catalog,
 )
 from app.photo_ordering import apply_sort_permission, photo_order, photo_position
+from app.photo_scope import active_cohort, active_cohort_condition
 from app.receiver import connection_status, received
 from app.reports import export_excel, filtered, photo_dict, photo_list_position, summarize
 from app.schemas import (
@@ -180,6 +181,7 @@ def meta(db: Db, user: CurrentUser):
         else "",
         "permission_catalog": permission_catalog(),
         "today": now().astimezone(ZoneInfo(settings().app_timezone)).date(),
+        "intake_cohort": active_cohort(db),
         "chats": [
             {
                 "id": c.id,
@@ -260,6 +262,7 @@ def photo_arrivals(db: Db, user: PhotosReader):
                 select(Photo.id)
                 .where(
                     chat_condition(user),
+                    active_cohort_condition(),
                     Photo.received_at >= now() - timedelta(days=1),
                     Photo.preview_removed_at.is_(None),
                     Photo.is_spam.is_(False),
@@ -340,6 +343,8 @@ def require_photo(db, photo_id, user):
     if not photo or photo.preview_removed_at is not None or not can_access_chat(db, user, photo.max_chat_id):
         raise HTTPException(404, "Фотография не найдена")
     check_photo_access(user, photo)
+    if photo.cohort != active_cohort(db):
+        raise HTTPException(404, "Фотография недоступна в текущем режиме")
     return photo
 
 

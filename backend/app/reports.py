@@ -10,15 +10,17 @@ from sqlalchemy.orm import Session
 from app.catalog import NON_WORK_STATUSES, Status, work_type_label
 from app.chat_access import chat_condition
 from app.config import settings
-from app.day_verification import confirmed_condition
+from app.day_verification import confirmed_condition, last_confirmation_value
 from app.models import District, Photo, User
+from app.permissions import Permission, has_permission
 from app.photo_ordering import photo_order, photo_position
+from app.photo_scope import active_cohort_condition
 from app.schemas import PhotoFilters
 from app.work_types import work_catalog
 
 
 def filtered(filters: PhotoFilters, user=None):
-    stmt = select(Photo).where(Photo.preview_removed_at.is_(None), chat_condition(user))
+    stmt = select(Photo).where(Photo.preview_removed_at.is_(None), chat_condition(user), active_cohort_condition())
     if filters.review_day:
         # Day closure always uses the date on the photograph, even with receipt sorting.
         stmt = stmt.where(Photo.photo_date == filters.review_day)
@@ -138,7 +140,29 @@ def summarize(db: Session, filters: PhotoFilters, user=None):
         "districts": districts,
         "work_types": works,
         "matrix": matrix,
+        "day_updates": closed_day_updates(db, filters, user)
+        if user is not None and has_permission(user, Permission.DAYS_REVIEW) else [],
     }
+
+
+def closed_day_updates(db, filters, user):
+    # Additions must remain visible even in an overview of confirmed photos.
+    # These notifications follow the date ON the photo, including late receipts.
+    additions = filtered(filters.model_copy(update={
+        "day_review": None, "day_ai_only": False, "status": None,
+        "accepted_only": False, "work_only": True, "date_basis": "photo",
+    }), user).where(~confirmed_condition()).add_columns(
+        last_confirmation_value().label("closed_at")
+    ).subquery()
+    rows = db.execute(
+        select(additions.c.photo_date, func.count(),
+               func.count().filter(additions.c.received_at > additions.c.closed_at),
+               func.count().filter(additions.c.status == Status.NEEDS_REVIEW))
+        .where(additions.c.closed_at.is_not(None))
+        .group_by(additions.c.photo_date).order_by(additions.c.photo_date.desc())
+    ).all()
+    return [{"day": day, "pending": pending, "late": late, "needs_review": needs_review}
+            for day, pending, late, needs_review in rows]
 
 
 def photo_operator_name(photo: Photo, operators: dict[int, str]) -> str | None:

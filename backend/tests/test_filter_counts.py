@@ -11,7 +11,7 @@ from app.api import app
 from app.auth import current_user
 from app.db import get_db
 from app.filter_counts import photo_filter_counts
-from app.models import Photo
+from app.models import ExchangeState, Photo
 from app.schemas import PhotoFilters
 
 
@@ -19,7 +19,7 @@ from app.schemas import PhotoFilters
 def count_db():
     names = (
         "id", "received_at", "preview_removed_at", "is_spam", "photo_date",
-        "max_chat_id", "district_id", "work_type", "status", "reviewed_by", "sender_id",
+        "max_chat_id", "district_id", "work_type", "status", "reviewed_by", "sender_id", "cohort",
     )
     table = Table("photos", MetaData(), *(
         Column(name, Photo.__table__.c[name].type, primary_key=name == "id") for name in names
@@ -32,10 +32,11 @@ def count_db():
         connection.create_function("timezone", 2, lambda zone, value: value)
 
     table.metadata.create_all(engine)
+    ExchangeState.__table__.create(engine)
     with Session(engine) as db:
         def add(id, **values):
             row = dict(id=id, received_at=datetime(2026, 10, 18), preview_removed_at=None,
-                       is_spam=False, photo_date=date(2026, 10, 18), max_chat_id=100,
+                       is_spam=False, photo_date=date(2026, 10, 18), max_chat_id=100, cohort="test",
                        district_id=1, work_type="BIN_EMPTYING", status="ACCEPTED", reviewed_by=10)
             row.update(values)
             db.execute(table.insert().values(**row))

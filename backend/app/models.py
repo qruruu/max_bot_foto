@@ -293,6 +293,15 @@ class DayClosure(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     photo_count: Mapped[int] = mapped_column(Integer)
+    # NULL cohort identifies legacy closures whose scope is known only from receipts.
+    cohort: Mapped[str | None] = mapped_column(String(20))
+    all_chats: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+
+class DayClosureChat(Base):
+    __tablename__ = "day_closure_chats"
+    closure_id: Mapped[int] = mapped_column(ForeignKey("day_closures.id"), primary_key=True)
+    max_chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
 
 class DayPhotoReview(Base):

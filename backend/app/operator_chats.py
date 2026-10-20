@@ -15,6 +15,7 @@ from app.chat_access import chat_condition
 from app.domain import now
 from app.models import OperatorMessage, Photo, User
 from app.permissions import Permission, has_permission
+from app.photo_scope import active_cohort_condition
 from app.schemas import StrictModel
 
 router = APIRouter(prefix="/api/operator-chats", tags=["operator-chats"])
@@ -62,7 +63,7 @@ def visible_photos(db, user, ids):
     if not ids or not has_permission(user, Permission.PHOTOS_VIEW):
         return {}
     stmt = select(Photo).options(load_only(Photo.id, Photo.sha256)).where(
-        Photo.id.in_(ids), Photo.preview_removed_at.is_(None), chat_condition(user),
+        Photo.id.in_(ids), Photo.preview_removed_at.is_(None), chat_condition(user), active_cohort_condition(),
     )
     if not has_permission(user, Permission.SPAM_VIEW):
         stmt = stmt.where(Photo.is_spam.is_(False))

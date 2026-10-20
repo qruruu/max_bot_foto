@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { CalendarCheck, Camera, CheckCheck, ChevronLeft, ChevronRight, Clock3, RefreshCw } from 'lucide-react';
+import { CalendarCheck, Camera, CheckCheck, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, RefreshCw } from 'lucide-react';
 import { ErrorBox, useApp } from './App';
 import { api, dateLabel, query, shiftDate } from './api';
-import { confirmedDayReportLink, dayPhotoFilters, dayPhotoLink, dayReviewDate } from './dayReviewData';
+import { dayNeedsReviewLink, dayPhotoFilters, dayPhotoLink, dayReviewDate } from './dayReviewData';
 import type { DaySummary } from './dayReviewData';
 import type { Photo, PhotoPage } from './types';
 import { photoListPage } from './photoNavigation';
@@ -81,7 +81,7 @@ export default function DayReviews() {
         <label>Дата фотографий<input type="date" value={day} disabled={busy} onChange={e => {if (e.target.value) change({day: e.target.value, work: ''});}}/></label>
         <button aria-label="Следующий день" disabled={busy} onClick={() => change({day: shiftDate(day, 1), work: ''})}><ChevronRight size={18}/></button>
       </div>
-      <div className="day-report-actions"><Link className="button" to={confirmedDayReportLink(day)}>Обзор проверенных<ChevronRight size={16}/></Link>
+      <div className="day-report-actions">
         <button className="primary" disabled={busy || defectBusy !== null || !summary?.can_close} onClick={() => dialog.current?.showModal()}><CheckCheck size={18}/>{added ? 'Добавить в день' : 'Закрыть день'}</button></div>
     </section>
     <ErrorBox error={error}/>
@@ -90,7 +90,11 @@ export default function DayReviews() {
         <section className="panel"><Camera size={20}/><span>Всего за {dateLabel(day)}</span><strong>{summary.total}</strong></section>
         <section className="panel"><CalendarCheck size={20}/><span>Проверено и включено в день</span><strong>{summary.confirmed}</strong></section>
         <section className={'panel ' + (summary.ai_pending ? 'day-pending' : '')}><Clock3 size={20}/><span>Проверить за нейросетью</span><strong>{summary.ai_pending}</strong></section>
+        <Link className={'panel day-review-stat ' + (summary.needs_review ? 'day-pending' : '')} to={dayNeedsReviewLink(day)}>
+          <ClipboardCheck size={20}/><span>Требуют проверки</span><strong>{summary.needs_review}</strong><small>Открыть фотографии за {dateLabel(day)}<ChevronRight size={14}/></small>
+        </Link>
       </div>
+      <p className="hint">Всего — все {summary.cohort === 'test' ? 'тестовые' : 'рабочие'} фотографии за дату снимка. «Проверить за нейросетью» — её решения, ещё не включённые в проверенный день. «Требуют проверки» — фотографии, по которым система ждёт решения оператора. Одно фото может быть в обеих очередях.</p>
       <section className={'panel day-state ' + (!summary.pending && summary.confirmed ? 'day-complete' : '')}>
         <h2>{!summary.total ? 'За эту дату фотографий пока нет' : !summary.pending ? 'День закрыт — все фотографии проверены' : added ? 'В закрытом дне есть дополнения' : 'День ожидает проверки'}</h2>
         <p>{summary.pending ? `На проверку за нейросетью: ${summary.ai_pending}.${summary.manual_pending ? ` Уже распределены оператором или настройкой чата: ${summary.manual_pending} — они войдут в день при подтверждении без повторной проверки.` : ''}${summary.changed ? ` Изменены после закрытия: ${summary.changed}.` : ''}` : summary.confirmed ? 'Новые поступления за эту дату появятся отдельно. Повторно проходить проверенные фотографии не потребуется.' : 'Дата берётся с самой фотографии. Снимки без распознанной даты сначала нужно разобрать в разделе «Требуют проверки».'}</p>

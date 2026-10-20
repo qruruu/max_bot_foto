@@ -72,10 +72,10 @@ class CompanyDisk:
 @pytest.fixture
 def folders_api(access_api,monkeypatch):
     client, engine = access_api
-    ExchangeState.__table__.create(engine)
     with AccessSession(engine) as db:
-        db.add(ExchangeState(id=1,instance_id='11111111-1111-4111-8111-111111111111',
-                             source_timezone='Asia/Yekaterinburg',intake_cohort='test'))
+        state = db.get(ExchangeState, 1)
+        state.instance_id = '11111111-1111-4111-8111-111111111111'
+        state.intake_cohort = 'test'
         db.commit()
     disk = CompanyDisk()
     monkeypatch.setattr('app.disk_folders.YandexDisk',lambda: disk)

@@ -8,14 +8,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from app.auth import Db, require_permission
 from app.chat_access import allowed_chat_ids, chat_condition
-from app.day_verification import SNAPSHOT_FIELDS
+from app.day_verification import SNAPSHOT_FIELDS, last_confirmation_value
 from app.domain import audit, now
-from app.models import DayClosure, DayPhotoReview, Photo, User
+from app.models import Chat, DayClosure, DayClosureChat, DayPhotoReview, ExchangeState, Photo, User
 from app.permissions import Permission
+from app.photo_scope import active_cohort, active_cohort_condition
 from app.reports import filtered
 from app.schemas import PhotoFilters, StrictModel
 from app.work_types import work_catalog
@@ -43,25 +44,24 @@ def is_confirmed(photo, review):
     )
 
 
-def snapshot_token(rows, user, day):
+def snapshot_token(rows, user, day, cohort):
     content = [
         [p.id, p.max_chat_id, p.status, bool(p.analyzed_at),
          *[getattr(p, key) for key in SNAPSHOT_FIELDS], r.closure_id if r else None]
         for p, r in rows
     ]
-    value = [str(day), allowed_chat_ids(user), content]
+    value = [str(day), cohort, allowed_chat_ids(user), content]
     return hashlib.sha256(json.dumps(value, default=str, separators=(",", ":")).encode()).hexdigest()
 
 
 def day_summary(db, user, day, rows):
     catalog = work_catalog(db)
+    cohort = active_cohort(db)
     pending = [(p, r) for p, r in rows if not is_confirmed(p, r)]
     ai_pending = sum(p.work_type_source == "AI" for p, _ in pending)
     last_confirmation = db.scalar(
-        select(DayClosure.confirmed_at).join(DayPhotoReview, DayPhotoReview.closure_id == DayClosure.id)
-        .join(Photo, Photo.id == DayPhotoReview.photo_id)
-        .where(DayClosure.day == day, chat_condition(user))
-        .order_by(DayClosure.id.desc()).limit(1)
+        select(func.max(last_confirmation_value()))
+        .where(Photo.photo_date == day, chat_condition(user), active_cohort_condition())
     )
     works = {}
     for p, r in rows:
@@ -80,9 +80,11 @@ def day_summary(db, user, day, rows):
         "pending": len(pending), "new": sum(r is None for _, r in pending),
         "changed": sum(r is not None for _, r in pending), "blocked": blocked,
         "ai_pending": ai_pending, "manual_pending": len(pending) - ai_pending,
+        "needs_review": sum(p.status == "NEEDS_REVIEW" for p, _ in rows),
+        "cohort": cohort,
         "closed_before": last_confirmation is not None, "last_confirmation_at": last_confirmation,
         "can_close": bool(pending) and not blocked,
-        "snapshot": snapshot_token(rows, user, day),
+        "snapshot": snapshot_token(rows, user, day, cohort),
         "work_types": sorted(works.values(), key=lambda item: item["name"]),
     }
 
@@ -96,17 +98,24 @@ def get_day(day: date, db: Db, user: DayReviewer):
 def close_day(day: date, body: CloseDayInput, db: Db, user: DayReviewer):
     # All closures of the same date share a lock, even when operators' scopes overlap.
     db.execute(text("SELECT pg_advisory_xact_lock(7012, :day)"), {"day": day.toordinal()})
+    # A mode switch must not change the closing selection mid-transaction.
+    db.scalar(select(ExchangeState).where(ExchangeState.id == 1).with_for_update(read=True))
     rows = selection(db, user, day, lock=True)
-    if not secrets.compare_digest(body.snapshot, snapshot_token(rows, user, day)):
+    if not secrets.compare_digest(body.snapshot, snapshot_token(rows, user, day, active_cohort(db))):
         raise HTTPException(409, "Состав дня изменился. Обновите список и проверьте новые фотографии.")
     pending = [(p, r) for p, r in rows if not is_confirmed(p, r)]
     if not pending:
         raise HTTPException(409, "Нет новых фотографий для подтверждения.")
     if any(p.status != "ACCEPTED" or not p.analyzed_at for p, _ in pending):
         raise HTTPException(409, "Сначала разберите фотографии с вопросами или ошибками обработки.")
-    closure = DayClosure(day=day, user_id=user.id, confirmed_at=now(), photo_count=len(pending))
+    ids = allowed_chat_ids(user)
+    closure = DayClosure(day=day, user_id=user.id, confirmed_at=now(), photo_count=len(pending),
+                         cohort=active_cohort(db), all_chats=ids is None)
     db.add(closure)
     db.flush()
+    if ids is not None:
+        db.add_all(DayClosureChat(closure_id=closure.id, max_chat_id=chat_id)
+                   for chat_id in db.scalars(select(Chat.max_chat_id).where(Chat.id.in_(ids))))
     for photo, review in pending:
         if review is None:
             review = DayPhotoReview(photo_id=photo.id)

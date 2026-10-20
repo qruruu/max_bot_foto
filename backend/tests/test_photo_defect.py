@@ -23,6 +23,7 @@ from app.schemas import PhotoEdit, PhotoFilters
 
 @pytest.fixture
 def defect_photo(monkeypatch):
+    monkeypatch.setattr("app.api.active_cohort", lambda db: "production")
     monkeypatch.setattr("app.api.work_catalog", lambda db: WORK_TYPES)
     monkeypatch.setattr("app.api.require_work_type", lambda db, code: None)
     monkeypatch.setattr("app.reports.work_catalog", lambda db: WORK_TYPES)

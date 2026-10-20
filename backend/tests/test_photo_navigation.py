@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api import next_photo, photos
 from app.catalog import WORK_TYPE_DISPLAY_ORDER, WORK_TYPES
-from app.models import Photo, WorkType
+from app.models import ExchangeState, Photo, WorkType
 from app.reports import photo_list_position
 from app.schemas import PhotoFilters, PhotoListFilters
 
@@ -19,13 +19,14 @@ def archive():
     # Execute the actual navigation/filter SQL without requiring PostGIS geometry.
     columns = (
         "id", "received_at", "preview_removed_at", "is_spam", "photo_date",
-        "max_chat_id", "district_id", "work_type", "status", "reviewed_by",
+        "max_chat_id", "district_id", "work_type", "status", "reviewed_by", "cohort",
     )
     table = Table("photos", MetaData(), *(
         Column(name, Photo.__table__.c[name].type, primary_key=name == "id") for name in columns
     ))
     engine = create_engine("sqlite://")
     table.metadata.create_all(engine)
+    ExchangeState.__table__.create(engine)
     WorkType.__table__.create(engine)
     records = {}
     with Session(engine) as session:
@@ -41,7 +42,7 @@ def archive():
             fields = dict(
                 id=id, received_at=datetime(2026, 10, 17, 12), preview_removed_at=None,
                 is_spam=False, photo_date=None, max_chat_id=123, district_id=None,
-                work_type="BIN_EMPTYING", status="ACCEPTED", reviewed_by=None,
+                work_type="BIN_EMPTYING", status="ACCEPTED", reviewed_by=None, cohort="test",
             )
             fields.update(values)
             session.execute(table.insert().values(**fields))

@@ -10,7 +10,7 @@ from test_chat_access import AccessSession, actor
 from test_chat_access import access_api as access_api
 
 from app.domain import now
-from app.models import Audit, DayClosure, DayPhotoReview, Inbox, Photo, User
+from app.models import Audit, Chat, DayClosure, DayClosureChat, DayPhotoReview, Inbox, Photo, User
 from app.permissions import DEFAULT_OPERATOR_PERMISSIONS
 
 DAY = "2026-10-18"
@@ -220,3 +220,105 @@ def test_postgres_close_and_filters_share_confirmations(admin, db):
     close(admin)
     result = admin.get('/api/photos', params={"review_day": DAY, "day_review": "confirmed"})
     assert result.status_code == 200 and result.json()["total"] == 1
+
+
+def test_needs_review_counter_matches_exact_photo_date_including_late_receipts(access_api):
+    client, engine = access_api
+    add_photo(engine)
+    add_photo(engine, id=71, day=date(2026, 10, 17))
+    add_photo(engine, id=72, chat_id=200)
+    with AccessSession(engine) as db:
+        for id in (10, 70, 71, 72):
+            db.get(Photo, id).status = 'NEEDS_REVIEW'
+        db.get(Photo, 70).work_type_source = 'OPERATOR'
+        db.commit()
+    summary = client.get(ROOT).json()
+    assert summary['needs_review'] == 2
+    listed = client.get('/api/photos', params={
+        'review_day': DAY, 'date_from': DAY, 'date_to': DAY, 'date_basis': 'received',
+        'status': 'NEEDS_REVIEW', 'work_only': True,
+    }).json()
+    assert listed['total'] == summary['needs_review'] and {p['id'] for p in listed['items']} == {10, 70}
+
+
+def test_overview_warns_about_late_additions_even_when_only_confirmed_photos_are_selected(access_api):
+    client, engine = access_api
+    close(client)
+    assert client.get('/api/reports', params={'review_day': DAY}).json()['day_updates'] == []
+    add_photo(engine)
+    add_photo(engine, id=71, chat_id=200)  # Inaccessible; must not appear in the warning.
+    with AccessSession(engine) as db:
+        db.get(Photo, 70).status = 'NEEDS_REVIEW'
+        db.commit()
+    params = {'review_day': DAY, 'day_review': 'confirmed', 'date_from': DAY, 'date_to': DAY,
+              'date_basis': 'received'}
+    report = client.get('/api/reports', params=params).json()
+    assert report['total'] == 2
+    assert report['day_updates'] == [{'day': DAY, 'pending': 1, 'late': 1, 'needs_review': 1}]
+    with AccessSession(engine) as db:
+        db.get(Photo, 70).status = 'ACCEPTED'
+        db.commit()
+    close(client)
+    assert client.get('/api/reports', params=params).json()['day_updates'] == []
+
+
+def test_overview_uses_each_chats_closing_time_and_keeps_test_photos_out(access_api):
+    client, engine = access_api
+    close(client)  # Chat 100 only.
+    with AccessSession(engine) as db:
+        first_closure = db.scalar(select(DayClosure))
+        first_closure.confirmed_at = now() - timedelta(hours=2)
+        db.commit()
+    add_photo(engine)
+    add_photo(engine, id=71)
+    with AccessSession(engine) as db:
+        db.get(Photo, 70).received_at = now() - timedelta(hours=1)
+        db.get(Photo, 71).cohort = 'test'
+        db.commit()
+    actor(client, 1)
+    # Close chat 200 more recently without changing chat 100's cutoff.
+    with AccessSession(engine) as db:
+        closure = DayClosure(day=date(2026, 10, 18), user_id=1, confirmed_at=now(), photo_count=1)
+        db.add(closure)
+        db.flush()
+        photo = db.get(Photo, 20)
+        from app.day_verification import SNAPSHOT_FIELDS
+        db.add(DayPhotoReview(photo_id=20, closure_id=closure.id,
+                              **{field: getattr(photo, field) for field in SNAPSHOT_FIELDS}))
+        db.commit()
+    updates = client.get('/api/reports', params={'review_day': DAY}).json()['day_updates']
+    assert updates == [{'day': DAY, 'pending': 1, 'late': 1, 'needs_review': 0}]
+
+
+@pytest.mark.parametrize('all_chats', [False, True])
+def test_first_late_photo_from_a_previously_empty_chat_is_an_addition(access_api, all_chats):
+    client, engine = access_api
+    with AccessSession(engine) as db:
+        db.add(Chat(id=3, max_chat_id=300, name='Без фотографий', active=True))
+        db.get(User, 2).allowed_chat_ids = [1, 3]
+        db.commit()
+    if all_chats:
+        actor(client, 4)
+    close(client)
+    add_photo(engine, chat_id=300)
+    summary = client.get(ROOT).json()
+    assert summary['closed_before'] and summary['pending'] == 1
+    updates = client.get('/api/reports', params={'review_day': DAY, 'day_review': 'confirmed'}).json()['day_updates']
+    assert updates == [{'day': DAY, 'pending': 1, 'late': 1, 'needs_review': 0}]
+
+
+def test_scope_migration_preserves_existing_confirmations_with_legacy_chat_fallback(access_api):
+    client, engine = access_api
+    close(client)
+    with engine.begin() as connection:
+        DayClosureChat.__table__.drop(connection)
+        with Operations.context(MigrationContext.configure(connection)) as ops:
+            ops.drop_column('day_closures', 'cohort')
+            ops.drop_column('day_closures', 'all_chats')
+        before = connection.execute(select(DayPhotoReview)).all()
+        migration = runpy.run_path(str(Path(__file__).parents[1]/'alembic/versions/0029_day_closure_scope.py'))
+        with Operations.context(MigrationContext.configure(connection)):
+            migration['upgrade']()
+        assert connection.execute(select(DayPhotoReview)).all() == before
+    summary = client.get(ROOT).json()
+    assert summary['confirmed'] == 2 and summary['closed_before'] and summary['pending'] == 0
