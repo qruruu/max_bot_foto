@@ -24,7 +24,7 @@ export function OrganizationCard({item, edit, retry}: {item: Organization; edit:
   return <article className="panel organization-card">
     <div className="organization-card-heading"><span className="organization-icon"><Building2 size={25}/></span>
       <span className={'badge ' + (item.status === 'ACTIVE' ? 'status-ACCEPTED' : 'status-NEEDS_REVIEW')}>{statusNames[item.status]}</span></div>
-    <h2>{item.name}</h2><p className="muted">{item.slug}</p>
+    <h2>{item.name}</h2>
     {item.stats && <p className={'organization-mode ' + (item.stats.intake_cohort === 'production' ? 'production' : 'test')}>
       <span className="dot"/>{item.stats.intake_cohort === 'production' ? 'Рабочий режим' : 'Тестовый режим'}</p>}
     {item.stats ? <div className="organization-stats">
@@ -45,7 +45,7 @@ export default function Organizations() {
   const [tab, setTab] = useState<'organizations' | 'chats'>('organizations');
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Organization | 'new' | null>(null);
-  const [name, setName] = useState(''), [slug, setSlug] = useState(''), [paused, setPaused] = useState(false);
+  const [name, setName] = useState(''), [paused, setPaused] = useState(false);
   const [disks, setDisks] = useState<DiskAccounts>({default_configured:false, items:[]});
   const [diskId, setDiskId] = useState(''), [connectingDisk, setConnectingDisk] = useState(false);
   const [binding, setBinding] = useState(false), [chatId, setChatId] = useState(''), [chatName, setChatName] = useState(''), [organizationId, setOrganizationId] = useState('');
@@ -70,7 +70,7 @@ export default function Organizations() {
   const ready = items.filter(item => ['ACTIVE', 'PAUSED'].includes(item.status));
   function open(item: Organization | 'new') {
     setError(''); setEditing(item); setName(item === 'new' ? '' : item.name);
-    setSlug(item === 'new' ? '' : item.slug); setPaused(item !== 'new' && item.status === 'PAUSED');
+    setPaused(item !== 'new' && item.status === 'PAUSED');
     setDiskId(item === 'new' ? '' : item.disk_account_id || '');
   }
   async function save(event: FormEvent) {
@@ -81,7 +81,7 @@ export default function Organizations() {
         await api('/platform/organizations/' + editing.id, 'PATCH', {name: editing.name, status:'PAUSED'});
         autoPaused = true;
       }
-      const saved = editing === 'new' ? await api<Organization>('/platform/organizations', 'POST', {name, slug, disk_account_id: diskId || null}) :
+      const saved = editing === 'new' ? await api<Organization>('/platform/organizations', 'POST', {name, disk_account_id: diskId || null}) :
         await api<Organization>('/platform/organizations/' + (editing as Organization).id, 'PATCH', {name, status: paused ? 'PAUSED' : 'ACTIVE', disk_account_id: diskId || null});
       setEditing(null); setTab('organizations'); await load();
       setNotice(saved.status === 'ERROR' ? 'Организация сохранена, но подготовку нужно повторить.' : editing === 'new' ? 'Организация создана. Откройте её, добавьте виды работ, микрорайоны и операторов. Чаты закрепляются в общем разделе «Чаты MAX».' : 'Настройки сохранены.');
@@ -144,8 +144,7 @@ export default function Organizations() {
     {editing && <div className="modal-backdrop"><form className="modal organization-modal" onSubmit={save}>
       <div className="section-title"><h2>{editing === 'new' ? 'Новая организация' : 'Настройки организации'}</h2><button type="button" aria-label="Закрыть" disabled={busy} onClick={() => setEditing(null)}><X size={18}/></button></div>
       <ErrorBox error={error}/><label>Название<input autoFocus required maxLength={150} value={name} onChange={e => setName(e.target.value)}/></label>
-      {editing === 'new' ? <><label>Короткое имя<input required minLength={2} maxLength={60} pattern="[a-z0-9][a-z0-9-]+" placeholder="Например: stroydvor" value={slug} onChange={e => setSlug(e.target.value.toLowerCase())}/></label>
-        <p className="hint">Латинские буквы, цифры и дефисы. Фотографии, операторы и обучение начнутся с нуля. Виды работ и микрорайоны вы добавите внутри организации.</p></> : <>
+      {editing === 'new' ? <p className="hint">Фотографии, операторы и обучение начнутся с нуля. Виды работ и микрорайоны вы добавите внутри организации.</p> : <>
         <label className="checkbox"><input type="checkbox" checked={paused} onChange={e => setPaused(e.target.checked)}/>Приостановить работу организации</label>
         <p className="hint">Приостановка отключает вход операторов и обработку. Входящие вложения сохраняются в очереди до возобновления. Владелец сохраняет доступ к настройкам.</p></>}
       <label>Яндекс.Диск<select value={diskId} onChange={event => setDiskId(event.target.value)}>

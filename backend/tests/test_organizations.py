@@ -39,7 +39,7 @@ PASSWORD = "test-password-123"
 
 
 @pytest.fixture
-def companies(db, users, monkeypatch):
+def companies(db, users, monkeypatch, request):
     from app.api import app
 
     assert make_url(settings().database_url).database.endswith("_test")
@@ -54,7 +54,8 @@ def companies(db, users, monkeypatch):
             assert login.status_code == 200 and login.json()["is_platform_owner"]
             owner.headers["X-CSRF-Token"] = owner.cookies["platform_csrf"]
             for slug in ("alpha", "beta"):
-                response = owner.post("/api/platform/organizations", json={"name": slug.title(), "slug": slug})
+                body = {"name": "ИП Фадеев"} if getattr(request, "param", None) == "automatic" else {"name": slug.title(), "slug": slug}
+                response = owner.post("/api/platform/organizations", json=body)
                 assert response.status_code == 201, response.text
                 with control_session() as control:
                     record = control.get(Organization, response.json()["id"])
@@ -95,6 +96,23 @@ def bind(owner, scope, chat_id):
     response = owner.post(f"/api/platform/organizations/{scope.id}/chats",
                           json={"max_chat_id": str(chat_id), "name": "Chat " + str(chat_id)})
     assert response.status_code == 201, response.text
+
+
+@pytest.mark.parametrize("companies", ["automatic"], indirect=True)
+def test_russian_names_need_no_short_name_and_duplicate_names_stay_isolated(companies):
+    from app.models import DiskFolderSettings
+
+    owner, scopes, _ = companies
+    listed = {item["id"]: item for item in owner.get("/api/platform/organizations").json()}
+    assert all(listed[scope.id]["name"] == "ИП Фадеев" for scope in scopes)
+    assert listed[scopes[0].id]["slug"] != listed[scopes[1].id]["slug"]
+    assert scopes[0].data_dir != scopes[1].data_dir
+    folders = []
+    for scope in scopes:
+        assert listed[scope.id]["status"] == "ACTIVE"
+        with organization_scope(scope), Session(engine()) as tenant:
+            folders.append(tenant.get(DiskFolderSettings, 1).folder_sets[0]["photo_root"])
+    assert folders[0] != folders[1]
 
 
 def test_databases_files_accounts_and_company_urls_are_isolated(companies):

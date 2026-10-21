@@ -43,7 +43,8 @@ Owner = Annotated[User, Depends(owner_only)]
 
 class OrganizationInput(StrictModel):
     name: str = Field(min_length=1, max_length=150)
-    slug: str = Field(min_length=2, max_length=60, pattern=r"^[a-z0-9][a-z0-9-]+$")
+    # Older browser versions may still send this field; new forms only need a name.
+    slug: str | None = Field(default=None, min_length=2, max_length=60, pattern=r"^[a-z0-9][a-z0-9-]+$")
     disk_account_id: UUID | None = None
 
 
@@ -98,10 +99,10 @@ def organizations(db: Db, user: Owner):
 def create_organization(body: OrganizationInput, db: Db, user: Owner):
     from app.disk_accounts import validate_selection
     disk_id = validate_selection(db, None, body.disk_account_id)
-    if db.scalar(select(Organization.id).where(Organization.slug == body.slug)):
+    if body.slug and db.scalar(select(Organization.id).where(Organization.slug == body.slug)):
         raise HTTPException(409, "Такое короткое имя уже занято")
     id = uuid4()
-    record = Organization(id=str(id), name=body.name, slug=body.slug, disk_account_id=disk_id, database_name="org_" + id.hex,
+    record = Organization(id=str(id), name=body.name, slug=body.slug or "org-" + id.hex, disk_account_id=disk_id, database_name="org_" + id.hex,
                           database_role="org_" + id.hex, status="PROVISIONING")
     db.add(record)
     audit(db, user.id, "ORGANIZATION_CREATED", "organization", 0, None,
