@@ -1,4 +1,7 @@
 import type { Filters } from './types';
+import { apiUrl, workspacePrefix } from './workspace';
+
+let platformOwner = false;
 export class ApiError extends Error {
   constructor(public status: number, public detail: unknown) {
     super(typeof detail === 'string' ? detail : Array.isArray(detail) ? detail.map(x => x.msg).join('; ') : (detail as {message?:string})?.message || 'Ошибка запроса');
@@ -22,16 +25,23 @@ export function photoLink(id: number, filters: Filters, review = false, spam = f
   return `/photos/${id}?${query(params)}`;
 }
 export async function api<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
-  const csrf = document.cookie.split('; ').find(x => x.startsWith('csrf='))?.slice(5) || '';
+  const prefix = workspacePrefix();
+  const csrfName = path === '/auth/choose-organization' ? 'login_choice_csrf' : platformOwner ? 'platform_csrf' : prefix ? 'workspace_csrf' : 'csrf';
+  const csrf = document.cookie.split('; ').find(x => x.startsWith(csrfName + '='))?.slice(csrfName.length + 1) || '';
   const upload = body instanceof Blob;
-  const response = await fetch('/api' + path, { method, credentials: 'same-origin', signal,
+  const response = await fetch(apiUrl(path), { method, credentials: 'same-origin', signal,
     headers: { 'Content-Type': upload ? body.type || 'application/octet-stream' : 'application/json', 'X-CSRF-Token': decodeURIComponent(csrf) }, body: body === undefined ? undefined : upload ? body : JSON.stringify(body) });
   if (!response.ok) {
     const data = await response.json().catch(() => ({ detail: 'Сервис временно недоступен' }));
     if (response.status === 401 && path !== '/auth/me' && path !== '/auth/login') window.dispatchEvent(new Event('session-expired'));
     throw new ApiError(response.status, data.detail);
   }
-  return response.json();
+  const data = await response.json();
+  if (path === '/auth/me' || path === '/auth/login' || path === '/auth/choose-organization') platformOwner = data.is_platform_owner === true;
+  if (path === '/auth/entry') platformOwner = data.user?.is_platform_owner === true;
+  // Owner profile writes are handled by the global account; retain the local audit/chat actor id.
+  if (prefix && data.is_platform_owner && data.organization === null) return api<T>('/auth/me');
+  return data;
 }
 export const statusNames: Record<string, string> = {RECEIVED:'Получено', PROCESSING:'Обработка', ACCEPTED:'Принято', NEEDS_REVIEW:'Требует проверки', REJECTED:'Отклонено', DUPLICATE:'Дубль', FORWARDED:'Переслано', ERROR:'Ошибка', SPAM:'Спам'};
 export const reasonNames: Record<string,string> = {DATE_MISSING:'Не распознана дата', COORDINATES_MISSING:'Не распознаны координаты', OUTSIDE_DISTRICTS:'Точка вне микрорайонов', DISTRICT_OVERLAP:'Точка в пересечении границ', WORK_MULTIPLE:'Несколько видов работ', WORK_UNCERTAIN:'Вид работы не определён', UNSUPPORTED_FORMAT:'Неподдерживаемый формат', CORRUPT_IMAGE:'Изображение не читается'};

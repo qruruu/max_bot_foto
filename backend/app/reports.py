@@ -12,6 +12,7 @@ from app.chat_access import chat_condition
 from app.config import settings
 from app.day_verification import confirmed_condition, last_confirmation_value
 from app.models import District, Photo, User
+from app.organization_context import workspace_url
 from app.permissions import Permission, has_permission
 from app.photo_ordering import photo_order, photo_position
 from app.photo_scope import active_cohort_condition
@@ -190,7 +191,7 @@ def photo_dict(photo: Photo, districts: dict[int, str], operators: dict[int, str
         work_type_name="Спам"
         if photo.is_spam
         else work_type_label(photo.work_type, photo.is_defect, catalog),
-        preview_url=f"/api/photos/{photo.id}/preview" if photo.sha256 else None,
+        preview_url=workspace_url(f"/api/photos/{photo.id}/preview") if photo.sha256 else None,
     )
     return result
 

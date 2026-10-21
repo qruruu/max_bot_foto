@@ -139,13 +139,15 @@ class YandexDisk:
         self.folder_config = folder_config
 
     def request(self, method: str, path: str, **kwargs) -> httpx.Response:
-        if not settings().yandex_disk_token:
+        from app.disk_accounts import configured_token
+        token = configured_token()
+        if not token:
             raise RuntimeError("YANDEX_DISK_NOT_CONFIGURED")
         with httpx.Client(timeout=60) as client:
             response = client.request(
                 method,
                 self.API + path,
-                headers={"Authorization": f"OAuth {settings().yandex_disk_token}"},
+                headers={"Authorization": f"OAuth {token}"},
                 **kwargs,
             )
         return response

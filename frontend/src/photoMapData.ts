@@ -1,6 +1,7 @@
 import { api, dateLabel, photoLink, query, statusNames } from './api';
 import type { Filters } from './types';
 import { escapeMapLabel, type MapFeature } from './yandexMaps';
+import { apiUrl, workspaceUrl } from './workspace';
 
 export type MapPhoto = {
   id: number; latitude: number; longitude: number; photo_date: string | null;
@@ -36,14 +37,15 @@ export function mapPhotoFeature(photo: MapPhoto, filters: Filters, timezone: str
   const received = new Date(photo.received_at).toLocaleString('ru-RU', {timeZone: timezone});
   const date = photo.photo_date ? `${dateLabel(photo.photo_date)} ${photo.photo_time || ''}` : 'Дата снимка не определена';
   // Construct local URLs ourselves; never interpolate an OCR string or an arbitrary image URL into HTML.
-  const preview = photo.preview_url ? `<img class="map-photo-preview" src="/api/photos/${photo.id}/preview" alt="Фото №${photo.id}" loading="lazy"/>` : '';
-  const href = photoLink(photo.id, {...filters, from_map: '1'}, false, filters.status === 'SPAM');
+  const previewUrl = apiUrl(`/photos/${photo.id}/preview`);
+  const preview = photo.preview_url ? `<img class="map-photo-preview" src="${previewUrl}" alt="Фото №${photo.id}" loading="lazy"/>` : '';
+  const href = workspaceUrl(photoLink(photo.id, {...filters, from_map: '1'}, false, filters.status === 'SPAM'));
   return {
     type: 'Feature', id: photo.id,
     geometry: {type: 'Point', coordinates: [photo.longitude, photo.latitude]},
     properties: {
       photoLabel: `Фото №${photo.id}`,
-      photoPreviewUrl: photo.preview_url ? `/api/photos/${photo.id}/preview` : '',
+      photoPreviewUrl: photo.preview_url ? previewUrl : '',
       hintContent: escape(`Фото №${photo.id} · ${photo.chat_name}`),
       clusterCaption: escape(`Фото №${photo.id} · ${date}`),
       balloonContentHeader: escape(`Фото №${photo.id}`),

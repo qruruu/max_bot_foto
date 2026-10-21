@@ -29,6 +29,9 @@ import useSidebar from './useSidebar';
 import SidebarNavigation from './SidebarNavigation';
 import DayReviews from './DayReviews';
 import ClosedDayUpdates from './ClosedDayUpdates';
+import './organizations.css';
+import { workspacePrefix } from './workspace';
+import Login, { SignInRedirect } from './Login';
 
 const Context = createContext<{ user: User; meta: Meta; refresh: () => Promise<void>; notify: (text: string) => void; updateUser: (user: User) => void }>(null!);
 export const useApp = () => useContext(Context);
@@ -36,22 +39,18 @@ export const ErrorBox = ({ error }: { error: string }) => error ? <div className
 export const Empty = ({ children }: { children: ReactNode }) => <div className="empty"><Camera size={34}/><h3>Пока ничего нет</h3><p>{children}</p></div>;
 export function StatusBadge({ value }: { value: string }) { return <span className={'badge status-' + value}>{statusNames[value] || value}</span>; }
 
-function Login({ onLogin }: { onLogin: (user: User) => void }) {
-  const [login,setLogin] = useState(''), [password,setPassword] = useState(''), [error,setError] = useState(''), [busy,setBusy] = useState(false);
-  async function submit(e: FormEvent) { e.preventDefault(); setBusy(true); setError(''); try { onLogin(await api<User>('/auth/login', 'POST', {login,password})); } catch(e) {setError((e as Error).message);} finally {setBusy(false);} }
-  return <main className="login-page"><div className="login-art"><div className="brand"><span className="brand-mark"><Layers/></span>MAX Фото</div><div><span className="eyebrow">ГОРОД ПОД КОНТРОЛЕМ</span><h1>Каждая работа.<br/>На своём месте.</h1><p>Фотографии из чатов, выполненные работы и карта микрорайонов — в одном пространстве.</p></div><span className="login-caption">Система учёта и контроля городских работ</span></div><form className="login-form" onSubmit={submit}><span className="eyebrow">ОПЕРАТОРСКАЯ ПАНЕЛЬ</span><h2>С возвращением</h2><p className="muted">Войдите, чтобы продолжить работу.</p><ErrorBox error={error}/><label>Логин<input autoFocus autoComplete="username" value={login} onChange={e=>setLogin(e.target.value)} required/></label><label>Пароль<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label><button className="primary" disabled={busy}>{busy?'Входим…':'Войти в систему'}<ChevronRight size={18}/></button><p className="hint"><ShieldCheck size={16}/> Доступ выдаёт администратор вашей организации.</p></form></main>;
-}
 
 export default function App() {
   const sidebar = useSidebar();
   const [user,setUser] = useState<User|null>(null), [meta,setMeta] = useState<Meta|null>(null), [loading,setLoading] = useState(true), [error,setError] = useState(''), [toast,setToast] = useState('');
   const navigate = useNavigate();
   async function refresh() { setMeta(await api<Meta>('/meta')); }
-  useEffect(()=>{api<User>('/auth/me').then(setUser).catch(()=>{}).finally(()=>setLoading(false)); const handler=()=>{setUser(null);setMeta(null);}; window.addEventListener('session-expired',handler);return()=>window.removeEventListener('session-expired',handler);},[]);
+  useEffect(()=>{api<User>('/auth/me').then(setUser).catch(e=>{if(e.status!==401)setError(e.message);}).finally(()=>setLoading(false)); const handler=()=>{setUser(null);setMeta(null);}; window.addEventListener('session-expired',handler);return()=>window.removeEventListener('session-expired',handler);},[]);
   useEffect(()=>{if(user)refresh().catch(e=>setError(e.message));},[user]);
   useEffect(()=>{if(toast){const t=setTimeout(()=>setToast(''),5000);return()=>clearTimeout(t);}},[toast]);
   if(loading)return <div className="full-loading">Открываем рабочее пространство…</div>;
-  if(!user)return <Login onLogin={u=>{setUser(u);setError('');}}/>;
+  if(!user&&workspacePrefix())return <SignInRedirect/>;
+  if(!user)return <Login initialError={error} onLogin={u=>{setUser(u);setError('');}}/>;
   if(!meta)return <div className="full-loading"><ErrorBox error={error}/>{error?<button onClick={()=>refresh().then(()=>setError('')).catch(e=>setError(e.message))}>Повторить</button>:'Загружаем справочники…'}</div>;
   const admin=user.role==='ADMIN_OPERATOR';
   const links = [
@@ -94,7 +93,7 @@ export default function App() {
         </div>
       </aside>
       <main className="workspace">
-        <div className="topbar"><span><span className="dot"/>Операторская панель{meta.intake_cohort==='test'&&<span className="badge">Тестовый режим</span>}</span><span>{dateLabel(meta.today)} <span className="timezone">{meta.timezone}</span></span></div>
+        <div className="topbar"><span className="workspace-identity"><span className="dot"/>{meta.organization?<><strong>{meta.organization.name}</strong>{user.is_platform_owner&&<a className="organization-switch" href="/">Все организации<ChevronRight size={13}/></a>}</>:<>Операторская панель</>}{meta.intake_cohort==='test'&&<span className="badge">Тестовый режим</span>}</span><span>{dateLabel(meta.today)} <span className="timezone">{meta.timezone}</span></span></div>
         <Routes>
           <Route path="/" element={protectedPage('reports_view',<Overview/>)}/>
           <Route path="/news" element={protectedPage('news_view',<News/>)}/>

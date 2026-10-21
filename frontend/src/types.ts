@@ -1,10 +1,11 @@
-export type User = { id: number; login: string; name: string; role: string; active: boolean; permissions: string[]; allowed_chat_ids: number[] | null; avatar_url: string | null; sidebar_order: string[] };
+export type OrganizationIdentity = {id: string; name: string};
+export type User = { id: number; login: string; name: string; role: string; active: boolean; permissions: string[]; allowed_chat_ids: number[] | null; avatar_url: string | null; sidebar_order: string[]; is_platform_owner?: boolean; managed_by_platform?: boolean; organization?: OrganizationIdentity | null };
 export type PermissionDefinition = { code: string; name: string; group: string; requires: string[]; default_operator: boolean };
 export type Chat = { id: number; max_chat_id: string; name: string; active: boolean; cv_work_type_enabled: boolean; fixed_work_type_code: string | null; work_rule_version: number };
 export type DiscoveredChat = { max_chat_id: string; message_preview: string | null; last_message_at: string; first_seen_at: string; last_seen_at: string };
 export type ChatSender = { sender_id: string; name: string | null; photo_count: number; last_photo_at: string | null };
 export type District = { id: number; name: string; active: boolean };
-export type Meta = { intake_cohort?: 'test' | 'production'; permission_catalog: PermissionDefinition[]; yandex_maps_api_key: string; today: string; timezone: string; work_types: { code: string; name: string; description?: string }[]; statuses: string[]; chats: Chat[]; districts: District[]; operators: { id: number; name: string }[] };
+export type Meta = { organization?: OrganizationIdentity | null; intake_cohort?: 'test' | 'production'; permission_catalog: PermissionDefinition[]; yandex_maps_api_key: string; today: string; timezone: string; work_types: { code: string; name: string; description?: string }[]; statuses: string[]; chats: Chat[]; districts: District[]; operators: { id: number; name: string }[] };
 export type Filters = Record<string, string>;
 export type FilterFacet = { total: number; values: Record<string, number>; options?: {value: string; name: string | null}[] };
 export type FilterCounts = Record<'work_type' | 'district_id' | 'chat_id' | 'operator_id' | 'sender_id' | 'status', FilterFacet>;

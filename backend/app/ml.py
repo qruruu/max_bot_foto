@@ -617,14 +617,27 @@ def main():
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    next_check = 0.0
+    next_check = {}
     while not stopping:
         try:
-            if time.monotonic() >= next_check:
-                cleanup_model_files()
-                schedule_training()
-                next_check = time.monotonic() + settings().ml_check_seconds
-            if not run_once(kinds=["TRAIN"]):
+            from app.organization_context import organization_scope
+            from app.organization_registry import scopes
+            workspaces = scopes() if settings().organizations_enabled else [None]
+            worked = False
+            for scope in workspaces:
+                if stopping:
+                    break
+                try:
+                    with organization_scope(scope):
+                        key = scope.id if scope else "legacy"
+                        if time.monotonic() >= next_check.get(key, 0):
+                            cleanup_model_files()
+                            schedule_training()
+                            next_check[key] = time.monotonic() + settings().ml_check_seconds
+                        worked = run_once(kinds=["TRAIN"]) or worked
+                except Exception as exc:
+                    log.warning("organization_trainer_error=%s error=%s", scope.id if scope else "legacy", type(exc).__name__)
+            if not worked:
                 time.sleep(2)
         except Exception as exc:
             log.warning("trainer_error=%s", type(exc).__name__)

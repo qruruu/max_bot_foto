@@ -1,8 +1,9 @@
 import { ApiError } from './api';
+import { workspaceStorageKey } from './workspace';
 
 export type NotificationPreferences = {popup: boolean; sound: boolean};
 export type ArrivalSnapshot = {photo_ids: number[]};
-export const notificationKey = (userId: number) => `max-photo-notifications:${userId}`;
+export const notificationKey = (userId: number) => workspaceStorageKey(`max-photo-notifications:${userId}`);
 
 export function parseNotificationPreferences(raw: string | null): NotificationPreferences {
   try {

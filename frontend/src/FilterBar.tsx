@@ -1,3 +1,4 @@
+import { apiUrl } from './workspace';
 import { useEffect, useState } from 'react';
 import { ArrowDownToLine, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useApp } from './App';
@@ -51,7 +52,7 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
         ].map(([title, from]) => <button key={title} onClick={() => change({date_from: from, date_to: title === 'Вчера' ? from : meta.today})}>{title}</button>)}
         <button onClick={() => change({date_from: '', date_to: ''})}>За всё время</button>
       </div>
-      {hasPermission(user, 'reports_export') && <a className="button export" href={'/api/export.xlsx?' + key}><ArrowDownToLine size={16}/>Скачать Excel</a>}
+      {hasPermission(user, 'reports_export') && <a className="button export" href={apiUrl('/export.xlsx?' + key)}><ArrowDownToLine size={16}/>Скачать Excel</a>}
     </div>
     <div className="filters" aria-busy={!counts && !error}>
       <label>Дата от<input type="date" value={filters.date_from || ''} onChange={e => change({date_from: e.target.value})}/></label>

@@ -142,11 +142,35 @@ def main(kinds: list[str] | None = None):
     log.info("Worker started")
     while not stop:
         try:
-            if not run_once(kinds):
+            if not run_workspaces_once(kinds):
                 time.sleep(settings().worker_idle_seconds)
         except Exception as exc:
             log.error("worker_error=%s", error_code(exc))
             time.sleep(5)
+
+
+def run_workspaces_once(kinds=None):
+    if not settings().organizations_enabled:
+        return run_once(kinds)
+    from app.organization_context import organization_scope
+    from app.organization_intake import dispatch_once
+    from app.organization_registry import scopes
+
+    worked = False
+    if kinds is None:
+        for _ in range(25):
+            if not dispatch_once():
+                break
+            worked = True
+    for scope in scopes():
+        if stop:
+            break
+        try:
+            with organization_scope(scope):
+                worked = run_once(kinds) or worked
+        except Exception as exc:
+            log.error("organization_worker_error=%s error=%s", scope.id, type(exc).__name__)
+    return worked
 
 
 if __name__ == "__main__":

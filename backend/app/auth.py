@@ -18,6 +18,7 @@ from app.config import settings
 from app.db import get_db
 from app.domain import audit, now
 from app.models import LoginAttempt, LoginSession, User
+from app.organization_context import current_organization, workspace_url
 from app.permissions import Permission, effective_permissions, has_permission
 from app.schemas import LoginInput, PasswordInput, SidebarOrderInput
 from app.session_details import client_address, session_dict
@@ -38,14 +39,31 @@ def check_origin(request: Request):
         raise HTTPException(403, "Недопустимый источник запроса")
 
 
+def cookie_names():
+    organization = current_organization()
+    if organization:
+        return "workspace_session", "workspace_csrf"
+    return ("platform_session", "platform_csrf") if settings().organizations_enabled else ("session", "csrf")
+
+
 def current_user(request: Request, db: Db):
-    token = request.cookies.get("session")
-    session = db.get(LoginSession, digest(token)) if token else None
+    organization = current_organization()
+    platform_session = getattr(request.state, "platform_login_session", None)
+    platform_login = settings().organizations_enabled and organization is None
+    token = request.cookies.get(cookie_names()[0])
+    token_hash = getattr(request.state, "workspace_token_hash", None) if organization else digest(token) if token else None
+    session = platform_session or (db.get(LoginSession, token_hash) if token_hash else None)
     if not session or session.expires_at <= now():
         raise HTTPException(401, "Войдите в систему")
-    user = db.get(User, session.user_id)
+    user = db.get(User, organization.owner_user_id if platform_session else session.user_id)
     if not user or not user.active:
         raise HTTPException(401, "Пользователь заблокирован")
+    if platform_login:
+        from app.models import PlatformOwner
+        if db.get(PlatformOwner, user.id) is None:
+            raise HTTPException(403, "Вход в общий кабинет доступен только владельцу")
+    user._platform_owner = bool(platform_session or platform_login)
+    user._platform_user_id = platform_session.user_id if platform_session else None
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         check_origin(request)
         csrf = request.headers.get("x-csrf-token", "")
@@ -53,7 +71,7 @@ def current_user(request: Request, db: Db):
             raise HTTPException(403, "Недействительный CSRF-токен")
     instant = now()
     cutoff = instant - timedelta(minutes=1)
-    if session.last_seen_at is None or session.last_seen_at < cutoff:
+    if not platform_session and (session.last_seen_at is None or session.last_seen_at < cutoff):
         # Persist after the handler finishes, without committing its business transaction.
         observed_ua = request.headers.get("user-agent", "")[:512] or None
         observed_ip = client_address(request)
@@ -115,7 +133,7 @@ LearningManager = Annotated[User, Depends(require_permission(Permission.LEARNING
 
 
 def user_dict(user: User):
-    return {
+    result = {
         "id": user.id,
         "login": user.login,
         "name": user.name,
@@ -124,9 +142,22 @@ def user_dict(user: User):
         "permissions": effective_permissions(user),
         "allowed_chat_ids": allowed_chat_ids(user),
         "sidebar_order": user.sidebar_order or [],
-        "avatar_url": f"/api/auth/avatar/{user.id}?v={hashlib.sha256(user.avatar_image).hexdigest()[:16]}"
+        "avatar_url": workspace_url(f"/api/auth/avatar/{user.id}?v={hashlib.sha256(user.avatar_image).hexdigest()[:16]}")
         if user.avatar_image else None,
     }
+    if settings().organizations_enabled:
+        organization = current_organization()
+        result.update(is_platform_owner=getattr(user, "_platform_owner", False),
+                      organization={"id": organization.id, "name": organization.name} if organization else None)
+        result["managed_by_platform"] = bool(organization and organization.owner_user_id == user.id)
+        if organization and getattr(user, "_platform_user_id", None):
+            from app.organization_registry import control_session
+            with control_session() as control:
+                owner = control.get(User, user._platform_user_id)
+                result.update(name=owner.name, login=owner.login, sidebar_order=owner.sidebar_order or [],
+                              avatar_url=f"/api/auth/avatar/{owner.id}?v={hashlib.sha256(owner.avatar_image).hexdigest()[:16]}"
+                              if owner.avatar_image else None)
+    return result
 
 
 def verify_password(encoded: str, password: str):
@@ -155,6 +186,9 @@ def rate_limit_login(db: Session, request: Request, login: str):
 
 @router.post("/login")
 def login(body: LoginInput, request: Request, response: Response, db: Db):
+    if settings().organizations_enabled and current_organization() is None:
+        from app.signin import common_login
+        return common_login(body, request, response, db)
     check_origin(request)
     rate_limit_login(db, request, body.login)
     # Serialize issuance with password/permission changes and explicit session revocation.
@@ -163,8 +197,20 @@ def login(body: LoginInput, request: Request, response: Response, db: Db):
     valid = verify_password(user.password_hash if user else DUMMY_HASH, body.password)
     if not valid or not user or not user.active:
         raise HTTPException(401, "Неверный логин или пароль")
-    if hasher.check_needs_rehash(user.password_hash):
-        user.password_hash = hasher.hash(body.password)
+    platform_login = settings().organizations_enabled and current_organization() is None
+    if platform_login:
+        from app.models import PlatformOwner
+        if db.get(PlatformOwner, user.id) is None:
+            raise HTTPException(401, "Неверный логин или пароль")
+    user._platform_owner = platform_login
+    return issue_login(user, request, response, db, password=body.password)
+
+
+def issue_login(user, request, response, db, *, password=None):
+    platform_login = settings().organizations_enabled and current_organization() is None
+    user._platform_owner = platform_login
+    if password is not None and hasher.check_needs_rehash(user.password_hash):
+        user.password_hash = hasher.hash(password)
     token, csrf = secrets.token_urlsafe(48), secrets.token_urlsafe(32)
     instant = now()
     db.add(
@@ -181,7 +227,23 @@ def login(body: LoginInput, request: Request, response: Response, db: Db):
     )
     db.execute(delete(LoginSession).where(LoginSession.expires_at < now()))
     db.commit()
-    for name, value, http_only in [("session", token, True), ("csrf", csrf, False)]:
+    if current_organization():
+        from app.models import WorkspaceSession
+        from app.organization_registry import control_session
+        with control_session() as control:
+            control.execute(delete(WorkspaceSession).where(WorkspaceSession.expires_at < instant))
+            control.add(WorkspaceSession(token_hash=digest(token), organization_id=current_organization().id,
+                                         expires_at=instant + timedelta(hours=settings().session_hours)))
+            control.commit()
+    if settings().organizations_enabled:
+        # Switching accounts must not leave a previous owner's authority in this browser.
+        for name in (("workspace_session", "workspace_csrf") if platform_login else ("platform_session", "platform_csrf")):
+            response.delete_cookie(name, path="/")
+        for name in ("login_choice", "login_choice_csrf"):
+            response.delete_cookie(name, path="/")
+    session_name, csrf_name = cookie_names()
+    cookies = [(session_name, token, True), (csrf_name, csrf, False)]
+    for name, value, http_only in cookies:
         response.set_cookie(
             name,
             value,
@@ -303,8 +365,10 @@ def revoke_session(session_id: UUID, request: Request, db: Db, user: CurrentUser
 def logout(request: Request, response: Response, db: Db, user: CurrentUser):
     db.delete(request.state.login_session)
     db.commit()
-    response.delete_cookie("session", path="/")
-    response.delete_cookie("csrf", path="/")
+    cookie_path = "/"
+    session_name, csrf_name = cookie_names()
+    response.delete_cookie(session_name, path=cookie_path)
+    response.delete_cookie(csrf_name, path=cookie_path)
     return {"ok": True}
 
 

@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.auth import CurrentUser, check_permission
+from app.organization_context import workspace_url
 from app.permissions import Permission
 
 router = APIRouter(prefix="/api/news", tags=["news"])
@@ -68,7 +69,7 @@ def news_post(slug: str, user: CurrentUser):
     result = post.model_dump(mode="json")
     for section in result["sections"]:
         for screenshot in section["screenshots"]:
-            screenshot["src"] = f"/api/news/{post.slug}/screenshots/{screenshot.pop('file')}"
+            screenshot["src"] = workspace_url(f"/api/news/{post.slug}/screenshots/{screenshot.pop('file')}")
     return result
 
 

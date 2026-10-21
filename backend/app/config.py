@@ -6,6 +6,8 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.organization_context import current_organization
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -15,6 +17,7 @@ class Settings(BaseSettings):
     app_timezone: str = "Asia/Yekaterinburg"
     session_hours: int = 12
     cookie_secure: bool = True
+    organizations_enabled: bool = False
     max_bot_token: str = ""
     max_api_url: str = "https://platform-api2.max.ru"
     max_verify_tls: bool = False
@@ -96,5 +99,26 @@ class Settings(BaseSettings):
 
 
 @lru_cache
-def settings() -> Settings:
+def base_settings() -> Settings:
     return Settings()
+
+
+@lru_cache(maxsize=128)
+def organization_settings(organization):
+    return base_settings().model_copy(update={
+        "database_url": organization.database_url, "data_dir": organization.data_dir,
+        "yandex_disk_token": organization.yandex_disk_token if organization.yandex_disk_token is not None else base_settings().yandex_disk_token,
+    })
+
+
+def settings() -> Settings:
+    organization = current_organization()
+    return organization_settings(organization) if organization else base_settings()
+
+
+def clear_settings():
+    organization_settings.cache_clear()
+    base_settings.cache_clear()
+
+
+settings.cache_clear = clear_settings

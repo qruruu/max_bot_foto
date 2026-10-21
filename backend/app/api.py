@@ -47,6 +47,7 @@ from app.chat_senders import photo_sender_name
 from app.chat_senders import router as chat_senders_router
 from app.config import settings
 from app.day_reviews import router as day_reviews_router
+from app.disk_accounts import router as disk_accounts_router
 from app.disk_folders import current_disk_roots
 from app.disk_folders import router as disk_folders_router
 from app.domain import audit, enqueue, now, reassess
@@ -70,6 +71,9 @@ from app.models import (
 )
 from app.news import router as news_router
 from app.operator_chats import router as operator_chats_router
+from app.organization_context import current_organization, workspace_url
+from app.organization_middleware import OrganizationsMiddleware
+from app.organizations import router as organizations_router
 from app.permissions import (
     DEFAULT_OPERATOR_PERMISSIONS,
     Permission,
@@ -95,6 +99,7 @@ from app.schemas import (
     UserUpdate,
     validate_polygon,
 )
+from app.signin import router as signin_router
 from app.work_types import catalog_rows, require_work_type, work_catalog
 from app.work_types import router as work_types_router
 
@@ -105,12 +110,16 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 app.include_router(auth_router)
+app.include_router(signin_router)
 app.include_router(operator_chats_router)
 app.include_router(chat_senders_router)
 app.include_router(work_types_router)
 app.include_router(news_router)
 app.include_router(disk_folders_router)
 app.include_router(day_reviews_router)
+app.include_router(organizations_router)
+app.include_router(disk_accounts_router)
+app.add_middleware(OrganizationsMiddleware)
 Filters = Annotated[PhotoFilters, Query()]
 
 
@@ -154,7 +163,11 @@ async def webhook(request: Request, db: Db):
         update = json.loads(raw)
         if not isinstance(update, dict):
             raise ValueError("object required")
-        accepted = ingest(db, update)
+        if settings().organizations_enabled:
+            from app.organization_intake import ingest_event
+            accepted = ingest_event(db, update)
+        else:
+            accepted = ingest(db, update)
         received(db, 1, int(accepted is not None))
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         raise HTTPException(422, "Некорректное событие MAX") from exc
@@ -182,6 +195,8 @@ def meta(db: Db, user: CurrentUser):
         "permission_catalog": permission_catalog(),
         "today": now().astimezone(ZoneInfo(settings().app_timezone)).date(),
         "intake_cohort": active_cohort(db),
+        "organization": {"id": current_organization().id, "name": current_organization().name}
+        if current_organization() else None,
         "chats": [
             {
                 "id": c.id,
@@ -313,7 +328,7 @@ def photo_map(
             "received_at": p["received_at"], "chat_name": p["chat_name"],
             "status": p["status"],
             "work_type_name": work_type_label(p["work_type"], p["is_defect"], catalog),
-            "preview_url": f"/api/photos/{p['id']}/preview" if p["sha256"] else None,
+            "preview_url": workspace_url(f"/api/photos/{p['id']}/preview") if p["sha256"] else None,
         }
         for p in rows[:1000]
     ]
@@ -640,6 +655,9 @@ def discovered_chats(db: Db, user: ChatManager):
 
 @app.post("/api/chats", status_code=201)
 def create_chat(body: ChatInput, db: Db, user: ChatManager):
+    if current_organization():
+        from app.organizations import require_chat_binding
+        require_chat_binding(body.max_chat_id)
     require_all_chats(user)
     require_work_type(db, body.fixed_work_type_code)
     chat = Chat(**body.model_dump())
@@ -652,6 +670,9 @@ def create_chat(body: ChatInput, db: Db, user: ChatManager):
 
 @app.put("/api/chats/{chat_id}")
 def edit_chat(chat_id: int, body: ChatInput, db: Db, user: ChatManager):
+    if current_organization():
+        from app.organizations import require_chat_binding
+        require_chat_binding(body.max_chat_id)
     chat = db.scalar(select(Chat).where(Chat.id == chat_id).with_for_update())
     if not chat or not can_access_chat(db, user, chat.max_chat_id):
         raise HTTPException(404, "Чат не найден")
@@ -783,12 +804,17 @@ def create_user(body: UserCreate, db: Db, user: AdminUser):
     db.add(record)
     db.flush()
     audit(db, user.id, "USER_CREATED", "user", record.id, None, user_dict(record))
+    if current_organization():
+        from app.signin_directory import register_user
+        register_user(current_organization(), record)
     db.commit()
     return user_dict(record)
 
 
 @app.patch("/api/users/{user_id}")
 def update_user(user_id: int, body: UserUpdate, db: Db, user: AdminUser):
+    if current_organization() and user_id == current_organization().owner_user_id:
+        raise HTTPException(403, "Аккаунт владельца настраивается в общем кабинете")
     db.execute(text("SELECT pg_advisory_xact_lock(7004, 1)"))
     record = db.get(User, user_id)
     if not record:

@@ -50,7 +50,7 @@ def discover_chat(db: Session, chat_id: int, update: dict, message: dict):
     )
 
 
-def ingest(db: Session, update: dict) -> int | None:
+def ingest(db: Session, update: dict, *, received_at=None) -> int | None:
     if update.get("update_type") != "message_created":
         return None
     message = update.get("message") or {}
@@ -85,7 +85,7 @@ def ingest(db: Session, update: dict) -> int | None:
     )
     result = db.execute(
         insert(Inbox)
-        .values(max_chat_id=chat_id, message_id=mid, payload=update)
+        .values(max_chat_id=chat_id, message_id=mid, payload=update, received_at=received_at or now())
         .on_conflict_do_nothing(index_elements=[Inbox.max_chat_id, Inbox.message_id])
         .returning(Inbox.id)
     )
@@ -114,7 +114,7 @@ def ingest(db: Session, update: dict) -> int | None:
                 chat_name=chat.name,
                 max_message_id=mid,
                 sender_id=sender.get("user_id"),
-                received_at=now(),
+                received_at=received_at or now(),
                 is_forwarded=forwarded,
                 cohort=exchange.intake_cohort,
                 archive_layout="district_v1",

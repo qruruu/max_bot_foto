@@ -14,6 +14,7 @@ from app.auth import CurrentUser, Db
 from app.chat_access import chat_condition
 from app.domain import now
 from app.models import OperatorMessage, Photo, User
+from app.organization_context import workspace_url
 from app.permissions import Permission, has_permission
 from app.photo_scope import active_cohort_condition
 from app.schemas import StrictModel
@@ -77,7 +78,7 @@ def message_dict(message, photos=None):
         "client_id": message.client_id, "body": message.body,
         "photo": {
             "id": message.photo_id, "available": photo is not None,
-            "preview_url": f"/api/photos/{photo.id}/preview" if photo is not None and photo.sha256 else None,
+            "preview_url": workspace_url(f"/api/photos/{photo.id}/preview") if photo is not None and photo.sha256 else None,
         } if message.photo_id is not None else None,
         "created_at": message.created_at.replace(tzinfo=UTC) if message.created_at.tzinfo is None
         else message.created_at,
@@ -113,7 +114,7 @@ def contacts(db: Db, user: CurrentUser, photo_id: Annotated[int | None, Query(gt
     for peer, latest, unread in rows:
         if photo_id is not None and (not peer.active or photo_id not in visible_photos(db, peer, [photo_id])):
             continue
-        avatar = f"/api/operator-chats/avatars/{peer.id}?v={hashlib.sha256(peer.avatar_image).hexdigest()[:16]}" \
+        avatar = workspace_url(f"/api/operator-chats/avatars/{peer.id}?v={hashlib.sha256(peer.avatar_image).hexdigest()[:16]}") \
             if peer.active and peer.avatar_image else None
         items.append({
             "id": peer.id, "name": peer.name, "role": peer.role, "active": peer.active,

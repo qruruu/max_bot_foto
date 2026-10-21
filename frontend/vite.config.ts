@@ -14,6 +14,6 @@ export default defineConfig(({command}) => {
         this.emitFile({type: 'asset', fileName: 'version.json', source: JSON.stringify({version})});
       },
     }],
-    server: { proxy: { '/api': 'http://127.0.0.1:8000' } },
+    server: { proxy: { '/api': 'http://127.0.0.1:8000', '^/org/[^/]+/api/': 'http://127.0.0.1:8000' } },
   };
 });

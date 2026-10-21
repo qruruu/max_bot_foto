@@ -16,14 +16,16 @@ from app.db import engine
 from app.domain import now
 from app.intake import ingest
 from app.integrations import MaxClient
-from app.models import Chat, MaxReceiverState
+from app.models import Chat, MaxReceiverState, PlatformMaxReceiverState
+from app.organization_context import current_organization
 
 log = logging.getLogger(__name__)
 
 
 def locked_state(db: Session) -> MaxReceiverState:
-    db.execute(insert(MaxReceiverState).values(id=1, events_received=0, inbox_received=0).on_conflict_do_nothing())
-    return db.scalar(select(MaxReceiverState).where(MaxReceiverState.id == 1).with_for_update())
+    model = PlatformMaxReceiverState if settings().organizations_enabled and not current_organization() else MaxReceiverState
+    db.execute(insert(model).values(id=1, events_received=0, inbox_received=0).on_conflict_do_nothing())
+    return db.scalar(select(model).where(model.id == 1).with_for_update())
 
 
 def received(db: Session, count: int, accepted: int):
@@ -40,15 +42,20 @@ def received(db: Session, count: int, accepted: int):
 def connection_status(db: Session):
     state = db.get(MaxReceiverState, 1)
     cfg = settings()
+    transport_state = state
+    if current_organization():
+        from app.organization_registry import control_session
+        with control_session() as control:
+            transport_state = control.get(PlatformMaxReceiverState, 1)
     return {
         "mode": cfg.max_transport,
         "token_configured": bool(cfg.max_bot_token),
         "disk_configured": bool(cfg.yandex_disk_token),
         "active_chats": db.scalar(select(func.count()).select_from(Chat).where(Chat.active)),
-        "poller_alive": bool(state and state.heartbeat_at and state.heartbeat_at > now() - timedelta(seconds=90)),
-        "last_success_at": state.last_success_at if state else None,
+        "poller_alive": bool(transport_state and transport_state.heartbeat_at and transport_state.heartbeat_at > now() - timedelta(seconds=90)),
+        "last_success_at": transport_state.last_success_at if transport_state else None,
         "last_event_at": state.last_event_at if state else None,
-        "last_error": state.last_error if state else None,
+        "last_error": transport_state.last_error if transport_state else None,
         "events_received": state.events_received if state else 0,
         "inbox_received": state.inbox_received if state else 0,
     }
@@ -104,7 +111,12 @@ def poll_once(client=None) -> bool:
                 ):
                     raise RuntimeError("MAX_INVALID_UPDATES")
                 with Session(engine()) as db:
-                    accepted = sum(ingest(db, update) is not None for update in updates)
+                    if cfg.organizations_enabled:
+                        from app.organization_intake import ingest_event
+                        accept = ingest_event
+                    else:
+                        accept = ingest
+                    accepted = sum(accept(db, update) is not None for update in updates)
                     state = received(db, len(updates), accepted)
                     if next_marker is not None:
                         state.marker = next_marker

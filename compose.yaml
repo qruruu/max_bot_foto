@@ -26,7 +26,7 @@ services:
     restart: unless-stopped
   migrate:
     <<: *app
-    command: [alembic, upgrade, head]
+    command: [python, -m, app.cli, migrate]
     restart: "no"
     depends_on:
       db:
