@@ -17,6 +17,28 @@ DAY = "2026-10-18"
 ROOT = "/api/day-reviews/" + DAY
 
 
+@pytest.mark.integration
+def test_operator_progress_with_real_postgresql_closing_and_late_arrivals(admin, db):
+    from app.db import engine
+    from app.models import ExchangeState
+
+    db.get(ExchangeState, 1).intake_cohort = 'production'
+    db.add_all([Chat(max_chat_id=100, name='Первая бригада', active=True),
+                Chat(max_chat_id=200, name='Вторая бригада', active=True)])
+    db.commit()
+    add_photo(engine(), 70, chat_id=100)
+    add_photo(engine(), 80, chat_id=200)
+    response = admin.get(ROOT + '/operators')
+    assert response.status_code == 200, response.text
+    assert response.json()['items'][0]['status'] == 'NOT_CLOSED'
+    assert close(admin)['confirmed'] == 2
+    result = {item['name']: item for item in admin.get(ROOT + '/operators').json()['items']}
+    assert result['admin']['status'] == 'CLOSED' and result['admin']['confirmed'] == 2
+    add_photo(engine(), 90, chat_id=100)
+    result = {item['name']: item for item in admin.get(ROOT + '/operators').json()['items']}
+    assert result['admin']['status'] == 'ADDITIONS' and result['admin']['pending'] == 1
+
+
 def add_photo(engine, id=70, *, day=date(2026, 10, 18), chat_id=100):
     with AccessSession(engine) as db:
         db.add(Inbox(id=id, max_chat_id=chat_id, message_id=str(id), payload={}))

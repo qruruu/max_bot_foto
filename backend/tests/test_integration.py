@@ -454,7 +454,7 @@ def test_shared_filters_reports_list_and_excel(admin, db):
         assert exported.status_code == 200, exported.text
         wb = load_workbook(BytesIO(exported.content), read_only=True)
         assert len(list(wb["Все фото"].rows)) == expected + 1
-        assert len(wb.sheetnames) == 5
+        assert len(wb.sheetnames) == 6
     assert admin.get("/api/photos?date_from=2026-10-02&date_to=2026-10-01").status_code == 422
 
 

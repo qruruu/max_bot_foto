@@ -94,6 +94,12 @@ def get_day(day: date, db: Db, user: DayReviewer):
     return day_summary(db, user, day, selection(db, user, day))
 
 
+@router.get("/{day}/operators")
+def get_operators(day: date, db: Db, user: Annotated[User, Depends(require_permission(Permission.REPORTS_VIEW))]):
+    from app.day_oversight import operator_progress
+    return operator_progress(db, user, day)
+
+
 @router.post("/{day}/close")
 def close_day(day: date, body: CloseDayInput, db: Db, user: DayReviewer):
     # All closures of the same date share a lock, even when operators' scopes overlap.

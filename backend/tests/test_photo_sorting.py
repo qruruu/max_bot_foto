@@ -146,7 +146,7 @@ def test_explicit_auxiliary_status_does_not_restore_work_breakdowns(sorting_api,
         assert response.status_code == 200
         book = load_workbook(BytesIO(response.content))
         assert [row[0] for row in list(book['Все фото'].values)[1:]] == [id]
-        for title in ('По микрорайонам','По чатам','По видам работ','Чат × микрорайон'):
+        for title in ('По микрорайонам','По чатам','По видам работ','Чат × микрорайон','Вид работы × микрорайон'):
             assert len(list(book[title].values)) == 1
 
 

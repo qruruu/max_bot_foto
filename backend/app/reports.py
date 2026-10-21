@@ -133,6 +133,13 @@ def summarize(db: Session, filters: PhotoFilters, user=None):
             )
         )
     ]
+    work_district_matrix = [
+        {"work_type": code or "NONE", "district_id": did or 0, "count": n}
+        for code, did, n in db.execute(
+            select(source.c.work_type, source.c.district_id, func.count())
+            .group_by(source.c.work_type, source.c.district_id)
+        )
+    ]
     return {
         "total": sum(count for status, count in counts.items() if status not in NON_WORK_STATUSES),
         "accepted": counts.get(Status.ACCEPTED, 0) + counts.get(Status.NEEDS_REVIEW, 0),
@@ -141,6 +148,7 @@ def summarize(db: Session, filters: PhotoFilters, user=None):
         "districts": districts,
         "work_types": works,
         "matrix": matrix,
+        "work_district_matrix": work_district_matrix,
         "day_updates": closed_day_updates(db, filters, user)
         if user is not None and has_permission(user, Permission.DAYS_REVIEW) else [],
     }
@@ -292,6 +300,13 @@ def export_excel(db: Session, filters: PhotoFilters, user=None) -> bytes:
             [c["name"]] + [counts.get((c["id"], d["id"]), 0) for d in report["districts"]] + [c["count"]]
             for c in report["chats"]
         ),
+    )
+    work_counts = {(x["work_type"], x["district_id"]): x["count"] for x in report.get("work_district_matrix", [])}
+    sheet(
+        "Вид работы × микрорайон",
+        ["Вид работы"] + [d["name"] for d in report["districts"]] + ["Всего"],
+        ([w["name"]] + [work_counts.get((w["id"], d["id"]), 0) for d in report["districts"]] + [w["count"]]
+         for w in report["work_types"]),
     )
     buf = BytesIO()
     wb.save(buf)

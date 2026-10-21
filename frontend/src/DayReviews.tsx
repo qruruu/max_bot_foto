@@ -9,6 +9,7 @@ import type { Photo, PhotoPage } from './types';
 import { capturePhotoListPosition, photoListAnchor, photoListPage, restorePhotoListPosition } from './photoNavigation';
 import type { PhotoListPosition } from './photoNavigation';
 import PhotoTable from './PhotoTable';
+import OperatorDayStatus from './OperatorDayStatus';
 import { canEditPhoto, updatePhotoDefect } from './photoWork';
 import './day-reviews.css';
 
@@ -123,6 +124,7 @@ export default function DayReviews() {
         {!!summary.blocked && <p className="warning-text">Сначала нужно разобрать фотографии с вопросами или ошибками: {summary.blocked}. Закрытие станет доступно после исправления. <Link className="text-button" to={'/review?' + query({review_day: day, all_dates: '1'})}>Перейти в «Требуют проверки»</Link></p>}
         {summary.last_confirmation_at && <small>Последнее подтверждение: {new Date(summary.last_confirmation_at).toLocaleString('ru-RU')}</small>}
       </section>
+      <OperatorDayStatus day={day} refreshKey={summary.snapshot}/>
       <section className="panel photo-panel">
         <label className="day-work-filter">Вид работы<select value={work} onChange={e => change({work: e.target.value})}><option value="">Все виды работ</option>{summary.work_types.filter(w => w.pending).map(w => <option key={w.code} value={w.code}>{w.name} ({w.pending})</option>)}</select></label>
         <div className="section-title"><h2>Проверка за нейросетью</h2>
