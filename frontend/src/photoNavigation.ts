@@ -37,7 +37,7 @@ export function photoListBackLink(id: number, params: URLSearchParams): string {
   const peer = params.get('operator_chat');
   if (peer && /^[1-9]\d*$/.test(peer) && Number.isSafeInteger(Number(peer))) return '/messages?with=' + peer;
   const filters = new URLSearchParams(params);
-  for (const key of ['review', 'spam', 'from_map', 'operator_chat']) filters.delete(key);
+  for (const key of ['review', 'spam', 'from_map', 'operator_chat', 'by_number']) filters.delete(key);
   const fromMap = params.get('from_map') === '1';
   const path = fromMap ? '/photo-map' : params.get('review') === '1' ? '/review' : params.get('spam') === '1' ? '/spam' : '/photos';
   if (fromMap) {
@@ -51,7 +51,7 @@ export function photoListBackLink(id: number, params: URLSearchParams): string {
 
 export async function nextPhotoId(id: number, params: URLSearchParams): Promise<number | null> {
   const filters = Object.fromEntries(params);
-  for (const key of ['review', 'spam', 'from_map', 'from_day', 'all_dates', 'page', 'page_size', 'anchor_id', 'operator_chat']) delete filters[key];
+  for (const key of ['review', 'spam', 'from_map', 'from_day', 'all_dates', 'page', 'page_size', 'anchor_id', 'operator_chat', 'by_number']) delete filters[key];
 
   if (params.get('review') === '1') {
     filters.status = 'NEEDS_REVIEW';

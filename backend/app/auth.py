@@ -93,6 +93,20 @@ def current_user(request: Request, db: Db):
 CurrentUser = Annotated[User, Depends(current_user)]
 
 
+def is_platform_owner(user: User) -> bool:
+    # Set only by the verified platform session, never by a tenant role or request body.
+    return bool(getattr(user, "_platform_owner", False))
+
+
+def workspace_owner(user: CurrentUser):
+    if current_organization() is None or not is_platform_owner(user):
+        raise HTTPException(403, "Доступно только владельцу сервиса")
+    return user
+
+
+WorkspaceOwner = Annotated[User, Depends(workspace_owner)]
+
+
 def admin_user(user: CurrentUser):
     if user.role != "ADMIN_OPERATOR":
         raise HTTPException(403, "Требуется роль администратора")

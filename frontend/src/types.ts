@@ -11,6 +11,7 @@ export type FilterFacet = { total: number; values: Record<string, number>; optio
 export type FilterCounts = Record<'work_type' | 'district_id' | 'chat_id' | 'operator_id' | 'sender_id' | 'status', FilterFacet>;
 export type Audit = {id: number; user_id: number | null; at: string; action: string; object_type: string; object_id: number; old_value: unknown; new_value: unknown};
 export type Photo = {
+  production_duplicate_id?: number | null;
   cohort: 'test' | 'production';
   id: number; version: number; is_spam: boolean; is_defect: boolean; status: string; storage_status: string; photo_date: string | null; photo_time: string | null;
   received_at: string; latitude: number | null; longitude: number | null; chat_name: string; district_id: number | null;

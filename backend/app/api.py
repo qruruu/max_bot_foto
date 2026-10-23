@@ -32,6 +32,7 @@ from app.auth import (
     ReportsReader,
     check_permission,
     hasher,
+    is_platform_owner,
     user_dict,
 )
 from app.auth import router as auth_router
@@ -82,6 +83,8 @@ from app.permissions import (
     permission_catalog,
 )
 from app.photo_ordering import apply_sort_permission, photo_order, photo_position
+from app.photo_promotion import production_duplicate
+from app.photo_promotion import router as photo_promotion_router
 from app.photo_scope import active_cohort, active_cohort_condition
 from app.receiver import connection_status, received
 from app.reports import export_excel, filtered, photo_dict, photo_list_position, summarize
@@ -119,6 +122,7 @@ app.include_router(disk_folders_router)
 app.include_router(day_reviews_router)
 app.include_router(organizations_router)
 app.include_router(disk_accounts_router)
+app.include_router(photo_promotion_router)
 app.add_middleware(OrganizationsMiddleware)
 Filters = Annotated[PhotoFilters, Query()]
 
@@ -358,7 +362,7 @@ def require_photo(db, photo_id, user):
     if not photo or photo.preview_removed_at is not None or not can_access_chat(db, user, photo.max_chat_id):
         raise HTTPException(404, "Фотография не найдена")
     check_photo_access(user, photo)
-    if photo.cohort != active_cohort(db):
+    if photo.cohort != active_cohort(db) and not is_platform_owner(user):
         raise HTTPException(404, "Фотография недоступна в текущем режиме")
     return photo
 
@@ -369,6 +373,8 @@ def get_photo(photo_id: int, db: Db, user: PhotosReader):
     districts, operators = dictionaries(db)
     result = photo_dict(photo, districts, operators, detail=True, catalog=work_catalog(db))
     result["sender_name"] = photo_sender_name(db, photo)
+    if is_platform_owner(user) and photo.cohort == "test":
+        result["production_duplicate_id"] = production_duplicate(db, photo)
     result["history"] = [
         audit_dict(a)
         for a in db.scalars(

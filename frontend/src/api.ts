@@ -49,7 +49,7 @@ export function dateLabel(value: string | null) { return value ? new Date(value.
 export function shiftDate(value: string, days: number) { const d = new Date(value + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0,10); }
 
 export function processingErrorLabel(code: string | null): string {
-  if(code==='ORIGINAL_MISSING')return 'Оригинал не найден на Яндекс.Диске. Автоматические повторы остановлены. Восстановите файл из корзины Диска по прежнему пути и нажмите «Проверить снова».';
+  if(code==='ORIGINAL_MISSING')return 'Оригинал не найден по сохранённому пути на подключённом Яндекс.Диске. Автоматические повторы остановлены. Проверьте выбранный Диск и расположение файла. Если файл удалён, восстановите его из корзины, затем нажмите «Проверить снова».';
   const labels: Record<string, string> = {
     LEGACY_TEST_TREE_HAS_PENDING_PHOTOS: 'В старой учебной папке остались фото с незавершённым переносом. Перенос всей папки отложен.',
     LEGACY_EXCHANGE_UNMANAGED_FILE: 'В старой папке обмена есть файл, принадлежность которого сервису не подтверждена. Другие шаги очистки продолжаются.',

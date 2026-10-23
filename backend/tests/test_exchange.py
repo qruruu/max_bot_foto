@@ -408,6 +408,9 @@ def test_migration_preserves_old_paths_labels_and_defaults_to_test(db):
         migration["upgrade"]()
         preview_migration["upgrade"]()
         files_migration["upgrade"]()
+        # Rebuilding 0006 also replaces this shared function; restore its current guard
+        # so later tests do not inherit the historical immutable-cohort implementation.
+        runpy.run_path(str(Path(__file__).parents[1] / "alembic/versions/0032_owner_photo_promotion.py"))["upgrade"]()
     db.commit()
     db.expire_all()
     photo = db.scalar(select(Photo))
