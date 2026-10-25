@@ -101,8 +101,8 @@ export default function App() {
         <div className="topbar"><span className="workspace-identity"><span className="dot"/>{meta.organization?<><strong>{meta.organization.name}</strong>{user.is_platform_owner&&<a className="organization-switch" href="/">Все организации<ChevronRight size={13}/></a>}</>:<>Операторская панель</>}{meta.intake_cohort==='test'&&<span className="badge">Тестовый режим</span>}</span><span>{dateLabel(meta.today)} <span className="timezone">{meta.timezone}</span></span></div>
         <Routes>
           <Route path="/" element={protectedPage('reports_view',<Overview/>)}/>
-          <Route path="/news" element={protectedPage('news_view',<News/>)}/>
-          <Route path="/news/:slug" element={protectedPage('news_view',<News/>)}/>
+          <Route path="/news" element={protectedPage('news_view',<News owner={!!user.is_platform_owner}/>)}/>
+          <Route path="/news/:slug" element={protectedPage('news_view',<News owner={!!user.is_platform_owner}/>)}/>
           <Route path="/photos" element={protectedPage('photos_view',<PhotoList/>)}/>
           <Route path="/photo-map" element={protectedPage('photos_view',<PhotoMap/>)}/>
           <Route path="/review" element={protectedPage('photos_edit',<PhotoList review/>)}/>

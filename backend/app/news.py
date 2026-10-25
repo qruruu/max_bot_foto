@@ -1,44 +1,27 @@
-"""Versioned release articles; access and screenshots share one explicit permission."""
+"""Global published product articles; drafts are served only by the owner API."""
 
+# The shipped JSON is an import source only. Live reads never fall back to it.
 import json
-from datetime import date
+from copy import deepcopy
+from datetime import UTC
 from functools import lru_cache
-from pathlib import Path
+from typing import Annotated
+from uuid import UUID
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, check_permission
+from app.config import base_settings
+from app.models import NewsArticle, NewsAsset, NewsLegacyAsset, NewsPublishedAsset
+from app.news_legacy import CONTENT_DIR, Post
 from app.organization_context import workspace_url
+from app.organization_registry import control_session
 from app.permissions import Permission
 
 router = APIRouter(prefix="/api/news", tags=["news"])
-CONTENT_DIR = Path(__file__).with_name("news_content")
-
-
-class Screenshot(BaseModel):
-    file: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*\.(png|jpg|webp)$")
-    alt: str = Field(min_length=1)
-    caption: str = Field(min_length=1)
-    width: int = Field(ge=1)
-    height: int = Field(ge=1)
-
-
-class Section(BaseModel):
-    title: str = Field(min_length=1)
-    paragraphs: list[str] = Field(default_factory=list)
-    steps: list[str] = Field(default_factory=list)
-    screenshots: list[Screenshot] = Field(default_factory=list)
-
-
-class Post(BaseModel):
-    slug: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    publishedAt: date
-    category: str = Field(min_length=1)
-    title: str = Field(min_length=1)
-    summary: str = Field(min_length=1)
-    sections: list[Section] = Field(min_length=1)
 
 
 @lru_cache(maxsize=1)
@@ -49,39 +32,147 @@ def load_posts():
     return sorted(posts, key=lambda post: (post.publishedAt, post.slug), reverse=True)
 
 
-def require_post(slug):
-    for post in load_posts():
-        if post.slug == slug:
-            return post
-    raise HTTPException(404, "Новость не найдена")
+def get_news_db():
+    with control_session() as db:
+        yield db
+
+
+NewsDb = Annotated[Session, Depends(get_news_db)]
+
+
+def asset_url(asset_id):
+    return workspace_url(f"/api/news/assets/{asset_id}")
+
+
+def render_snapshot(snapshot, published_at=None, slug=None, *, editor=False, db=None):
+    result = deepcopy(snapshot)
+    url = (lambda aid: f"/api/platform/news/assets/{aid}") if editor else asset_url
+
+    def walk(value):
+        if value["type"] == "image":
+            aid = value["attrs"]["asset_id"]
+            value["attrs"]["src"] = url(aid)
+            if db is not None:
+                dimensions = db.execute(
+                    select(NewsAsset.width, NewsAsset.height).where(NewsAsset.id == aid)
+                ).first()
+                if dimensions:
+                    value["attrs"].update(width=dimensions.width, height=dimensions.height)
+        for child in value.get("content", []):
+            walk(child)
+
+    walk(result["document"])
+    result["cover_src"] = url(result["cover_id"]) if result.get("cover_id") else None
+    if published_at:
+        result["publishedAt"] = (
+            (published_at if published_at.tzinfo else published_at.replace(tzinfo=UTC))
+            .astimezone(ZoneInfo(base_settings().app_timezone))
+            .date()
+            .isoformat()
+        )
+    if slug:
+        result["slug"] = slug
+    return result
+
+
+def compatibility_sections(document):
+    """Keep cached older clients and stable article links usable after the upgrade."""
+    sections = []
+    current = None
+
+    def text(value):
+        return value.get("text", "") + "".join(text(child) for child in value.get("content", []))
+
+    for block in document["content"]:
+        if block["type"] == "heading" or current is None:
+            current = {
+                "title": text(block) if block["type"] == "heading" else "",
+                "paragraphs": [],
+                "steps": [],
+                "screenshots": [],
+            }
+            sections.append(current)
+            if block["type"] == "heading":
+                continue
+        if block["type"] == "image":
+            current["screenshots"].append(
+                {key: block["attrs"][key] for key in ("src", "alt", "caption", "width", "height")}
+            )
+        elif block["type"] in {"orderedList", "bulletList"}:
+            current["steps"].extend(text(item) for item in block["content"])
+        else:
+            current["paragraphs"].append(text(block))
+    return sections
 
 
 @router.get("")
-def news_list(user: CurrentUser):
+def news_list(user: CurrentUser, db: NewsDb):
     check_permission(user, Permission.NEWS_VIEW)
-    return [post.model_dump(mode="json", exclude={"sections"}) for post in load_posts()]
+    result = []
+    for post in db.scalars(
+        select(NewsArticle)
+        .where(NewsArticle.published.is_not(None), NewsArticle.deleted_at.is_(None))
+        .order_by(NewsArticle.published_at.desc(), NewsArticle.slug.desc())
+    ):
+        snapshot = render_snapshot(post.published, post.published_at, post.slug)
+        snapshot.pop("document")
+        result.append(snapshot)
+    return result
+
+
+@router.get("/assets/{asset_id}")
+def news_asset(asset_id: UUID, user: CurrentUser, db: NewsDb):
+    check_permission(user, Permission.NEWS_VIEW)
+    referenced = db.scalar(
+        select(NewsPublishedAsset.asset_id)
+        .join(NewsArticle)
+        .where(
+            NewsPublishedAsset.asset_id == str(asset_id),
+            NewsArticle.published.is_not(None),
+            NewsArticle.deleted_at.is_(None),
+        )
+        .limit(1)
+    )
+    asset = db.get(NewsAsset, str(asset_id)) if referenced else None
+    if not asset:
+        raise HTTPException(404, "Изображение не найдено")
+    return Response(asset.content, media_type=asset.mime_type)
 
 
 @router.get("/{slug}")
-def news_post(slug: str, user: CurrentUser):
+def news_post(slug: str, user: CurrentUser, db: NewsDb):
     check_permission(user, Permission.NEWS_VIEW)
-    post = require_post(slug)
-    result = post.model_dump(mode="json")
-    for section in result["sections"]:
-        for screenshot in section["screenshots"]:
-            screenshot["src"] = workspace_url(f"/api/news/{post.slug}/screenshots/{screenshot.pop('file')}")
+    post = db.scalar(
+        select(NewsArticle).where(
+            NewsArticle.slug == slug, NewsArticle.published.is_not(None), NewsArticle.deleted_at.is_(None)
+        )
+    )
+    if not post:
+        raise HTTPException(404, "Новость не найдена")
+    result = render_snapshot(post.published, post.published_at, post.slug, db=db)
+    result["sections"] = compatibility_sections(result["document"])
     return result
 
 
 @router.get("/{slug}/screenshots/{filename}")
-def news_screenshot(slug: str, filename: str, user: CurrentUser):
+def news_screenshot(slug: str, filename: str, user: CurrentUser, db: NewsDb):
     check_permission(user, Permission.NEWS_VIEW)
-    post = require_post(slug)
-    declared = {image.file for section in post.sections for image in section.screenshots}
-    if filename not in declared:
+    aid = db.scalar(
+        select(NewsLegacyAsset.asset_id)
+        .join(NewsArticle)
+        .join(
+            NewsPublishedAsset,
+            (NewsPublishedAsset.article_id == NewsArticle.id)
+            & (NewsPublishedAsset.asset_id == NewsLegacyAsset.asset_id),
+        )
+        .where(
+            NewsArticle.slug == slug,
+            NewsArticle.published.is_not(None),
+            NewsArticle.deleted_at.is_(None),
+            NewsLegacyAsset.filename == filename,
+        )
+    )
+    asset = db.get(NewsAsset, aid) if aid else None
+    if not asset:
         raise HTTPException(404, "Скриншот не найден")
-    folder = (CONTENT_DIR / post.slug).resolve()
-    path = (folder / filename).resolve()
-    if not folder.is_relative_to(CONTENT_DIR.resolve()) or not path.is_relative_to(folder) or not path.is_file():
-        raise HTTPException(404, "Скриншот не найден")
-    return FileResponse(path)
+    return Response(asset.content, media_type=asset.mime_type)

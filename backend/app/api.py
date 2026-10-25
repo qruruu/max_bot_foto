@@ -71,6 +71,7 @@ from app.models import (
     User,
 )
 from app.news import router as news_router
+from app.news_editor import router as news_editor_router
 from app.operator_chats import router as operator_chats_router
 from app.organization_context import current_organization, workspace_url
 from app.organization_middleware import OrganizationsMiddleware
@@ -118,6 +119,7 @@ app.include_router(operator_chats_router)
 app.include_router(chat_senders_router)
 app.include_router(work_types_router)
 app.include_router(news_router)
+app.include_router(news_editor_router)
 app.include_router(disk_folders_router)
 app.include_router(day_reviews_router)
 app.include_router(organizations_router)

@@ -4,14 +4,26 @@ from io import BytesIO
 
 import pytest
 from PIL import Image
-from sqlalchemy import select
+from sqlalchemy import JSON, Column, MetaData, Table, select
+from sqlalchemy.dialects.postgresql import JSONB
 from test_chat_access import AccessSession, actor
 from test_chat_access import access_api as access_api
 
+from app.api import app
 from app.auth import digest
 from app.domain import now
-from app.models import Audit, LoginSession, User
-from app.news import CONTENT_DIR, load_posts
+from app.models import (
+    Audit,
+    LoginSession,
+    NewsArticle,
+    NewsAsset,
+    NewsLegacyAsset,
+    NewsPublishedAsset,
+    NewsRevision,
+    User,
+)
+from app.news import CONTENT_DIR, get_news_db, load_posts
+from app.news_import import import_posts
 from app.permissions import DEFAULT_OPERATOR_PERMISSIONS, Permission
 from app.schemas import UserCreate
 
@@ -24,7 +36,20 @@ def news_api(access_api):
         db.get(User,3).permissions = ['news_view']
         db.get(User,1).permissions = []
         db.commit()
-    return client, engine
+    metadata = MetaData()
+    for model in (NewsArticle, NewsAsset, NewsRevision, NewsPublishedAsset, NewsLegacyAsset):
+        Table(model.__tablename__, metadata, *(Column(c.name, JSON(none_as_null=True) if isinstance(c.type, JSONB) else c.type, primary_key=c.primary_key) for c in model.__table__.columns))
+    metadata.create_all(engine)
+    with engine.begin() as connection:
+        import_posts(connection)
+    def news_database():
+        with AccessSession(engine, expire_on_commit=False) as db:
+            yield db
+    app.dependency_overrides[get_news_db] = news_database
+    try:
+        yield client, engine
+    finally:
+        app.dependency_overrides.pop(get_news_db, None)
 
 
 def test_news_is_opt_in_and_has_no_unrelated_prerequisites(news_api):

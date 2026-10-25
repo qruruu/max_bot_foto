@@ -33,6 +33,57 @@ class Timestamps:
     )
 
 
+class NewsArticle(Timestamps, Base):
+    """Global product content. Always opened through control_session, never a tenant session."""
+    __tablename__ = "news_articles"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    slug: Mapped[str] = mapped_column(String(150), unique=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    draft: Mapped[dict] = mapped_column(JSONB)
+    published: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    author_id: Mapped[int | None] = mapped_column(Integer)
+    author_name: Mapped[str] = mapped_column(String(150))
+
+
+class NewsAsset(Base):
+    __tablename__ = "news_assets"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+    mime_type: Mapped[str] = mapped_column(String(30))
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    author_id: Mapped[int | None] = mapped_column(Integer)
+
+
+class NewsRevision(Base):
+    __tablename__ = "news_revisions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    article_id: Mapped[str] = mapped_column(ForeignKey("news_articles.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    snapshot: Mapped[dict] = mapped_column(JSONB)
+    action: Mapped[str] = mapped_column(String(30))
+    author_id: Mapped[int | None] = mapped_column(Integer)
+    author_name: Mapped[str] = mapped_column(String(150))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint("article_id", "version"),)
+
+
+class NewsPublishedAsset(Base):
+    __tablename__ = "news_published_assets"
+    article_id: Mapped[str] = mapped_column(ForeignKey("news_articles.id"), primary_key=True)
+    asset_id: Mapped[str] = mapped_column(ForeignKey("news_assets.id"), primary_key=True)
+
+
+class NewsLegacyAsset(Base):
+    __tablename__ = "news_legacy_assets"
+    article_id: Mapped[str] = mapped_column(ForeignKey("news_articles.id"), primary_key=True)
+    filename: Mapped[str] = mapped_column(String(150), primary_key=True)
+    asset_id: Mapped[str] = mapped_column(ForeignKey("news_assets.id"))
+
+
 class Organization(Timestamps, Base):
     __tablename__ = "organizations"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
