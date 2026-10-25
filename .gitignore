@@ -12,6 +12,7 @@ __pycache__/
 htmlcov/
 frontend/node_modules/
 frontend/dist/
+frontend/dist-citizens/
 *.tsbuildinfo
 backend/.venv/
 backend/data/

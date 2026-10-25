@@ -68,7 +68,7 @@ class OrganizationsMiddleware:
         path = scope["path"]
         match = PREFIX.fullmatch(path)
         if match:
-            if match[3].startswith("/api/platform/") or match[3] == "/api/webhooks/max":
+            if match[3].startswith(("/api/platform/", "/api/public/")) or match[3] == "/api/webhooks/max":
                 return await JSONResponse({"detail": "Функция доступна в общем кабинете владельца"}, 404)(scope, receive, send)
             try:
                 organization, owner_session = await run_in_threadpool(resolve_workspace, Request(scope), match[2])
@@ -88,7 +88,7 @@ class OrganizationsMiddleware:
             with organization_scope(organization):
                 return await self.app(child, receive, send)
         if path.startswith("/api/") and not (
-            path.startswith(("/api/platform/", "/api/auth/"))
+            path.startswith(("/api/platform/", "/api/auth/", "/api/public/appeals"))
             or path in {"/api/webhooks/max", "/api/health"}
         ):
             return await JSONResponse({"detail": "Сначала выберите организацию"}, 409)(scope, receive, send)

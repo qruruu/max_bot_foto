@@ -33,6 +33,60 @@ class Timestamps:
     )
 
 
+class CitizenAppeal(Timestamps, Base):
+    """Owner inbox in the control database; never part of a company's photo reports."""
+    __tablename__ = "citizen_appeals"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    city: Mapped[str] = mapped_column(String(150))
+    address: Mapped[str] = mapped_column(String(300))
+    place: Mapped[str] = mapped_column(String(300))
+    category: Mapped[str] = mapped_column(String(40))
+    description: Mapped[str] = mapped_column(Text)
+    organization_hint: Mapped[str] = mapped_column(String(200), default="")
+    contact: Mapped[str] = mapped_column(String(200), default="")
+    photo_count: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20), default="NEW", index=True)
+    owner_note: Mapped[str] = mapped_column(Text, default="")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    __table_args__ = (
+        CheckConstraint("status IN ('NEW', 'IN_REVIEW', 'RESOLVED', 'SPAM')"),
+        CheckConstraint("photo_count BETWEEN 1 AND 3"),
+    )
+
+
+class AppealPhoto(Base):
+    __tablename__ = "appeal_photos"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    appeal_id: Mapped[int] = mapped_column(ForeignKey("citizen_appeals.id"), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    original: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    stamped: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    preview: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    latitude: Mapped[float] = mapped_column(Float)
+    longitude: Mapped[float] = mapped_column(Float)
+    accuracy: Mapped[float] = mapped_column(Float)
+    position_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (UniqueConstraint("appeal_id", "position"),)
+
+
+class AppealCaptureSession(Base):
+    __tablename__ = "appeal_capture_sessions"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    appeal_id: Mapped[int | None] = mapped_column(ForeignKey("citizen_appeals.id"))
+
+
+class AppealRateLimit(Base):
+    __tablename__ = "appeal_rate_limits"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    count: Mapped[int] = mapped_column(Integer)
+
+
 class NewsArticle(Timestamps, Base):
     """Global product content. Always opened through control_session, never a tenant session."""
     __tablename__ = "news_articles"

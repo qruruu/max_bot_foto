@@ -77,6 +77,29 @@ services:
       api:
         condition: service_healthy
     restart: unless-stopped
+  appeals-api:
+    <<: *app
+    profiles: [appeals]
+    command: [uvicorn, app.appeals_public:app, --host, 0.0.0.0, --port, "8000", --proxy-headers, --forwarded-allow-ips, "*"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+  appeals-web:
+    profiles: [appeals]
+    build:
+      context: ./frontend
+      target: citizens
+    ports:
+      - "127.0.0.1:${APPEALS_HTTP_PORT:-8081}:80"
+    depends_on:
+      appeals-api:
+        condition: service_healthy
+    restart: unless-stopped
 volumes:
   postgres_data:
   photo_data:

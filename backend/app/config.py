@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://maxphotos:maxphotos@db:5432/maxphotos"
     app_env: str = "production"
     app_origin: str = "http://localhost:8080"
+    public_appeals_origin: str = ""
     app_timezone: str = "Asia/Yekaterinburg"
     session_hours: int = 12
     cookie_secure: bool = True

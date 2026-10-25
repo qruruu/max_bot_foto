@@ -13,6 +13,9 @@ from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only
 
+from app.appeals import owner_router as appeals_owner_router
+from app.appeals import public_router as appeals_public_router
+from app.appeals_public import AppealBodyLimit
 from app.auth import (
     AdminUser,
     AuditReader,
@@ -114,6 +117,8 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 app.include_router(auth_router)
+app.include_router(appeals_owner_router)
+app.include_router(appeals_public_router)
 app.include_router(signin_router)
 app.include_router(operator_chats_router)
 app.include_router(chat_senders_router)
@@ -126,6 +131,7 @@ app.include_router(organizations_router)
 app.include_router(disk_accounts_router)
 app.include_router(photo_promotion_router)
 app.add_middleware(OrganizationsMiddleware)
+app.add_middleware(AppealBodyLimit)
 Filters = Annotated[PhotoFilters, Query()]
 
 
