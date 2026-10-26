@@ -12,6 +12,7 @@ import useOverlayHistory from './useOverlayHistory';
 import { availableRecipient, recipientFor, validRecipient } from './catalog';
 import type { AppealCatalog } from './catalog';
 import RecipientChoice from './RecipientChoice';
+import UpdateNotice from '../UpdateNotice';
 import './citizen.css';
 
 const TerritoryMap = lazy(() => import('./TerritoryMap'));
@@ -26,7 +27,9 @@ export default function CitizenAppeal() {
   useOverlayHistory(cameraOpen || !!preview, () => {setCameraOpen(false); setPreview(null);});
   const [loaded, setLoaded] = useState(false), [restored, setRestored] = useState(false), [pending, setPending] = useState(false);
   const [storageError, setStorageError] = useState(false), [offline, setOffline] = useState(!navigator.onLine);
-  const locked = busy || preparing || pending;
+  const [reloading, setReloading] = useState(false);
+  const allowReload = useRef(false);
+  const locked = busy || preparing || pending || reloading;
   const photoRef = useRef(photos), sessionRef = useRef(session), tokenRef = useRef<string | null>(null), receiptRef = useRef('');
   const requestActive = useRef(false), mounted = useRef(true), writes = useRef<Promise<void>>(Promise.resolve());
   const snapshot = useRef<AppealDraft>({form, photos: [], token: null, pending: false, savedAt: Date.now()});
@@ -37,13 +40,27 @@ export default function CitizenAppeal() {
   snapshot.current = {form, photos: photos.map(({id, blob, preview, capture}) => ({id, blob, preview, capture})),
     token: tokenRef.current, pending, savedAt: Date.now()};
 
-  function persist(draft = snapshot.current) {
-    writes.current = writes.current.catch(() => {}).then(async () => {
+  function persist(draft = snapshot.current, required = false) {
+    const operation = writes.current.catch(() => {}).then(async () => {
       if (receiptRef.current && !draft.receipt) return;
       if (draft.receipt || hasDraftContent(draft.form, draft.photos, draft.pending)) await saveDraft(draft);
       else await clearDraft();
-    }).catch(() => {if (mounted.current) setStorageError(true);});
-    return writes.current;
+    });
+    writes.current = operation.catch(() => {if (mounted.current) setStorageError(true);});
+    return required ? operation : writes.current;
+  }
+  async function prepareUpdate() {
+    if (requestActive.current || cameraOpen || preview) throw new Error('Завершите текущее действие перед обновлением.');
+    requestActive.current = true; setReloading(true);
+    try {
+      const draft = receiptRef.current ? {form: EMPTY_FORM, photos: [], token: null, pending: false,
+        receipt: receiptRef.current, savedAt: Date.now()} : snapshot.current;
+      await persist(draft, true);
+      allowReload.current = true;
+    } catch {
+      requestActive.current = false; setReloading(false);
+      throw new Error('Не удалось сохранить черновик. Отправьте обращение перед обновлением или попробуйте ещё раз.');
+    }
   }
   function complete(number: string) {
     receiptRef.current = number;
@@ -87,7 +104,7 @@ export default function CitizenAppeal() {
     if (loaded && catalog && !locked && !receipt) setForm(current => availableRecipient(current, catalog));
   }, [loaded, catalog, locked, receipt, form.city, form.organization_id, form.category]);
   useEffect(() => {
-    const handle = (event: BeforeUnloadEvent) => {if (!receiptRef.current && (photoRef.current.length || form.description)) {event.preventDefault(); event.returnValue = '';}};
+    const handle = (event: BeforeUnloadEvent) => {if (!allowReload.current && !receiptRef.current && (photoRef.current.length || form.description)) {event.preventDefault(); event.returnValue = '';}};
     window.addEventListener('beforeunload', handle); return () => window.removeEventListener('beforeunload', handle);
   }, [form.description, receipt]);
 
@@ -213,11 +230,12 @@ export default function CitizenAppeal() {
         </fieldset>
         {error && <p className="citizen-error" role="alert">{error}</p>}
         <div className="citizen-submit"><p>Обращение и фотографии получат администраторы выбранной организации. Они также доступны владельцу сервиса и не публикуются на сайте. Черновик хранится в этом браузере до суток и очищается после отправки.</p>
-          <button className="citizen-primary" disabled={busy || preparing || !photos.length || (!pending && !validRecipient(form, catalog))}>{busy ? <><LoaderCircle className="citizen-spinner" size={18}/>Проверяем и отправляем…</>
+          <button className="citizen-primary" disabled={busy || preparing || reloading || !photos.length || (!pending && !validRecipient(form, catalog))}>{busy ? <><LoaderCircle className="citizen-spinner" size={18}/>Проверяем и отправляем…</>
             : <>{pending ? 'Проверить отправку' : 'Отправить обращение'}<ArrowRight size={18}/></>}</button></div>
       </form>
     </main>}
     <footer className="citizen-footer">Забота о городе начинается с внимания.</footer></div>
+    <UpdateNotice citizen beforeUpdate={prepareUpdate} disabled={busy || preparing} hidden={cameraOpen || !!preview}/>
     {preview && <PhotoPreview photo={preview} onClose={() => setPreview(null)} onRetake={() => {removePhoto(preview.id); setPreview(null); void openCamera();}}/>}
     {cameraOpen && session && <CitizenCamera session={session} onResume={async () => {
       const resumed = await resumeSession();

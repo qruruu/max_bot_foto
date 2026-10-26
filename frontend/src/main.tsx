@@ -8,7 +8,6 @@ import UpdateNotice from './UpdateNotice';
 import './style.css';
 import './theme.css';
 import './filters.css';
-import './update.css';
 import './notifications.css';
 import './settings.css';
 import './sidebar.css';

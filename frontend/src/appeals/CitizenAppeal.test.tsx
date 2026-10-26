@@ -11,6 +11,7 @@ import type { AppealDraft } from './drafts';
 vi.mock('./requests', async () => ({...await vi.importActual('./requests'), publicRequest: vi.fn()}));
 vi.mock('./drafts', async () => ({...await vi.importActual('./drafts'), loadDraft: vi.fn(), saveDraft: vi.fn(async () => {}), clearDraft: vi.fn(async () => {})}));
 vi.mock('./TerritoryMap', () => ({default: () => null}));
+vi.mock('../version', () => ({watchVersion: vi.fn((_version: string, onChange: (available: boolean) => void) => {onChange(true); return () => {};})}));
 const organizationId = '11111111-1111-4111-8111-111111111111';
 const catalog = {yandex_maps_api_key: '', organizations: [
   {id: organizationId, name: 'Уборка города', city: 'Сургут', color: '#2563eb', work_types: [{code: 'waste', name: 'Вывоз мусора'}], territories: []},
@@ -38,7 +39,18 @@ beforeEach(() => {
   Object.defineProperty(URL, 'createObjectURL', {configurable: true, value: vi.fn(() => 'blob:restored-frame')});
   Object.defineProperty(URL, 'revokeObjectURL', {configurable: true, value: vi.fn()});
 });
-afterEach(async () => {await act(async () => {root.unmount(); await tick();}); element.remove(); vi.restoreAllMocks();});
+afterEach(async () => {await act(async () => {root.unmount(); await tick();}); element.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs();});
+
+function enableReleaseNotice() {
+  vi.stubEnv('DEV', false);
+  const browser = window, reload = vi.fn();
+  vi.stubGlobal('window', new Proxy(browser, {get(target, key) {
+    if (key === 'location') return {reload};
+    const value = Reflect.get(target, key, target);
+    return typeof value === 'function' ? value.bind(target) : value;
+  }}));
+  return reload;
+}
 
 it('restores a camera-only draft with its original token after a mobile tab reload', async () => {
   await mount(draft());
@@ -186,4 +198,38 @@ it('introduces choices when the refreshed catalog gains cities, organizations an
   expect(element.querySelector<HTMLSelectElement>('select[name="organization_id"]')!.value).toBe(organizationId);
   expect(element.querySelector<HTMLSelectElement>('select[name="category"]')!.value).toBe('waste');
   expect(element.querySelectorAll('.citizen-photo img')).toHaveLength(1);
+});
+
+it('waits for the complete frozen draft to be saved before loading a new release', async () => {
+  const reload = enableReleaseNotice(), original = draft(true);
+  await mount(original);
+  let finishSaving!: () => void;
+  vi.mocked(saveDraft).mockImplementationOnce(() => new Promise<void>(resolve => {finishSaving = resolve;}));
+  const update = element.querySelector<HTMLButtonElement>('.update-notice button')!;
+  expect(update.textContent).toBe('Обновить');
+  await act(async () => {update.click(); update.click(); await tick();});
+  expect(update.disabled).toBe(true); expect(reload).not.toHaveBeenCalled();
+  const saved = vi.mocked(saveDraft).mock.calls.at(-1)![0];
+  expect(saved.form).toEqual(original.form); expect(saved.photos).toEqual(original.photos);
+  expect(saved.pending).toBe(true); expect(saved.token).toBe(original.token);
+  await act(async () => {finishSaving(); await tick();});
+  expect(reload).toHaveBeenCalledTimes(1);
+  const leaving = new Event('beforeunload', {cancelable: true}); window.dispatchEvent(leaving);
+  expect(leaving.defaultPrevented).toBe(false);
+});
+
+it('keeps the form and photo open when saving before an update fails and permits retry', async () => {
+  const reload = enableReleaseNotice();
+  await mount(draft());
+  vi.mocked(saveDraft).mockRejectedValueOnce(new Error('Storage full'));
+  const update = () => element.querySelector<HTMLButtonElement>('.update-notice button')!;
+  await act(async () => {update().click(); await tick();});
+  expect(reload).not.toHaveBeenCalled(); expect(update().disabled).toBe(false);
+  expect(element.querySelector('.update-error')!.textContent).toContain('Не удалось сохранить черновик');
+  expect(element.querySelectorAll('.citizen-photo img')).toHaveLength(1);
+  expect(element.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('Мусор возле урны');
+  const leaving = new Event('beforeunload', {cancelable: true}); window.dispatchEvent(leaving);
+  expect(leaving.defaultPrevented).toBe(true);
+  await act(async () => {update().click(); await tick();});
+  expect(reload).toHaveBeenCalledTimes(1);
 });

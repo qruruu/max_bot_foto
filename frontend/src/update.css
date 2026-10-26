@@ -16,8 +16,16 @@
 }
 .update-notice strong { font-size: 13px; font-weight: 600; }
 .update-notice button { flex-shrink: 0; }
+.update-notice:has(.update-error) { flex-wrap: wrap; }
+.update-notice .update-error { flex-basis: 100%; margin: 0; max-width: 360px; font-size: 12px; color: #9d3b2c; }
 :root[data-theme="dark"] .update-notice { background: var(--surface); color: var(--text); box-shadow: 0 8px 30px #0006; }
 @media (max-width: 520px) {
   .update-notice { left: 90px; right: 16px; bottom: 16px; flex-direction: column; align-items: flex-start; gap: 12px; }
   .update-notice button { align-self: flex-end; }
+}
+.update-notice-citizen { border-color: #dce2d5; font: 14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; right: max(20px,env(safe-area-inset-right)); bottom: max(20px,env(safe-area-inset-bottom)); }
+.update-notice-citizen button { min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 8px; padding: 10px 16px; background: #2e5140; color: white; font: inherit; cursor: pointer; }
+.update-notice-citizen button:disabled { opacity: .55; cursor: default; }
+@media (max-width: 520px) {
+  .update-notice-citizen { left: max(16px,env(safe-area-inset-left)); right: max(16px,env(safe-area-inset-right)); bottom: max(16px,env(safe-area-inset-bottom)); }
 }
