@@ -1,8 +1,8 @@
 import type { CaptureMetadata, CaptureSession } from './camera';
 
-export type AppealForm = {city: string; address: string; place: string; category: string; description: string;
-  organization_hint: string; contact: string; website: string};
-export const EMPTY_FORM: AppealForm = {city: '', address: '', place: '', category: '', description: '', organization_hint: '', contact: '', website: ''};
+export type AppealForm = {city: string; organization_id: string; address: string; place: string; category: string; description: string;
+  contact: string; website: string};
+export const EMPTY_FORM: AppealForm = {city: '', organization_id: '', address: '', place: '', category: '', description: '', contact: '', website: ''};
 export type StoredPhoto = {id: string; blob: Blob; preview: Blob; capture: CaptureMetadata};
 export type AppealDraft = {form: AppealForm; photos: StoredPhoto[]; token: string | null; pending: boolean; savedAt: number; receipt?: string};
 const DATABASE = 'citizen-appeal-drafts', STORE = 'drafts', KEY = 'current';
@@ -43,7 +43,9 @@ export async function loadDraft(): Promise<AppealDraft | null> {
   const draft = await transaction<AppealDraft | undefined>('readonly', store => store.get(KEY));
   if (!draft) return null;
   if (!draftIsFresh(draft.savedAt)) {await clearDraft(); return null;}
-  return draft;
+  // Keep text/photos from the earlier owner-only form; require choosing a registered recipient.
+  const form = Object.fromEntries(Object.entries(EMPTY_FORM).map(([key, value]) => [key, draft.form[key as keyof AppealForm] ?? value])) as AppealForm;
+  return {...draft, form};
 }
 
 export function draftIsFresh(savedAt: number, current = Date.now()) {

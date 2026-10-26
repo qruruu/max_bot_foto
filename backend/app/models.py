@@ -34,13 +34,16 @@ class Timestamps:
 
 
 class CitizenAppeal(Timestamps, Base):
-    """Owner inbox in the control database; never part of a company's photo reports."""
+    """Organization inbox in the control database; never part of photo reports."""
     __tablename__ = "citizen_appeals"
     id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), index=True)
+    organization_name: Mapped[str] = mapped_column(String(150), default="", server_default="")
+    work_type_name: Mapped[str] = mapped_column(String(100), default="", server_default="")
     city: Mapped[str] = mapped_column(String(150))
     address: Mapped[str] = mapped_column(String(300))
     place: Mapped[str] = mapped_column(String(300))
-    category: Mapped[str] = mapped_column(String(40))
+    category: Mapped[str] = mapped_column(String(60))
     description: Mapped[str] = mapped_column(Text)
     organization_hint: Mapped[str] = mapped_column(String(200), default="")
     contact: Mapped[str] = mapped_column(String(200), default="")
@@ -143,6 +146,7 @@ class Organization(Timestamps, Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     slug: Mapped[str] = mapped_column(String(60), unique=True)
     name: Mapped[str] = mapped_column(String(150))
+    city: Mapped[str | None] = mapped_column(String(150))
     status: Mapped[str] = mapped_column(String(20), default="PROVISIONING")
     database_name: Mapped[str | None] = mapped_column(String(63), unique=True)
     database_role: Mapped[str | None] = mapped_column(String(63), unique=True)

@@ -13,6 +13,7 @@ from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only
 
+from app.appeals import organization_router as appeals_organization_router
 from app.appeals import owner_router as appeals_owner_router
 from app.appeals import public_router as appeals_public_router
 from app.appeals_public import AppealBodyLimit
@@ -118,6 +119,7 @@ app = FastAPI(
 )
 app.include_router(auth_router)
 app.include_router(appeals_owner_router)
+app.include_router(appeals_organization_router)
 app.include_router(appeals_public_router)
 app.include_router(signin_router)
 app.include_router(operator_chats_router)

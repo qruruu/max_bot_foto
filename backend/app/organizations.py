@@ -43,6 +43,7 @@ Owner = Annotated[User, Depends(owner_only)]
 
 class OrganizationInput(StrictModel):
     name: str = Field(min_length=1, max_length=150)
+    city: str = Field(min_length=2, max_length=150)
     # Older browser versions may still send this field; new forms only need a name.
     slug: str | None = Field(default=None, min_length=2, max_length=60, pattern=r"^[a-z0-9][a-z0-9-]+$")
     disk_account_id: UUID | None = None
@@ -50,6 +51,7 @@ class OrganizationInput(StrictModel):
 
 class OrganizationUpdate(StrictModel):
     name: str = Field(min_length=1, max_length=150)
+    city: str | None = Field(default=None, min_length=2, max_length=150)
     status: Literal["ACTIVE", "PAUSED"]
     disk_account_id: UUID | None = None
 
@@ -60,7 +62,7 @@ class ChatBinding(StrictModel):
 
 
 def organization_dict(record, *, stats=False):
-    result = {key: getattr(record, key) for key in ("id", "name", "slug", "status", "last_error", "legacy", "disk_account_id")}
+    result = {key: getattr(record, key) for key in ("id", "name", "city", "slug", "status", "last_error", "legacy", "disk_account_id")}
     result["url"] = f"/org/{record.id}/"
     result["stats"] = None
     if stats and record.status in {"ACTIVE", "PAUSED"}:
@@ -102,11 +104,11 @@ def create_organization(body: OrganizationInput, db: Db, user: Owner):
     if body.slug and db.scalar(select(Organization.id).where(Organization.slug == body.slug)):
         raise HTTPException(409, "Такое короткое имя уже занято")
     id = uuid4()
-    record = Organization(id=str(id), name=body.name, slug=body.slug or "org-" + id.hex, disk_account_id=disk_id, database_name="org_" + id.hex,
+    record = Organization(id=str(id), name=body.name, city=body.city, slug=body.slug or "org-" + id.hex, disk_account_id=disk_id, database_name="org_" + id.hex,
                           database_role="org_" + id.hex, status="PROVISIONING")
     db.add(record)
     audit(db, user.id, "ORGANIZATION_CREATED", "organization", 0, None,
-          {"id": record.id, "name": record.name})
+          {"id": record.id, "name": record.name, "city": record.city})
     db.commit()
     try:
         provision(record.id)
@@ -138,13 +140,15 @@ def edit_organization(organization_id: UUID, body: OrganizationUpdate, db: Db, u
         raise HTTPException(404, "Организация не найдена")
     if record.status not in {"ACTIVE", "PAUSED"}:
         raise HTTPException(409, "Сначала завершите создание организации")
-    before = {"name": record.name, "status": record.status}
+    before = {"name": record.name, "status": record.status, "city": record.city}
     if "disk_account_id" in body.model_fields_set:
         from app.disk_accounts import validate_selection
         record.disk_account_id = validate_selection(db, record, body.disk_account_id)
     record.name, record.status = body.name, body.status
+    if body.city is not None:
+        record.city = body.city
     audit(db, user.id, "ORGANIZATION_UPDATED", "organization", 0, before,
-          {"id": record.id, "name": record.name, "status": record.status, "disk_account_id": record.disk_account_id})
+          {"id": record.id, "name": record.name, "city": record.city, "status": record.status, "disk_account_id": record.disk_account_id})
     db.commit()
     return organization_dict(record, stats=True)
 

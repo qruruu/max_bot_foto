@@ -1,4 +1,4 @@
-"""Anonymous camera intake; private reads are exclusively for the platform owner."""
+"""Anonymous camera intake routed to registered organizations and their administrators."""
 
 import secrets
 from datetime import timedelta
@@ -13,17 +13,19 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from starlette.datastructures import UploadFile
 
+from app.appeal_catalog import public_organizations, validate_recipient
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS, prepare_photo
 from app.auth import CurrentUser, is_platform_owner
 from app.config import base_settings
 from app.domain import audit, now
 from app.models import AppealCaptureSession, AppealPhoto, AppealRateLimit, CitizenAppeal, PlatformOwner
-from app.organization_context import current_organization
+from app.organization_context import current_organization, workspace_url
 from app.organization_registry import control_session
 from app.schemas import StrictModel
 
 public_router = APIRouter(prefix="/api/public/appeals", tags=["citizen appeals"])
 owner_router = APIRouter(prefix="/api/platform/appeals", tags=["owner appeals"])
+organization_router = APIRouter(prefix="/api/appeals", tags=["organization appeals"])
 CATEGORIES = {
     "waste": "Мусор и урны", "cleaning": "Уборка территории", "landscaping": "Деревья и озеленение",
     "roads": "Дороги и тротуары", "lighting": "Освещение", "playgrounds": "Детские и спортивные площадки",
@@ -48,12 +50,12 @@ class Capture(StrictModel):
 
 class AppealInput(StrictModel):
     capture_source: Literal["camera"]
+    organization_id: UUID
     city: str = Field(min_length=2, max_length=150)
     address: str = Field(min_length=5, max_length=300)
     place: str = Field(min_length=2, max_length=300)
-    category: Literal["waste", "cleaning", "landscaping", "roads", "lighting", "playgrounds", "building", "other"]
+    category: str = Field(min_length=1, max_length=60)
     description: str = Field(min_length=10, max_length=4000)
-    organization_hint: str = Field(default="", max_length=200)
     contact: str = Field(default="", max_length=200)
     website: str = Field(default="", max_length=0)
     captures: list[Capture] = Field(min_length=1, max_length=MAX_PHOTOS)
@@ -65,13 +67,31 @@ class OwnerEdit(StrictModel):
     expected_version: int = Field(ge=1)
 
 
-def require_owner(user: CurrentUser):
-    if current_organization() is not None or not is_platform_owner(user):
-        raise HTTPException(403, "Обращения граждан доступны только владельцу сервиса")
+def require_appeal_access(user: CurrentUser):
+    organization = current_organization()
+    if (organization and user.role != "ADMIN_OPERATOR") or (not organization and not is_platform_owner(user)):
+        raise HTTPException(403, "Обращения доступны администраторам выбранной организации")
     return user
 
 
-Owner = Annotated[object, Depends(require_owner)]
+AppealReader = Annotated[object, Depends(require_appeal_access)]
+
+
+def appeal_conditions():
+    organization = current_organization()
+    return [CitizenAppeal.organization_id == organization.id] if organization else []
+
+
+def find_appeal(db, id, *, lock=False):
+    query = select(CitizenAppeal).where(CitizenAppeal.id == id, *appeal_conditions())
+    appeal = db.scalar(query.with_for_update() if lock else query)
+    if not appeal:
+        raise HTTPException(404, "Обращение не найдено")
+    return appeal
+
+
+def private_url(path=""):
+    return workspace_url(("/api/appeals" if current_organization() else "/api/platform/appeals") + path)
 
 
 def check_public_request(request):
@@ -83,6 +103,15 @@ def check_public_request(request):
 def public_available(db):
     if not base_settings().organizations_enabled or db.scalar(select(PlatformOwner.user_id).limit(1)) is None:
         raise HTTPException(503, "Приём обращений пока не настроен. Попробуйте позже.")
+
+
+@public_router.get("/catalog")
+def catalog(request: Request):
+    with control_session() as db:
+        public_available(db)
+        rate_limit(db, request, "catalog", 120, 1)
+        items = public_organizations(db)
+    return {"organizations": items, "yandex_maps_api_key": base_settings().yandex_maps_api_key}
 
 
 def rate_limit(db, request, kind, maximum, minutes):
@@ -114,7 +143,7 @@ def create_capture_session(request: Request):
         db.add(AppealCaptureSession(token_hash=sha256(token.encode()).hexdigest(), issued_at=instant, expires_at=expires))
         db.commit()
     return {"token": token, "server_time": instant.isoformat(), "expires_at": expires.isoformat(),
-            "timezone": base_settings().app_timezone, "categories": CATEGORIES,
+            "timezone": base_settings().app_timezone,
             "max_photos": MAX_PHOTOS, "max_photo_bytes": MAX_PHOTO_BYTES}
 
 
@@ -167,7 +196,9 @@ def save_submission(token, body, photos):
         if session.appeal_id:
             return receipt(session.appeal_id)
         check_capture_times(body, session)
-        appeal = CitizenAppeal(**body.model_dump(exclude={"captures", "capture_source", "website"}),
+        organization, work = validate_recipient(db, body)
+        appeal = CitizenAppeal(**body.model_dump(mode="json", exclude={"captures", "capture_source", "website"}),
+                              organization_name=organization.name, work_type_name=work["name"],
                               photo_count=len(photos), status="NEW", owner_note="", version=1)
         db.add(appeal)
         db.flush()
@@ -180,7 +211,7 @@ def save_submission(token, body, photos):
 
 
 def receipt(id):
-    return {"number": f"ОБ-{id:06d}", "message": "Обращение получено владельцем сервиса"}
+    return {"number": f"ОБ-{id:06d}", "message": "Обращение передано администраторам выбранной организации"}
 
 
 @public_router.post("", status_code=201)
@@ -213,63 +244,78 @@ async def submit_appeal(request: Request):
 def appeal_dict(appeal):
     return {"id": appeal.id, "number": receipt(appeal.id)["number"],
             **{key: getattr(appeal, key) for key in ("city", "address", "place", "category", "description",
+                "organization_id", "organization_name", "work_type_name",
                 "organization_hint", "contact", "photo_count", "status", "owner_note", "version",
                 "created_at", "updated_at")}}
 
 
 def photo_dict(photo):
-    url = f"/api/platform/appeals/{photo.appeal_id}/photos/{photo.id}"
+    url = private_url(f"/{photo.appeal_id}/photos/{photo.id}")
     return {"id": photo.id, "preview_url": url + "?variant=preview", "url": url,
             "original_url": url + "?variant=original", **{key: getattr(photo, key) for key in (
                 "captured_at", "latitude", "longitude", "accuracy", "width", "height")}}
 
 
 @owner_router.get("")
-def list_appeals(user: Owner, status: AppealStatus | None = None, page: int = Query(default=1, ge=1)):
+@organization_router.get("")
+def list_appeals(user: AppealReader, status: AppealStatus | None = None, page: int = Query(default=1, ge=1)):
     with control_session() as db:
-        conditions = [CitizenAppeal.status == status] if status else []
+        conditions = appeal_conditions() + ([CitizenAppeal.status == status] if status else [])
         total = db.scalar(select(func.count()).select_from(CitizenAppeal).where(*conditions))
         rows = db.execute(select(CitizenAppeal, AppealPhoto.id).outerjoin(AppealPhoto,
             (AppealPhoto.appeal_id == CitizenAppeal.id) & (AppealPhoto.position == 0)).where(*conditions)
             .order_by(CitizenAppeal.created_at.desc(), CitizenAppeal.id.desc()).offset((page - 1) * 20).limit(20))
         return {"items": [{**appeal_dict(appeal), "preview_url":
-            f"/api/platform/appeals/{appeal.id}/photos/{photo_id}?variant=preview"} for appeal, photo_id in rows],
+            private_url(f"/{appeal.id}/photos/{photo_id}?variant=preview")} for appeal, photo_id in rows],
             "total": total, "page": page, "page_size": 20, "categories": CATEGORIES,
             "public_url": base_settings().public_appeals_origin.rstrip("/") or "/appeals"}
 
 
-@owner_router.get("/{appeal_id}")
-def appeal_detail(appeal_id: int, user: Owner):
+@organization_router.get("/notifications")
+def appeal_notifications(user: AppealReader):
     with control_session() as db:
-        appeal = db.get(CitizenAppeal, appeal_id)
-        if not appeal:
-            raise HTTPException(404, "Обращение не найдено")
+        conditions = appeal_conditions()
+        count = db.scalar(select(func.count()).select_from(CitizenAppeal).where(
+            *conditions, CitizenAppeal.status == "NEW"))
+        latest = db.scalar(select(func.max(CitizenAppeal.id)).where(*conditions)) or 0
+        return {"new_count": count, "latest_id": latest}
+
+
+@owner_router.get("/{appeal_id}")
+@organization_router.get("/{appeal_id}")
+def appeal_detail(appeal_id: int, user: AppealReader):
+    with control_session() as db:
+        appeal = find_appeal(db, appeal_id)
         return {**appeal_dict(appeal), "photos": [photo_dict(photo) for photo in db.scalars(
             select(AppealPhoto).where(AppealPhoto.appeal_id == appeal.id).order_by(AppealPhoto.position))]}
 
 
 @owner_router.patch("/{appeal_id}")
-def edit_appeal(appeal_id: int, body: OwnerEdit, user: Owner):
+@organization_router.patch("/{appeal_id}")
+def edit_appeal(appeal_id: int, body: OwnerEdit, user: AppealReader):
     with control_session() as db:
-        appeal = db.get(CitizenAppeal, appeal_id, with_for_update=True)
-        if not appeal:
-            raise HTTPException(404, "Обращение не найдено")
+        appeal = find_appeal(db, appeal_id, lock=True)
         if appeal.version != body.expected_version:
             raise HTTPException(409, "Обращение изменилось. Обновите карточку перед сохранением.")
         before = {"status": appeal.status, "owner_note": appeal.owner_note}
         appeal.status, appeal.owner_note = body.status, body.owner_note
         appeal.version += 1
         appeal.updated_at = now()
-        audit(db, user.id, "CITIZEN_APPEAL_UPDATED", "citizen_appeal", appeal.id, before,
-              {"status": appeal.status, "owner_note": appeal.owner_note})
+        organization = current_organization()
+        audit(db, None if organization else user.id, "CITIZEN_APPEAL_UPDATED", "citizen_appeal", appeal.id, before,
+              {"status": appeal.status, "owner_note": appeal.owner_note, "organization_id": appeal.organization_id,
+               "actor_user_id": user.id, "actor_name": user.name,
+               "actor_organization_id": organization.id if organization else None})
         db.commit()
         return appeal_dict(appeal)
 
 
 @owner_router.get("/{appeal_id}/photos/{photo_id}")
-def appeal_photo(appeal_id: int, photo_id: UUID, user: Owner,
+@organization_router.get("/{appeal_id}/photos/{photo_id}")
+def appeal_photo(appeal_id: int, photo_id: UUID, user: AppealReader,
                  variant: Literal["stamped", "preview", "original"] = "stamped"):
     with control_session() as db:
+        find_appeal(db, appeal_id)
         photo = db.get(AppealPhoto, str(photo_id))
         if not photo or photo.appeal_id != appeal_id:
             raise HTTPException(404, "Фотография не найдена")

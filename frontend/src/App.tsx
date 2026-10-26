@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createContext, lazy, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, CheckCheck, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MapPin, MessageSquare, Newspaper, RefreshCw, ShieldCheck, Users } from 'lucide-react';
@@ -37,6 +37,8 @@ import { dayReviewDate } from './dayReviewData';
 import './organizations.css';
 import { workspacePrefix } from './workspace';
 import Login, { SignInRedirect } from './Login';
+import { AppealNotice, useAppealNotifications } from './appeals/notifications';
+const OwnerAppeals = lazy(() => import('./appeals/OwnerAppeals'));
 
 const Context = createContext<{ user: User; meta: Meta; refresh: () => Promise<void>; notify: (text: string) => void; updateUser: (user: User) => void }>(null!);
 export const useApp = () => useContext(Context);
@@ -48,6 +50,7 @@ export function StatusBadge({ value }: { value: string }) { return <span classNa
 export default function App() {
   const sidebar = useSidebar();
   const [user,setUser] = useState<User|null>(null), [meta,setMeta] = useState<Meta|null>(null), [loading,setLoading] = useState(true), [error,setError] = useState(''), [toast,setToast] = useState('');
+  const appeals = useAppealNotifications(user?.role === 'ADMIN_OPERATOR' && !!meta?.organization, user?.id);
   const navigate = useNavigate();
   async function refresh() { setMeta(await api<Meta>('/meta')); }
   useEffect(()=>{api<User>('/auth/me').then(setUser).catch(e=>{if(e.status!==401)setError(e.message);}).finally(()=>setLoading(false)); const handler=()=>{setUser(null);setMeta(null);}; window.addEventListener('session-expired',handler);return()=>window.removeEventListener('session-expired',handler);},[]);
@@ -67,6 +70,7 @@ export default function App() {
     {to:'/days', label:'Проверка дней', Icon:CheckCheck, allowed:hasPermission(user,'days_review')},
     {to:'/spam', label:'Спам', Icon:ArchiveX, allowed:hasPermission(user,'spam_view')},
     {to:'/districts', label:'Микрорайоны', Icon:Map, allowed:hasPermission(user,'districts_view')},
+    {to:'/appeals', label:'Обращения граждан', Icon:MessageSquare, allowed:admin && !!meta.organization},
     {to:'/messages', label:'Чаты операторов', Icon:MessageSquare, allowed:true},
     {to:'/chats', label:'Чаты MAX', Icon:MessageSquare, allowed:hasPermission(user,'chats_manage')},
     {to:'/work-types', label:'Виды работ', Icon:Layers, allowed:admin},
@@ -86,7 +90,7 @@ export default function App() {
       {!sidebar.collapsed&&<button type="button" className="sidebar-backdrop" aria-label="Закрыть боковую панель" onClick={sidebar.toggle}/>}
       <aside className="sidebar">
         <NavLink className="brand" to={home} aria-label="MAX Фото — главная"><span className="brand-mark"><Layers size={23}/></span><span className="brand-copy">MAX Фото<small>Контроль городских работ</small></span></NavLink>
-        <SidebarNavigation key={user.id} links={links.map(link=>({...link,badge:link.to==='/messages'?<OperatorChatBadge/>:undefined}))}
+        <SidebarNavigation key={user.id} links={links.map(link=>({...link,badge:link.to==='/messages'?<OperatorChatBadge/>:link.to==='/appeals' && appeals.count ? <span className="count-pill" aria-label={`Новых обращений: ${appeals.count}`}>{appeals.count}</span>:undefined}))}
           order={user.sidebar_order} collapsed={sidebar.collapsed} toggle={sidebar.toggle}
           onSaved={sidebar_order=>setUser(current=>current?.id===user.id?{...current,sidebar_order}:current)}/>
         <div className="sidebar-bottom">
@@ -110,6 +114,7 @@ export default function App() {
           <Route path="/spam" element={protectedPage('spam_view',<PhotoList spam/>)}/>
           <Route path="/photos/:id" element={protectedPage('photos_view',<PhotoDetail/>)}/>
           <Route path="/districts" element={protectedPage('districts_view',<DistrictMap/>)}/>
+          <Route path="/appeals" element={admin && meta.organization ? <Suspense fallback={<p className="loading">Открываем обращения…</p>}><OwnerAppeals organization/></Suspense> : denied}/>
           <Route path="/messages" element={<OperatorChats/>}/>
           <Route path="/chats" element={protectedPage('chats_manage',<Administration key="chats" page="chats"/>)}/>
           <Route path="/work-types" element={admin?<WorkTypes/>:denied}/>
@@ -125,6 +130,7 @@ export default function App() {
         </Routes>
       </main>
     </div>
+    <AppealNotice count={appeals.notice} dismiss={appeals.dismiss}/>
     {toast&&<div className="toast" role="status"><CircleCheck size={20}/>{toast}<button onClick={()=>setToast('')}>×</button></div>}
     </PhotoNotificationsProvider>
     </OperatorChatsProvider>

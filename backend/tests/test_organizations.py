@@ -55,6 +55,7 @@ def companies(db, users, monkeypatch, request):
             owner.headers["X-CSRF-Token"] = owner.cookies["platform_csrf"]
             for slug in ("alpha", "beta"):
                 body = {"name": "ИП Фадеев"} if getattr(request, "param", None) == "automatic" else {"name": slug.title(), "slug": slug}
+                body["city"] = "Сургут" if slug == "alpha" else "Тюмень"
                 response = owner.post("/api/platform/organizations", json=body)
                 assert response.status_code == 201, response.text
                 with control_session() as control:

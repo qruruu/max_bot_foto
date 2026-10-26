@@ -13,15 +13,29 @@ from app.api import app
 from app.appeals_public import app as public_app
 from app.config import settings
 from app.domain import now
-from app.models import AppealCaptureSession, AppealPhoto, CitizenAppeal, Photo, PlatformOwner, User
+from app.models import (
+    AppealCaptureSession,
+    AppealPhoto,
+    CitizenAppeal,
+    Organization,
+    Photo,
+    PlatformOwner,
+    User,
+    WorkType,
+)
 
 pytestmark = pytest.mark.integration
 HEADERS = {"origin": "http://testserver", "x-appeal-request": "camera"}
+ORGANIZATION = "11111111-1111-4111-8111-111111111111"
 
 
 @pytest.fixture
 def owner(db, users, monkeypatch):
-    db.add(PlatformOwner(user_id=db.scalar(select(User.id).where(User.login == "admin"))))
+    owner_id = db.scalar(select(User.id).where(User.login == "admin"))
+    db.add(PlatformOwner(user_id=owner_id))
+    db.add(Organization(id=ORGANIZATION, name="Уборка города", city="Сургут", slug="appeals-test",
+                        status="ACTIVE", legacy=True, owner_user_id=owner_id))
+    db.add(WorkType(code="waste", name="Вывоз мусора", filename_label="Вывоз мусора", model_index=100, sort_order=100))
     db.commit()
     monkeypatch.setenv("ORGANIZATIONS_ENABLED", "true")
     settings.cache_clear()
@@ -39,9 +53,9 @@ def start(client):
 
 
 def body(session):
-    return {"city": "Сургут", "address": "Улица Ленина, 10", "place": "Тротуар возле подъезда",
+    return {"organization_id": ORGANIZATION, "city": "Сургут", "address": "Улица Ленина, 10", "place": "Тротуар возле подъезда",
             "category": "waste", "description": "Урна переполнена, мусор лежит рядом",
-            "organization_hint": "Не знаю", "contact": "+7 900 123-45-67", "capture_source": "camera",
+            "contact": "+7 900 123-45-67", "capture_source": "camera",
             "captures": [{"captured_at": session["server_time"], "position_at": session["server_time"],
                           "latitude": 61.1025, "longitude": 72.5794, "accuracy": 9}]}
 
@@ -135,9 +149,17 @@ def test_limit_requests_and_reject_oversized_body_before_parsing(owner):
 
 def test_tenant_operator_and_owner_inside_company_cannot_read_global_inbox(companies):
     owner, scopes, operators = companies
+    from sqlalchemy.orm import Session
+
+    from app.db import engine
+    from app.organization_context import organization_scope
+
+    with organization_scope(scopes[0]), Session(engine()) as tenant:
+        tenant.add(WorkType(code="waste", name="Вывоз мусора", filename_label="Мусор", model_index=0, sort_order=1))
+        tenant.commit()
     with TestClient(public_app) as citizen:
         session = start(citizen)
-        assert send(citizen, session).status_code == 201
+        assert send(citizen, session, {**body(session), "organization_id": scopes[0].id}).status_code == 201
     item = owner.get("/api/platform/appeals").json()["items"][0]
     photo = owner.get(f'/api/platform/appeals/{item["id"]}').json()["photos"][0]
     for operator, scope in zip(operators, scopes, strict=True):

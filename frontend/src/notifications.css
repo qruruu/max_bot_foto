@@ -19,6 +19,7 @@
   box-shadow: 0 8px 30px #0002;
 }
 .photo-notice > div { flex: 1; min-width: 0; }
+.photo-notice.appeal-notice { top: auto; bottom: max(20px, env(safe-area-inset-bottom)); }
 .photo-notice strong { display: block; font-size: 14px; font-weight: 600; }
 .photo-notice p { margin: 7px 0 10px; color: var(--muted); font-size: 12px; }
 .photo-notice a { color: var(--green); font-size: 12px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
