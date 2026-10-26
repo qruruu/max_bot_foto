@@ -1,0 +1,11 @@
+[Unit]
+Description=MAX Photo backup every day at 03:00 Yekaterinburg
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Asia/Yekaterinburg
+Persistent=true
+AccuracySec=1min
+Unit=max-foto-backup.service
+
+[Install]
+WantedBy=timers.target

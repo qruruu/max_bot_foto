@@ -1,0 +1,18 @@
+[Unit]
+Description=Consistent encrypted MAX Photo backup to Selectel S3
+After=docker.service network-online.target max-foto-backup-resume.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/max-foto-backup backup
+ExecStopPost=/usr/local/sbin/max-foto-backup resume
+TimeoutStartSec=45min
+TimeoutStopSec=3min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUQuota=100%
+MemoryMax=1200M
+UMask=0077

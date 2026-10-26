@@ -1,0 +1,17 @@
+[Unit]
+Description=Restore and verify the latest MAX Photo backup in isolation
+After=docker.service network-online.target max-foto-backup-resume.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/max-foto-backup verify
+ExecStopPost=/usr/local/sbin/max-foto-backup cleanup-verification
+TimeoutStartSec=45min
+TimeoutStopSec=3min
+Nice=15
+IOSchedulingClass=idle
+CPUQuota=75%
+MemoryMax=1500M
+UMask=0077

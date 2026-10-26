@@ -1,0 +1,11 @@
+[Unit]
+Description=Verify MAX Photo recovery each Sunday at 05:00 Yekaterinburg
+
+[Timer]
+OnCalendar=Sun *-*-* 05:00:00 Asia/Yekaterinburg
+Persistent=true
+AccuracySec=5min
+Unit=max-foto-backup-verify.service
+
+[Install]
+WantedBy=timers.target
