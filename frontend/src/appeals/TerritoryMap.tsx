@@ -14,6 +14,7 @@ export default function TerritoryMap({organizations, selected, apiKey, disabled,
   const [failure, setFailure] = useState<{key: string; attempt: number; message: string} | null>(null);
   const error = failure?.key === apiKey && failure.attempt === retry ? failure.message : '';
   const hasAreas = organizations.some(item => item.territories.length);
+  const multiple = organizations.length > 1;
   useEffect(() => {
     let active = true;
     setReady(false); setFailure(null);
@@ -34,9 +35,9 @@ export default function TerritoryMap({organizations, selected, apiKey, disabled,
         const shape = new api.Polygon(coordinates, {hintContent: escapeMapLabel(organization.name + ' · ' + territory.name)}, {
           fillColor: organization.color, fillOpacity: !selected || selected === organization.id ? .3 : .1,
           strokeColor: organization.color, strokeWidth: selected === organization.id ? 4 : 2,
-          openBalloonOnClick: false, cursor: disabled ? 'default' : 'pointer',
+          openBalloonOnClick: false, cursor: disabled || !multiple ? 'default' : 'pointer',
         });
-        shape.events.add('click', () => {if (!locked.current) choose.current(organization.id);});
+        shape.events.add('click', () => {if (!locked.current && multiple) choose.current(organization.id);});
         shapes.push(shape); layer.geoObjects.add(shape);
       }
     }
@@ -49,14 +50,16 @@ export default function TerritoryMap({organizations, selected, apiKey, disabled,
   }, [organizations, ready]);
   return <section className="citizen-territories" aria-label="Территории организаций">
     <div className="citizen-map-heading"><MapPin size={18}/><strong>Кто отвечает за территорию</strong></div>
-    <p className="citizen-help">У каждой организации свой цвет. Нажмите на территорию или название, чтобы выбрать получателя обращения.</p>
+    <p className="citizen-help">{multiple ? 'У каждой организации свой цвет. Нажмите на территорию или название, чтобы выбрать получателя обращения.' : 'На карте показана территория обслуживающей организации.'}</p>
     {hasAreas && <div className="citizen-territory-map" ref={element} hidden={!!error} aria-label="Карта территорий организаций"/>}
     {hasAreas && !ready && !error && <p role="status" className="citizen-help">Загружаем карту…</p>}
-    {hasAreas && error && <div className="citizen-map-error" role="status"><p>Карта временно недоступна. Организацию можно выбрать из списка ниже.</p>
+    {hasAreas && error && <div className="citizen-map-error" role="status"><p>{multiple ? 'Карта временно недоступна. Организацию можно выбрать из списка ниже.' : 'Карта временно недоступна. Получатель обращения уже выбран.'}</p>
       <button type="button" disabled={disabled} onClick={() => setRetry(value => value + 1)}><RefreshCw size={16}/>Повторить загрузку</button></div>}
-    <div className="citizen-map-legend">{organizations.map(item => <button key={item.id} type="button" disabled={disabled}
+    <div className="citizen-map-legend">{organizations.map(item => multiple ? <button key={item.id} type="button" disabled={disabled}
       aria-pressed={selected === item.id} onClick={() => onChoose(item.id)}>
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill={item.color}/></svg>
-      <span><strong>{item.name}</strong><small>{item.territories.map(area => area.name).join(' · ') || 'Границы пока не добавлены'}</small></span></button>)}</div>
+      <span><strong>{item.name}</strong>{item.territories.length > 0 && <small>{item.territories.map(area => area.name).join(' · ')}</small>}</span></button>
+      : <div key={item.id} className="citizen-map-fixed"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill={item.color}/></svg>
+        <span><strong>{item.name}</strong><small>{item.territories.map(area => area.name).join(' · ')}</small></span></div>)}</div>
   </section>;
 }

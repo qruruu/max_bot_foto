@@ -9,8 +9,9 @@ import { AppealRequestError, publicRequest } from './requests';
 import { clearDraft, EMPTY_FORM, hasDraftContent, loadDraft, saveDraft } from './drafts';
 import type { AppealDraft, ResumeSession } from './drafts';
 import useOverlayHistory from './useOverlayHistory';
-import { recipientFor, validRecipient } from './catalog';
+import { availableRecipient, recipientFor, validRecipient } from './catalog';
 import type { AppealCatalog } from './catalog';
+import RecipientChoice from './RecipientChoice';
 import './citizen.css';
 
 const TerritoryMap = lazy(() => import('./TerritoryMap'));
@@ -25,6 +26,7 @@ export default function CitizenAppeal() {
   useOverlayHistory(cameraOpen || !!preview, () => {setCameraOpen(false); setPreview(null);});
   const [loaded, setLoaded] = useState(false), [restored, setRestored] = useState(false), [pending, setPending] = useState(false);
   const [storageError, setStorageError] = useState(false), [offline, setOffline] = useState(!navigator.onLine);
+  const locked = busy || preparing || pending;
   const photoRef = useRef(photos), sessionRef = useRef(session), tokenRef = useRef<string | null>(null), receiptRef = useRef('');
   const requestActive = useRef(false), mounted = useRef(true), writes = useRef<Promise<void>>(Promise.resolve());
   const snapshot = useRef<AppealDraft>({form, photos: [], token: null, pending: false, savedAt: Date.now()});
@@ -81,6 +83,9 @@ export default function CitizenAppeal() {
     window.addEventListener('online', online); window.addEventListener('offline', online);
     return () => {window.removeEventListener('online', online); window.removeEventListener('offline', online);};
   }, []);
+  useEffect(() => {
+    if (loaded && catalog && !locked && !receipt) setForm(current => availableRecipient(current, catalog));
+  }, [loaded, catalog, locked, receipt, form.city, form.organization_id, form.category]);
   useEffect(() => {
     const handle = (event: BeforeUnloadEvent) => {if (!receiptRef.current && (photoRef.current.length || form.description)) {event.preventDefault(); event.returnValue = '';}};
     window.addEventListener('beforeunload', handle); return () => window.removeEventListener('beforeunload', handle);
@@ -157,7 +162,6 @@ export default function CitizenAppeal() {
     if (selected && !locked) setForm(current => ({...current, organization_id: id,
       category: current.organization_id === id ? current.category : ''}));
   }
-  const locked = busy || preparing || pending;
   if (!loaded) return <div className="citizen-app citizen-restoring" role="status">Открываем форму…</div>;
 
   return <div className="citizen-app"><div inert={cameraOpen || !!preview}>
@@ -169,7 +173,7 @@ export default function CitizenAppeal() {
       <button className="citizen-primary" onClick={() => {receiptRef.current = ''; setReceipt(''); setRestored(false);}}>Сообщить о другой проблеме<ArrowRight size={18}/></button>
     </main> : <main className="citizen-main">
       <div className="citizen-intro"><span className="citizen-kicker">ПОМОЖЕМ ГОРОДУ ВМЕСТЕ</span><h1>Заметили проблему?<br/><span>Покажите её нам.</span></h1>
-        <p>Выберите город и организацию, которая обслуживает территорию. Расскажите о нарушении и сделайте фото на месте.</p>
+        <p>Расскажите о нарушении на территории обслуживающей организации и сделайте фото на месте.</p>
         <div className="citizen-steps"><span><i>1</i>Место и описание</span><span><i>2</i>Фото с камеры</span><span><i>3</i>Отправка</span></div>
         <aside className="citizen-aside"><MapPin size={22}/><div><strong>Координаты определятся сами</strong><p>Вручную отмечать место на карте не нужно. При съёмке разрешите доступ к камере и геолокации.</p></div></aside>
       </div>
@@ -182,19 +186,16 @@ export default function CitizenAppeal() {
         {!catalog && !catalogError && <p className="citizen-help" role="status">Загружаем города и организации…</p>}
         {catalog && !catalog.organizations.length && <p className="citizen-notice" role="status">Пока нет организаций, готовых принимать обращения. Попробуйте позже.</p>}
         <fieldset disabled={locked}><div className="citizen-section-heading"><span>01</span><div><h2>Где и что произошло</h2><p>Обращение получат администраторы выбранной организации.</p></div></div>
-          <div className="citizen-fields"><label className="citizen-wide">Город<select required autoComplete="address-level2" value={form.city} onChange={event => setForm(current => ({...current, city: event.target.value, organization_id: '', category: ''}))}>
-            <option value="">Выберите город</option>{form.city && !cities.includes(form.city) && <option value={form.city} disabled>{form.city} — недоступен</option>}{cities.map(city => <option key={city} value={city}>{city}</option>)}
-          </select></label>
+          <div className="citizen-fields"><RecipientChoice label="Город" name="city" autoComplete="address-level2" options={cities.map(city => ({value: city, label: city}))}
+            value={form.city} disabled={locked} onChange={city => setForm(current => ({...current, city, organization_id: '', category: ''}))}/>
           </div>
-          {cityOrganizations.length > 0 && <Suspense fallback={<p className="citizen-help">Открываем территории…</p>}><TerritoryMap key={form.city} organizations={cityOrganizations} selected={form.organization_id}
+          {cityOrganizations.some(item => item.territories.length) && <Suspense fallback={<p className="citizen-help">Открываем территории…</p>}><TerritoryMap key={form.city} organizations={cityOrganizations} selected={form.organization_id}
             apiKey={catalog?.yandex_maps_api_key || ''} disabled={locked} onChoose={chooseOrganization}/></Suspense>}
           <div className="citizen-fields">
-            <label className="citizen-wide">Организация<select required value={form.organization_id} disabled={!form.city || !cityOrganizations.length} onChange={event => chooseOrganization(event.target.value)}>
-              <option value="">Выберите организацию</option>{form.organization_id && !recipient && <option value={form.organization_id} disabled>Ранее выбранная организация недоступна</option>}
-              {cityOrganizations.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-            <label className="citizen-wide">Вид работ<select required {...field('category')} disabled={!recipient}>
-              <option value="">Выберите вид работ</option>{form.category && !recipient?.work_types.some(work => work.code === form.category) && <option value={form.category} disabled>Ранее выбранный вид работ недоступен</option>}
-              {recipient?.work_types.map(work => <option key={work.code} value={work.code}>{work.name}</option>)}</select></label>
+            <RecipientChoice label="Организация" name="organization_id" options={cityOrganizations.map(item => ({value: item.id, label: item.name}))}
+              value={form.organization_id} disabled={locked} onChange={chooseOrganization}/>
+            <RecipientChoice label="Вид работ" name="category" options={recipient?.work_types.map(work => ({value: work.code, label: work.name})) || []}
+              value={form.category} disabled={locked} onChange={category => setForm(current => ({...current, category}))}/>
             <label className="citizen-wide">Улица и дом<input required minLength={5} maxLength={300} autoComplete="street-address" placeholder="Улица, номер дома или ближайший адрес" {...field('address')}/></label>
             <label className="citizen-wide">Где именно<input required minLength={2} maxLength={300} placeholder="Например, тротуар у второго подъезда" {...field('place')}/></label>
             <label className="citizen-wide">Описание<textarea required minLength={10} maxLength={4000} rows={4} placeholder="Что не так и что нужно исправить?" {...field('description')}/></label>

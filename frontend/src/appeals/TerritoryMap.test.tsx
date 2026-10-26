@@ -67,3 +67,12 @@ it('shows the map container before retrying with an already loaded SDK', async (
   expect(element.querySelector<HTMLElement>('.citizen-territory-map')!.hidden).toBe(false);
   expect(element.querySelector('.citizen-map-error')).toBeNull(); expect(shapes).toHaveLength(2);
 });
+
+it('shows a sole organization as a caption instead of a redundant choice', async () => {
+  const choose = vi.fn();
+  await act(async () => {root.render(<TerritoryMap organizations={[organizations[0]]} selected="one" apiKey="public-key" disabled={false} onChoose={choose}/>); await tick();});
+  expect(element.querySelector('.citizen-map-legend button')).toBeNull();
+  expect(element.querySelector('.citizen-map-fixed')!.textContent).toContain('<Первая>');
+  expect(element.textContent).not.toContain('Нажмите на территорию');
+  shapes[0].click(); expect(choose).not.toHaveBeenCalled();
+});

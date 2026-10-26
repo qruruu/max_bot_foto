@@ -97,12 +97,15 @@ it('only offers registered cities and resets work type when selecting another or
   const selects = () => element.querySelectorAll<HTMLSelectElement>('.citizen-fields select');
   expect([...selects()[0].options].map(option => option.value)).toEqual(['', 'Сургут', 'Тюмень']);
   expect([...selects()[1].options].map(option => option.text)).toEqual(['Выберите организацию', 'Уборка города', 'Дороги города']);
-  expect([...selects()[2].options].map(option => option.value)).toEqual(['', 'waste']);
+  expect(selects()).toHaveLength(2);
+  expect(element.querySelector('[data-field="category"]')!.textContent).toContain('Вывоз мусора');
   await act(async () => {selects()[1].value = catalog.organizations[1].id; selects()[1].dispatchEvent(new Event('change', {bubbles: true}));});
-  expect(selects()[2].value).toBe(''); expect([...selects()[2].options].map(option => option.value)).toEqual(['', 'roads']);
-  expect(button().disabled).toBe(true);
+  expect(element.querySelector('[data-field="category"]')!.textContent).toContain('Ремонт дорог');
+  expect(button().disabled).toBe(false);
   await act(async () => {selects()[0].value = 'Тюмень'; selects()[0].dispatchEvent(new Event('change', {bubbles: true}));});
-  expect(selects()[1].value).toBe(''); expect(selects()[2].disabled).toBe(true);
+  expect(selects()).toHaveLength(1);
+  expect(element.querySelector('[data-field="organization_id"]')!.textContent).toContain('Свет');
+  expect(element.querySelector('[data-field="category"]')!.textContent).toContain('Освещение');
   expect(element.querySelectorAll('.citizen-photo img')).toHaveLength(1);
   expect(element.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('Мусор возле урны');
 });
@@ -111,6 +114,76 @@ it('requires correcting an old unavailable recipient without discarding text or 
   const old = draft(); old.form.city = 'Несуществующий город';
   await mount(old);
   expect(button().disabled).toBe(true);
-  expect(element.querySelector<HTMLSelectElement>('select[autocomplete="address-level2"]')!.selectedOptions[0].text).toContain('недоступен');
+  expect(element.querySelector<HTMLSelectElement>('select[autocomplete="address-level2"]')!.value).toBe('');
+  expect(element.textContent).not.toContain('Несуществующий город');
+  expect(element.querySelector('select[name="organization_id"]')).toBeNull();
+  expect(element.querySelectorAll('.citizen-photo img')).toHaveLength(1);
+});
+
+it('automatically fills a sole city, organization and work type and submits those exact identifiers', async () => {
+  const single = {...catalog, organizations: [catalog.organizations[0]]};
+  vi.mocked(publicRequest).mockImplementation(async path => path === '/catalog' ? single : path.endsWith('/resume') ? resumed() : {number: 'ОБ-000044'});
+  const restored = draft(); restored.form = {...restored.form, city: '', organization_id: '', category: ''};
+  await mount(restored);
+  expect(element.querySelectorAll('select')).toHaveLength(0);
+  expect(element.querySelector('[data-field="city"]')!.textContent).toBe('ГородСургут');
+  expect(element.querySelector('[data-field="organization_id"]')!.textContent).toContain('Уборка города');
+  expect(element.querySelector('[data-field="category"]')!.textContent).toContain('Вывоз мусора');
+  expect(button().disabled).toBe(false);
+  await act(async () => {button().click(); await tick();});
+  const upload = vi.mocked(publicRequest).mock.calls.find(call => call[0] === '')!;
+  const metadata = JSON.parse((upload[1].body as FormData).get('metadata') as string);
+  expect(metadata).toMatchObject({city: 'Сургут', organization_id: organizationId, category: 'waste'});
+});
+
+it('shows a selector only for work types when a sole organization has several', async () => {
+  const single = {...catalog, organizations: [{...catalog.organizations[0], work_types: [
+    ...catalog.organizations[0].work_types, {code: 'cleaning', name: 'Уборка территории'},
+  ]}]};
+  vi.mocked(publicRequest).mockResolvedValue(single);
+  await mount(null);
+  const select = element.querySelector<HTMLSelectElement>('select[name="category"]')!;
+  expect(element.querySelectorAll('select')).toHaveLength(1);
+  expect([...select.options].map(option => option.value)).toEqual(['', 'waste', 'cleaning']);
+  expect(select.value).toBe('');
+  expect(element.querySelector<HTMLButtonElement>('.citizen-add-photo')!.disabled).toBe(true);
+  await act(async () => {select.value = 'cleaning'; select.dispatchEvent(new Event('change', {bubbles: true}));});
+  expect(element.querySelector<HTMLButtonElement>('.citizen-add-photo')!.disabled).toBe(false);
+});
+
+it('does not rewrite the frozen recipient when only another organization is now available', async () => {
+  const single = {...catalog, organizations: [catalog.organizations[2]]};
+  vi.mocked(publicRequest).mockImplementation(async path => path === '/catalog' ? single : path.endsWith('/resume') ? resumed() : {number: 'ОБ-000045'});
+  await mount(draft(true));
+  await act(async () => {button().click(); await tick();});
+  const upload = vi.mocked(publicRequest).mock.calls.find(call => call[0] === '')!;
+  expect(JSON.parse((upload[1].body as FormData).get('metadata') as string)).toMatchObject({city: 'Сургут', organization_id: organizationId, category: 'waste'});
+});
+
+it('does not render empty city, organization or work selectors before they exist', async () => {
+  vi.mocked(publicRequest).mockResolvedValue({...catalog, organizations: []});
+  await mount(null);
+  expect(element.querySelectorAll('select')).toHaveLength(0);
+  expect(element.textContent).toContain('Пока нет организаций');
+  expect(button().disabled).toBe(true);
+});
+
+it('introduces choices when the refreshed catalog gains cities, organizations and work types', async () => {
+  const expanded = {...catalog, organizations: [{...catalog.organizations[0], work_types: [
+    ...catalog.organizations[0].work_types, {code: 'cleaning', name: 'Уборка территории'},
+  ]}, ...catalog.organizations.slice(1)]};
+  let changed = false;
+  vi.mocked(publicRequest).mockImplementation(async path => {
+    if (path === '/catalog') return changed ? expanded : {...catalog, organizations: [catalog.organizations[0]]};
+    if (path.endsWith('/resume')) return resumed();
+    changed = true; throw new AppealRequestError('Справочник изменился', 422);
+  });
+  await mount(draft());
+  expect(element.querySelectorAll('select')).toHaveLength(0);
+  await act(async () => {button().click(); await tick();});
+  expect(element.querySelectorAll('select')).toHaveLength(3);
+  expect(element.querySelector<HTMLSelectElement>('select[name="city"]')!.value).toBe('Сургут');
+  expect(element.querySelector<HTMLSelectElement>('select[name="organization_id"]')!.value).toBe(organizationId);
+  expect(element.querySelector<HTMLSelectElement>('select[name="category"]')!.value).toBe('waste');
   expect(element.querySelectorAll('.citizen-photo img')).toHaveLength(1);
 });
