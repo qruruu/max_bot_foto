@@ -115,6 +115,13 @@ class NewsAsset(Base):
     author_id: Mapped[int | None] = mapped_column(Integer)
 
 
+class NewsRead(Base):
+    __tablename__ = "news_reads"
+    reader_key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    article_id: Mapped[str] = mapped_column(ForeignKey("news_articles.id"), primary_key=True)
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class NewsRevision(Base):
     __tablename__ = "news_revisions"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)

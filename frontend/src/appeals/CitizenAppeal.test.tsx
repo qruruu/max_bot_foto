@@ -163,6 +163,40 @@ it('shows a selector only for work types when a sole organization has several', 
   expect(element.querySelector<HTMLButtonElement>('.citizen-add-photo')!.disabled).toBe(false);
 });
 
+it('names a sole standard work type in everyday language and submits its original code', async () => {
+  const single = {...catalog, organizations: [{...catalog.organizations[0], work_types: [
+    {code: 'DEICING_MANUAL', name: 'ПГМ'},
+  ]}]};
+  vi.mocked(publicRequest).mockImplementation(async path => path === '/catalog' ? single : path.endsWith('/resume') ? resumed() : {number: 'ОБ-000046'});
+  const restored = draft(); restored.form.category = 'DEICING_MANUAL';
+  await mount(restored);
+  const category = element.querySelector('[data-field="category"]')!;
+  expect(category.textContent).toContain('Что случилось?');
+  expect(category.textContent).toContain('Скользко, лёд не посыпан');
+  expect(category.querySelector('dd')!.textContent).toBe('Скользко, лёд не посыпан');
+  expect(category.querySelector('p')).toBeNull();
+  expect(category.textContent).not.toContain('ПГМ');
+  expect(element.querySelector('select[name="category"]')).toBeNull();
+  await act(async () => {button().click(); await tick();});
+  const upload = vi.mocked(publicRequest).mock.calls.find(call => call[0] === '')!;
+  expect(JSON.parse((upload[1].body as FormData).get('metadata') as string)).toMatchObject({organization_id: organizationId, category: 'DEICING_MANUAL'});
+});
+
+it('offers only the organization work types with plain names and no extra explanations', async () => {
+  const single = {...catalog, organizations: [{...catalog.organizations[0], work_types: [
+    {code: 'BIN_EMPTYING', name: 'УРНЫ'}, {code: 'BIN_WASHING', name: 'МОЙКА_УРН'},
+  ]}]};
+  vi.mocked(publicRequest).mockResolvedValue(single);
+  await mount(null);
+  const select = element.querySelector<HTMLSelectElement>('select[name="category"]')!;
+  expect([...select.options].map(option => option.text)).toEqual(['Выберите проблему', 'Переполненная урна', 'Грязная урна']);
+  expect(select.closest('label')!.textContent).toBe('Что случилось?Выберите проблемуПереполненная урнаГрязная урна');
+  await act(async () => {select.value = 'BIN_EMPTYING'; select.dispatchEvent(new Event('change', {bubbles: true}));});
+  await act(async () => {select.value = 'BIN_WASHING'; select.dispatchEvent(new Event('change', {bubbles: true}));});
+  expect(select.value).toBe('BIN_WASHING');
+  expect([...select.options].map(option => option.value)).toEqual(['', 'BIN_EMPTYING', 'BIN_WASHING']);
+});
+
 it('does not rewrite the frozen recipient when only another organization is now available', async () => {
   const single = {...catalog, organizations: [catalog.organizations[2]]};
   vi.mocked(publicRequest).mockImplementation(async path => path === '/catalog' ? single : path.endsWith('/resume') ? resumed() : {number: 'ОБ-000045'});

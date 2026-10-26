@@ -5,15 +5,20 @@ import { api, ApiError } from './api';
 import { newsDate } from './news/types';
 import type { NewsPost, NewsSummary } from './news/types';
 import ArticleView from './news/ArticleView';
+import { useNewsNotifications } from './NewsNotificationsProvider';
 import './news.css';
 
 export default function News({owner = false}: {owner?: boolean}) {
   const {slug} = useParams();
+  const {unread, markRead} = useNewsNotifications();
+  const listRevision = slug ? 0 : unread;
   const [posts, setPosts] = useState<NewsSummary[]>([]), [post, setPost] = useState<NewsPost | null>(null);
   const [loading, setLoading] = useState(true), [error, setError] = useState(''), [notFound, setNotFound] = useState(false), [retry, setRetry] = useState(0);
   useEffect(() => {
-    const controller = new AbortController();
     window.scrollTo(0, 0); setPost(null); setPosts([]); setLoading(true); setError(''); setNotFound(false);
+  }, [slug, retry]);
+  useEffect(() => {
+    const controller = new AbortController();
     const request = slug ? api<NewsPost>('/news/'+encodeURIComponent(slug),'GET',undefined,controller.signal).then(value => {if (!controller.signal.aborted) setPost(value);})
       : api<NewsSummary[]>('/news','GET',undefined,controller.signal).then(value => {if (!controller.signal.aborted) setPosts(value);});
     request.catch(e => {
@@ -21,7 +26,25 @@ export default function News({owner = false}: {owner?: boolean}) {
       if (e instanceof ApiError && e.status===404) setNotFound(true); else setError(e.message);
     }).finally(() => {if (!controller.signal.aborted) setLoading(false);});
     return () => controller.abort();
-  }, [slug, retry]);
+  }, [slug, retry, listRevision]);
+  useEffect(() => {
+    if (!post || post.unread === false) return;
+    let completed = false, pending = false;
+    const read = () => {
+      if (document.hidden || completed || pending) return;
+      pending = true;
+      void markRead(post.slug).then(() => {completed = true;}).catch(() => {}).finally(() => {pending = false;});
+    };
+    read();
+    window.addEventListener('online', read);
+    window.addEventListener('focus', read);
+    document.addEventListener('visibilitychange', read);
+    return () => {
+      window.removeEventListener('online', read);
+      window.removeEventListener('focus', read);
+      document.removeEventListener('visibilitychange', read);
+    };
+  }, [post, markRead]);
   if (loading) return <p className="loading">Открываем новости…</p>;
   if (error) return <div className="news-page"><div className="error" role="alert">{error}</div><button type="button" onClick={() => setRetry(value => value+1)}>Повторить</button></div>;
   return <div className="news-page">
@@ -31,7 +54,7 @@ export default function News({owner = false}: {owner?: boolean}) {
       <div className="news-layout"><section className="news-feed" aria-label="Публикации об обновлениях">
         {posts.map(item => <Link className="panel news-card" to={'/news/'+item.slug} key={item.slug}>
           {item.cover_src && <img className="news-card-cover" src={item.cover_src} alt="" loading="lazy"/>}
-          <div className="news-meta"><span className="news-category">{item.category}</span><time dateTime={item.publishedAt}>{newsDate(item.publishedAt)}</time></div>
+          <div className="news-meta"><span className="news-category">{item.category}</span>{item.unread && <span className="news-unread-label">Новое</span>}<time dateTime={item.publishedAt}>{newsDate(item.publishedAt)}</time></div>
           <h2>{item.title}</h2><p>{item.summary}</p><span className="news-read">Читать новость<ArrowRight size={16}/></span></Link>)}
         {!posts.length && <section className="panel news-not-found"><Newspaper size={32}/><h2>Публикации скоро появятся</h2><p>Здесь будут новости об обновлениях сервиса.</p></section>}
       </section><aside className="panel news-guide"><span className="eyebrow">В КАЖДОЙ ПУБЛИКАЦИИ</span><h2>От обновления к действию</h2><ul>

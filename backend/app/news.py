@@ -10,14 +10,15 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.auth import CurrentUser, check_permission
+from app.auth import CurrentUser, check_permission, is_platform_owner
 from app.config import base_settings
-from app.models import NewsArticle, NewsAsset, NewsLegacyAsset, NewsPublishedAsset
+from app.models import NewsArticle, NewsAsset, NewsLegacyAsset, NewsPublishedAsset, NewsRead
 from app.news_legacy import CONTENT_DIR, Post
-from app.organization_context import workspace_url
+from app.organization_context import current_organization, workspace_url
 from app.organization_registry import control_session
 from app.permissions import Permission
 
@@ -38,6 +39,21 @@ def get_news_db():
 
 
 NewsDb = Annotated[Session, Depends(get_news_db)]
+
+
+def news_reader_key(user):
+    if is_platform_owner(user):
+        return f"owner:{getattr(user, '_platform_user_id', None) or user.id}"
+    organization = current_organization()
+    scope = f"organization:{organization.id}" if organization else "legacy"
+    return f"{scope}:user:{user.id}"
+
+
+def unread_news_count(db, user):
+    read = select(NewsRead.article_id).where(NewsRead.reader_key == news_reader_key(user))
+    return db.scalar(select(func.count()).select_from(NewsArticle).where(
+        NewsArticle.published.is_not(None), NewsArticle.deleted_at.is_(None), NewsArticle.id.not_in(read),
+    ))
 
 
 def asset_url(asset_id):
@@ -108,6 +124,7 @@ def compatibility_sections(document):
 @router.get("")
 def news_list(user: CurrentUser, db: NewsDb):
     check_permission(user, Permission.NEWS_VIEW)
+    read = set(db.scalars(select(NewsRead.article_id).where(NewsRead.reader_key == news_reader_key(user))))
     result = []
     for post in db.scalars(
         select(NewsArticle)
@@ -116,8 +133,15 @@ def news_list(user: CurrentUser, db: NewsDb):
     ):
         snapshot = render_snapshot(post.published, post.published_at, post.slug)
         snapshot.pop("document")
+        snapshot["unread"] = post.id not in read
         result.append(snapshot)
     return result
+
+
+@router.get("/unread")
+def news_unread(user: CurrentUser, db: NewsDb):
+    check_permission(user, Permission.NEWS_VIEW)
+    return {"unread": unread_news_count(db, user)}
 
 
 @router.get("/assets/{asset_id}")
@@ -150,8 +174,23 @@ def news_post(slug: str, user: CurrentUser, db: NewsDb):
     if not post:
         raise HTTPException(404, "Новость не найдена")
     result = render_snapshot(post.published, post.published_at, post.slug, db=db)
+    result["unread"] = db.get(NewsRead, (news_reader_key(user), post.id)) is None
     result["sections"] = compatibility_sections(result["document"])
     return result
+
+
+@router.post("/{slug}/read")
+def read_news_post(slug: str, user: CurrentUser, db: NewsDb):
+    check_permission(user, Permission.NEWS_VIEW)
+    post = db.scalar(select(NewsArticle).where(
+        NewsArticle.slug == slug, NewsArticle.published.is_not(None), NewsArticle.deleted_at.is_(None),
+    ))
+    if not post:
+        raise HTTPException(404, "Новость не найдена")
+    db.execute(insert(NewsRead).values(reader_key=news_reader_key(user), article_id=post.id)
+               .on_conflict_do_nothing(index_elements=[NewsRead.reader_key, NewsRead.article_id]))
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/{slug}/screenshots/{filename}")

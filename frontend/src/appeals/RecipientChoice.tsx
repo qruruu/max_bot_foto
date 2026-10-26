@@ -1,8 +1,8 @@
 type Choice = {value: string; label: string};
 
-export default function RecipientChoice({label, name, options, value, disabled, onChange, autoComplete}: {
+export default function RecipientChoice({label, name, options, value, disabled, onChange, autoComplete, placeholder}: {
   label: string; name: string; options: Choice[]; value: string; disabled: boolean;
-  onChange: (value: string) => void; autoComplete?: string;
+  onChange: (value: string) => void; autoComplete?: string; placeholder?: string;
 }) {
   if (!options.length) return null;
   // A pending upload must retain its old payload even if the catalog has changed.
@@ -12,7 +12,7 @@ export default function RecipientChoice({label, name, options, value, disabled, 
   </dl>;
   return <label className="citizen-wide">{label}<select name={name} required autoComplete={autoComplete}
     disabled={disabled} value={value} onChange={event => onChange(event.target.value)}>
-    <option value="">{label === 'Город' ? 'Выберите город' : label === 'Организация' ? 'Выберите организацию' : 'Выберите вид работ'}</option>
+    <option value="">{placeholder || (label === 'Город' ? 'Выберите город' : label === 'Организация' ? 'Выберите организацию' : 'Выберите вид работ')}</option>
     {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
   </select></label>;
 }

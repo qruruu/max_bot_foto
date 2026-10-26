@@ -16,6 +16,7 @@ import News from './News';
 import Avatar from './Avatar';
 import OperatorChats from './OperatorChats';
 import { OperatorChatBadge, OperatorChatsProvider } from './OperatorChatsProvider';
+import { NewsNotificationsProvider, NewsUnreadBadge } from './NewsNotificationsProvider';
 import { hasPermission } from './permissions';
 import { PhotoNotificationsProvider } from './PhotoNotifications';
 import FilterBar from './FilterBar';
@@ -84,13 +85,14 @@ export default function App() {
   const denied = <Navigate to={home} replace/>;
   const protectedPage = (code:string, element:ReactNode) => hasPermission(user,code) ? element : denied;
   return <Context.Provider value={{user,meta,refresh,notify:setToast,updateUser:setUser}}>
+    <NewsNotificationsProvider key={user.id} enabled={hasPermission(user,'news_view')}>
     <OperatorChatsProvider key={user.id}>
     <PhotoNotificationsProvider key={user.id + ":" + meta.intake_cohort} userId={user.id} canViewPhotos={hasPermission(user,'photos_view')}>
     <div className={'app ' + (sidebar.collapsed ? 'sidebar-collapsed' : 'sidebar-expanded')}>
       {!sidebar.collapsed&&<button type="button" className="sidebar-backdrop" aria-label="Закрыть боковую панель" onClick={sidebar.toggle}/>}
       <aside className="sidebar">
         <NavLink className="brand" to={home} aria-label="Метка — главная"><span className="brand-mark"><Layers size={23}/></span><span className="brand-copy">Метка<small>Контроль городских работ</small></span></NavLink>
-        <SidebarNavigation key={user.id} links={links.map(link=>({...link,badge:link.to==='/messages'?<OperatorChatBadge/>:link.to==='/appeals' && appeals.count ? <span className="count-pill" aria-label={`Новых обращений: ${appeals.count}`}>{appeals.count}</span>:undefined}))}
+        <SidebarNavigation key={user.id} links={links.map(link=>({...link,badge:link.to==='/messages'?<OperatorChatBadge/>:link.to==='/news'?<NewsUnreadBadge/>:link.to==='/appeals' && appeals.count ? <span className="count-pill" aria-label={`Новых обращений: ${appeals.count}`}>{appeals.count}</span>:undefined}))}
           order={user.sidebar_order} collapsed={sidebar.collapsed} toggle={sidebar.toggle}
           onSaved={sidebar_order=>setUser(current=>current?.id===user.id?{...current,sidebar_order}:current)}/>
         <div className="sidebar-bottom">
@@ -134,6 +136,7 @@ export default function App() {
     {toast&&<div className="toast" role="status"><CircleCheck size={20}/>{toast}<button onClick={()=>setToast('')}>×</button></div>}
     </PhotoNotificationsProvider>
     </OperatorChatsProvider>
+    </NewsNotificationsProvider>
   </Context.Provider>;
 }
 

@@ -13,7 +13,7 @@ from test_organizations import companies as companies
 
 from app.api import app
 from app.db import engine
-from app.models import NewsArticle, NewsAsset, NewsRevision, User
+from app.models import NewsArticle, NewsAsset, NewsRead, NewsRevision, User
 from app.news import load_posts
 from app.news_import import import_posts
 from app.organization_context import organization_scope
@@ -70,6 +70,44 @@ def allow_news(scopes):
         with organization_scope(scope), Session(engine()) as db:
             db.scalar(select(User).where(User.login == "same-login")).permissions = ["news_view"]
             db.commit()
+
+
+@pytest.mark.integration
+def test_news_notifications_stay_with_the_account_across_organizations_and_publications(companies):
+    owner, scopes, clients = companies
+    allow_news(scopes)
+    post = action(owner, save(owner, make(owner)), 'publish')
+    paths = [scope.prefix + '/api/news' for scope in scopes]
+    for path, client in zip(paths, clients, strict=True):
+        assert client.get(path + '/unread').json() == {'unread': 1}
+        assert client.get(path + '/' + post['slug']).json()['unread']
+    assert clients[0].post(paths[0] + '/' + post['slug'] + '/read').status_code == 200
+    assert clients[0].get(paths[0] + '/unread').json() == {'unread': 0}
+    assert clients[1].get(paths[1] + '/unread').json() == {'unread': 1}
+    with TestClient(app) as another_device:
+        another_device.cookies.update(clients[0].cookies)
+        assert another_device.get(paths[0] + '/unread').json() == {'unread': 0}
+    # A verified owner has one global identity, even when using a tenant's local actor.
+    assert owner.get(paths[0] + '/unread').json() == {'unread': 1}
+    assert owner.post(paths[1] + '/' + post['slug'] + '/read').status_code == 200
+    assert owner.get(paths[1] + '/unread').json() == {'unread': 0}
+    assert owner.get(paths[0] + '/unread').json() == {'unread': 0}
+    assert clients[1].get(paths[1] + '/unread').json() == {'unread': 1}
+    for scope in scopes:
+        with organization_scope(scope), Session(engine()) as db:
+            assert db.scalar(select(func.count()).select_from(NewsRead)) == 0
+    with control_session() as db:
+        assert db.scalar(select(func.count()).select_from(NewsRead)) == 2
+    draft = save(owner, make(owner), title='Следующая новость')
+    assert clients[0].get(paths[0] + '/unread').json() == {'unread': 0}
+    draft = action(owner, draft, 'publish')
+    assert clients[0].get(paths[0] + '/unread').json() == {'unread': 1}
+    assert clients[1].get(paths[1] + '/unread').json() == {'unread': 2}
+    action(owner, draft, 'unpublish')
+    assert clients[0].get(paths[0] + '/unread').json() == {'unread': 0}
+    assert clients[1].get(paths[1] + '/unread').json() == {'unread': 1}
+    action(owner, post, 'trash')
+    assert clients[1].get(paths[1] + '/unread').json() == {'unread': 0}
 
 
 @pytest.mark.integration

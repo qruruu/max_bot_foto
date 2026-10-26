@@ -99,7 +99,7 @@ export default function SidebarNavigation({links, order, collapsed, toggle, onSa
             onClick={() => move(to,shown[index+1].to,'after')}><ArrowDown size={14}/></button>
         </div>
       </div> : <NavLink key={to} to={to} title={label} aria-label={label}
-        className={to==='/messages'?'operator-chats-link':undefined} end={to==='/'}>
+        className={to==='/messages'?'operator-chats-link':to==='/news'?'news-notifications-link':undefined} end={to==='/'}>
         <Icon size={19}/><span className="nav-item-label">{label}</span>{badge}
       </NavLink>)}
     </nav>

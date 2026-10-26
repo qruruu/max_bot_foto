@@ -12,6 +12,7 @@ import useOverlayHistory from './useOverlayHistory';
 import { availableRecipient, recipientFor, validRecipient } from './catalog';
 import type { AppealCatalog } from './catalog';
 import RecipientChoice from './RecipientChoice';
+import { citizenWorkOption } from './workTypes';
 import UpdateNotice from '../UpdateNotice';
 import './citizen.css';
 
@@ -211,7 +212,7 @@ export default function CitizenAppeal() {
           <div className="citizen-fields">
             <RecipientChoice label="Организация" name="organization_id" options={cityOrganizations.map(item => ({value: item.id, label: item.name}))}
               value={form.organization_id} disabled={locked} onChange={chooseOrganization}/>
-            <RecipientChoice label="Вид работ" name="category" options={recipient?.work_types.map(work => ({value: work.code, label: work.name})) || []}
+            <RecipientChoice label="Что случилось?" name="category" placeholder="Выберите проблему" options={recipient?.work_types.map(citizenWorkOption) || []}
               value={form.category} disabled={locked} onChange={category => setForm(current => ({...current, category}))}/>
             <label className="citizen-wide">Улица и дом<input required minLength={5} maxLength={300} autoComplete="street-address" placeholder="Улица, номер дома или ближайший адрес" {...field('address')}/></label>
             <label className="citizen-wide">Где именно<input required minLength={2} maxLength={300} placeholder="Например, тротуар у второго подъезда" {...field('place')}/></label>

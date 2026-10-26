@@ -13,6 +13,8 @@
 .news-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; color: var(--secondary,#718176); font-size: 11px; line-height: 1.5; }
 .news-meta time { display: inline-flex; align-items: center; gap: 6px; }
 .news-category { display: inline-block; padding: 4px 9px; border-radius: 5px; background: var(--accent-surface,#edf4ec); color: var(--accent,#245e4e); font-size: 10px; font-weight: 600; }
+.sidebar nav .news-notifications-link { position: relative; }
+.news-unread-label { padding: 3px 7px; border-radius: 5px; background: var(--green); color: #fff; font-size: 10px; font-weight: 600; }
 .news-card h2 { margin: 22px 0 12px; font-size: 23px; line-height: 1.35; letter-spacing: -.6px; }
 .news-card > p { margin-bottom: 24px; color: var(--secondary,#718176); font-size: 13px; line-height: 1.8; }
 .news-read { display: inline-flex; align-items: center; gap: 9px; color: var(--accent,#245e4e); font-size: 12px; font-weight: 600; }
