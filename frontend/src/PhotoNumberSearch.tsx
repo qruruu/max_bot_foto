@@ -10,14 +10,16 @@ export function photoNumber(value: string): number | null {
   return Number.isInteger(number) && number > 0 && number <= 2147483647 ? number : null;
 }
 
-export async function findPhotoByNumber(value: string, signal?: AbortSignal): Promise<number> {
+export async function findPhotoByNumber(value: string, signal?: AbortSignal, endpoint = '/photos'): Promise<number> {
   const id = photoNumber(value);
   if (id === null) throw new Error('Введите номер фотографии, например 195 или #195.');
-  const photo = await api<{id: number}>('/photos/' + id, 'GET', undefined, signal);
+  const photo = await api<{id: number}>(endpoint + '/' + id, 'GET', undefined, signal);
   return photo.id;
 }
 
-export default function PhotoNumberSearch({owner, open}: {owner: boolean; open: (id: number) => void}) {
+export default function PhotoNumberSearch({owner, open, endpoint = '/photos', description}: {
+  owner: boolean; open: (id: number) => void; endpoint?: string; description?: string;
+}) {
   const [value, setValue] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const request = useRef<AbortController | null>(null);
   useEffect(() => () => request.current?.abort(), []);
@@ -27,7 +29,7 @@ export default function PhotoNumberSearch({owner, open}: {owner: boolean; open: 
     const controller = new AbortController();
     request.current = controller;
     setBusy(true); setError('');
-    try { open(await findPhotoByNumber(value, controller.signal)); }
+    try { open(await findPhotoByNumber(value, controller.signal, endpoint)); }
     catch (e) { if (!controller.signal.aborted) setError((e as Error).message); }
     finally { if (!controller.signal.aborted) setBusy(false); }
   }
@@ -38,8 +40,8 @@ export default function PhotoNumberSearch({owner, open}: {owner: boolean; open: 
         placeholder="Например, 195" value={value} onChange={e => setValue(e.target.value)} disabled={busy}/>
         <button type="submit" disabled={busy || !value.trim()}><Search size={17}/>{busy ? 'Ищем…' : 'Найти фото'}</button></div>
     </form>
-    <p className="hint">{owner ? 'Ищет в этой организации среди рабочих и тестовых фото, независимо от даты и фильтров.'
-      : 'Ищет среди доступных вам фото текущего режима, независимо от даты и фильтров.'}</p>
+    <p className="hint">{description || (owner ? 'Ищет в этой организации среди рабочих и тестовых фото, независимо от даты и фильтров.'
+      : 'Ищет среди доступных вам фото текущего режима, независимо от даты и фильтров.')}</p>
     {error && <div className="error" role="alert">{error}</div>}
   </section>;
 }

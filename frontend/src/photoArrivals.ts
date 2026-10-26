@@ -28,8 +28,8 @@ export function saveNotificationPreferences(userId: number, value: NotificationP
 }
 
 /** A photo batch should sound once even if several tabs of the same account are open. */
-export async function playArrivalSound(userId: number, ids: number[], play: () => boolean): Promise<boolean> {
-  const key = `${notificationKey(userId)}:played`;
+export async function playArrivalSound(userId: number, ids: number[], play: () => boolean, scope = ''): Promise<boolean> {
+  const key = `${notificationKey(userId)}:played${scope ? ':' + scope : ''}`;
   function claim() {
     let previous: number[] = [];
     try {

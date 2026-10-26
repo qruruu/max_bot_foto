@@ -26,7 +26,7 @@ export function photoLink(id: number, filters: Filters, review = false, spam = f
 }
 export async function api<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
   const prefix = workspacePrefix();
-  const csrfName = path === '/auth/choose-organization' ? 'login_choice_csrf' : platformOwner ? 'platform_csrf' : prefix ? 'workspace_csrf' : 'csrf';
+  const csrfName = path.startsWith('/inspection/') ? 'inspection_csrf' : path === '/auth/choose-organization' ? 'login_choice_csrf' : platformOwner ? 'platform_csrf' : prefix ? 'workspace_csrf' : 'csrf';
   const csrf = document.cookie.split('; ').find(x => x.startsWith(csrfName + '='))?.slice(csrfName.length + 1) || '';
   const upload = body instanceof Blob;
   const response = await fetch(apiUrl(path), { method, credentials: 'same-origin', signal,

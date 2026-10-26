@@ -15,24 +15,26 @@ log = logging.getLogger(__name__)
 
 def record_session_activity(db):
     activity = db.info.pop("session_activity")
+    from app.models import InspectionSession
+    model = InspectionSession if activity.get("inspection") else LoginSession
     # As on Session.close(), discard any uncommitted handler work before auxiliary metadata.
     db.rollback()
     try:
         instant = activity["at"]
         db.execute(
-            update(LoginSession)
+            update(model)
             .where(
-                LoginSession.token_hash == activity["token_hash"],
-                LoginSession.expires_at > instant,
+                model.token_hash == activity["token_hash"],
+                model.expires_at > instant,
                 or_(
-                    LoginSession.last_seen_at.is_(None),
-                    LoginSession.last_seen_at < instant - timedelta(minutes=1),
+                    model.last_seen_at.is_(None),
+                    model.last_seen_at < instant - timedelta(minutes=1),
                 ),
             )
             .values(
                 last_seen_at=instant,
-                user_agent=func.coalesce(LoginSession.user_agent, activity.get("user_agent")),
-                ip_address=func.coalesce(activity.get("ip_address"), LoginSession.ip_address),
+                user_agent=func.coalesce(model.user_agent, activity.get("user_agent")),
+                ip_address=func.coalesce(activity.get("ip_address"), model.ip_address),
             )
         )
         db.commit()

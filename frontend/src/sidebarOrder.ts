@@ -1,6 +1,6 @@
 export const defaultSidebarOrder = [
   '/', '/news', '/photos', '/photo-map', '/review', '/days', '/spam', '/districts', '/appeals', '/messages',
-  '/chats', '/work-types', '/users', '/audit', '/jobs', '/exchange', '/learning',
+  '/chats', '/work-types', '/users', '/audit', '/jobs', '/exchange', '/learning', '/inspectors',
 ] as const;
 
 // Missing (new) sections are appended; invalid or repeated legacy entries are ignored.

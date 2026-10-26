@@ -8,7 +8,7 @@ import Avatar from './Avatar';
 
 const maxFileBytes = 5 * 1024 * 1024;
 
-export default function ProfileSettings() {
+export default function ProfileSettings({authBase = '/auth'}: {authBase?: string}) {
   const {user, updateUser, notify} = useApp();
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -44,7 +44,7 @@ export default function ProfileSettings() {
     if (!file || busy) return;
     setBusy(true); setError('');
     try {
-      updateUser(await api<User>('/auth/avatar', 'PUT', file));
+      updateUser(await api<User>(authBase + '/avatar', 'PUT', file));
       clearSelection();
       notify('Аватарка сохранена');
     } catch (error) {setError((error as Error).message);}
@@ -54,7 +54,7 @@ export default function ProfileSettings() {
   async function remove() {
     setBusy(true); setError('');
     try {
-      updateUser(await api<User>('/auth/avatar', 'DELETE'));
+      updateUser(await api<User>(authBase + '/avatar', 'DELETE'));
       clearSelection();
       notify('Аватарка удалена');
     } catch (error) {setError((error as Error).message);}

@@ -1,12 +1,12 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
-import { ArrowLeft, Camera, Check, CheckCheck, MessageCircle, RefreshCw, Search, Send } from 'lucide-react';
+import { Camera, RefreshCw } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError, api } from './api';
-import { ErrorBox, useApp } from './App';
-import Avatar from './Avatar';
+import { useApp } from './App';
+import ChatPanel from './ChatPanel';
 import { useOperatorChats } from './OperatorChatsProvider';
-import { mergeMessages, messageDay, messagePreview, messageTime, operatorPhotoLink } from './operatorChatData';
+import { mergeMessages, messagePreview, operatorPhotoLink } from './operatorChatData';
 import type { ContactPage, MessagePage, OperatorContact, OperatorMessage } from './operatorChatData';
 import './operator-chats.css';
 
@@ -18,7 +18,7 @@ export default function OperatorChats() {
   const peerId = /^[1-9]\d*$/.test(selected) ? Number(selected) : null;
   const currentPeer = useRef(peerId);
   currentPeer.current = peerId;
-  const [contacts, setContacts] = useState<OperatorContact[]>([]), [search, setSearch] = useState('');
+  const [contacts, setContacts] = useState<OperatorContact[]>([]);
   const [contactError, setContactError] = useState(''), [contactLoading, setContactLoading] = useState(true);
   const [messages, setMessages] = useState<OperatorMessage[]>([]), [historyError, setHistoryError] = useState('');
   const [loading, setLoading] = useState(false), [hasOlder, setHasOlder] = useState(false);
@@ -146,55 +146,22 @@ export default function OperatorChats() {
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {event.preventDefault(); void send();}
   }
 
-  const filtered = contacts.filter(contact => contact.name.toLocaleLowerCase('ru-RU').includes(search.toLocaleLowerCase('ru-RU')));
   return <>
     <header className="page-header"><div><span className="eyebrow">ОБЩЕНИЕ В КОМАНДЕ</span><h1>Чаты операторов</h1><p>Личная переписка с коллегами внутри панели.</p></div>
       <button onClick={() => setRevision(value => value + 1)} aria-label="Обновить чаты"><RefreshCw size={18}/></button>
     </header>
-    <section className={`panel operator-chats ${peerId ? 'conversation-open' : ''}`}>
-      <aside className="operator-chat-contacts" aria-label="Операторы для переписки">
-        <label className="operator-chat-search"><Search size={16} aria-hidden="true"/><input aria-label="Найти оператора" placeholder="Найти оператора…" value={search} onChange={event => setSearch(event.target.value)}/></label>
-        <ErrorBox error={contactError}/>
-        <div className="operator-chat-contact-list">
-          {contactLoading && <p className="operator-chat-note">Загружаем операторов…</p>}
-          {!contactLoading && !filtered.length && <p className="operator-chat-note">{search ? 'Операторов не найдено.' : 'Другие операторы пока не добавлены.'}</p>}
-          {filtered.map(contact => <button type="button" key={contact.id} className={`operator-chat-contact ${peerId === contact.id ? 'selected' : ''}`} onClick={() => setParams({with: String(contact.id)})} aria-pressed={peerId === contact.id}>
-            <Avatar name={contact.name} src={contact.avatar_url}/>
-            <span className="operator-chat-contact-copy"><strong>{contact.name}</strong><span>{contact.last_message ? `${contact.last_message.sender_id === user.id ? 'Вы: ' : ''}${messagePreview(contact.last_message)}` : contact.active ? 'Начать переписку' : 'Аккаунт отключён'}</span></span>
-            <span className="operator-chat-contact-meta">{contact.last_message && <time dateTime={contact.last_message.created_at}>{messageTime(contact.last_message.created_at, meta.timezone)}</time>}{contact.unread > 0 && <span className="operator-chat-unread" aria-label={`Непрочитанных: ${contact.unread}`}>{contact.unread > 99 ? '99+' : contact.unread}</span>}</span>
-          </button>)}
-        </div>
-      </aside>
-      <div className="operator-conversation">
-        {!peerId ? <div className="operator-chat-empty"><MessageCircle size={44}/><h2>Выберите коллегу</h2><p>Откройте диалог из списка операторов, чтобы начать переписку.</p></div> : <>
-          <div className="operator-conversation-header"><button type="button" className="operator-chat-back" aria-label="К списку операторов" onClick={() => setParams({})}><ArrowLeft size={18}/></button><Avatar name={peer?.name || 'Оператор'} src={peer?.avatar_url || null}/><div><strong>{peer?.name || 'Переписка'}</strong><span>{peer ? peer.active ? peer.role === 'ADMIN_OPERATOR' ? 'Администратор' : 'Оператор' : 'Аккаунт отключён' : 'Загружаем…'}</span></div></div>
-          <ErrorBox error={historyError}/>
-          <div className="operator-message-list" ref={list}>
-            {hasOlder && <button type="button" className="operator-chat-older" onClick={older} disabled={loadingOlder}>{loadingOlder ? 'Загружаем…' : 'Более ранние сообщения'}</button>}
-            {loading && <p className="operator-chat-note">Загружаем переписку…</p>}
-            {!loading && !messages.length && !historyError && <div className="operator-chat-empty"><MessageCircle size={36}/><p>Сообщений пока нет. Напишите коллеге первым.</p></div>}
-            <ol role="log" aria-label="Сообщения" aria-live="polite" aria-relevant="additions">
-              {messages.map((message, index) => {
-                const own = message.sender_id === user.id;
-                const day = messageDay(message.created_at, meta.timezone);
-                const read = !!message.read_at || message.id <= readThrough;
-                return <Fragment key={message.id}>
-                  {(index === 0 || messageDay(messages[index - 1].created_at, meta.timezone) !== day) && <li className="operator-message-day">{day}</li>}
-                  <li className={`operator-message ${own ? 'own' : ''}`}><div className="operator-message-bubble">{message.photo && (message.photo.available ? <Link className="operator-message-photo" to={operatorPhotoLink(message.photo.id, peerId)} aria-label={'Открыть фотографию №' + message.photo.id}>
-                      {message.photo.preview_url ? <img src={message.photo.preview_url} loading="lazy" alt={'Фотография №' + message.photo.id}/> : <span className="operator-message-photo-placeholder"><Camera size={30}/></span>}
-                      <span>Фотография #{message.photo.id}<small>Открыть карточку</small></span>
-                    </Link> : <div className="operator-message-photo-unavailable">Фотография #{message.photo.id} недоступна</div>)}{message.body && <p>{message.body}</p>}<div className="operator-message-meta"><time dateTime={message.created_at}>{messageTime(message.created_at, meta.timezone)}</time>{own && <span className={read ? 'message-read' : ''} aria-label={read ? 'Прочитано' : 'Отправлено'} title={read ? 'Прочитано' : 'Отправлено'}>{read ? <CheckCheck size={14} aria-hidden="true"/> : <Check size={14} aria-hidden="true"/>}</span>}</div></div></li>
-                </Fragment>;
-              })}
-            </ol>
-          </div>
-          <form className="operator-chat-compose" onSubmit={send}>
-            <ErrorBox error={sendError}/>
-            <div><textarea aria-label="Сообщение оператору" placeholder={peer && !peer.active ? 'Аккаунт оператора отключён' : 'Напишите сообщение…'} maxLength={4000} rows={2} value={draft} disabled={!peer?.active || loading || sendingPeer === peerId} onChange={event => {setDrafts(previous => ({...previous, [peerId]: event.target.value})); setSendError('');}} onKeyDown={keyDown}/><button className="primary" aria-label="Отправить сообщение" disabled={!peer?.active || !draft.trim() || loading || !!sendingPeer}><Send size={19}/></button></div>
-            <p className="hint">{sendingPeer === peerId ? 'Отправляем…' : 'Enter — отправить, Shift + Enter — новая строка.'}</p>
-          </form>
-        </>}
-      </div>
-    </section>
+    <ChatPanel contacts={contacts.map(contact => ({key: String(contact.id), name: contact.name, avatar_url: contact.avatar_url,
+      active: contact.active, unread: contact.unread, subtitle: !contact.active ? 'Аккаунт отключён' : contact.role === 'ADMIN_OPERATOR' ? 'Администратор' : 'Оператор',
+      preview: contact.last_message ? `${contact.last_message.sender_id === user.id ? 'Вы: ' : ''}${messagePreview(contact.last_message)}` : null,
+      preview_at: contact.last_message?.created_at}))} selected={peerId ? String(peerId) : ''} select={key => setParams(key ? {with: key} : {})}
+      contactLoading={contactLoading} contactError={contactError} historyError={historyError} loading={loading}
+      messages={messages.map(message => ({...message, outgoing: message.sender_id === user.id, read: !!message.read_at || message.id <= readThrough,
+        attachment: message.photo && (message.photo.available ? <Link className="operator-message-photo" to={operatorPhotoLink(message.photo.id, peerId!)} aria-label={'Открыть фотографию №' + message.photo.id}>
+          {message.photo.preview_url ? <img src={message.photo.preview_url} loading="lazy" alt={'Фотография №' + message.photo.id}/> : <span className="operator-message-photo-placeholder"><Camera size={30}/></span>}
+          <span>Фотография #{message.photo.id}<small>Открыть карточку</small></span>
+        </Link> : <div className="operator-message-photo-unavailable">Фотография #{message.photo.id} недоступна</div>)}))}
+      hasOlder={hasOlder} loadingOlder={loadingOlder} older={older} listRef={list} draft={draft}
+      changeDraft={value => {if (peerId) setDrafts(previous => ({...previous, [peerId]: value})); setSendError('');}}
+      send={send} keyDown={keyDown} sending={!!sendingPeer} sendError={sendError} timezone={meta.timezone}/>
   </>;
 }

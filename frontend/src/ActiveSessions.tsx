@@ -10,7 +10,7 @@ type Session = {
 type Sessions = {items: Session[]; session_hours: number};
 type Confirmation = {kind: 'one'; session: Session} | {kind: 'others'};
 
-export default function ActiveSessions() {
+export default function ActiveSessions({authBase = '/auth'}: {authBase?: string}) {
   const {meta, notify} = useApp();
   const [data, setData] = useState<Sessions | null>(null);
   const [error, setError] = useState('');
@@ -29,7 +29,7 @@ export default function ActiveSessions() {
       active = controller;
       const timeout = window.setTimeout(() => controller.abort(), 10_000);
       try {
-        const response = await api<Sessions>('/auth/sessions', 'GET', undefined, controller.signal);
+        const response = await api<Sessions>(authBase + '/sessions', 'GET', undefined, controller.signal);
         if (!stopped) { setData(response); setError(''); }
       } catch (error) {
         if (!stopped) setError(controller.signal.aborted ? 'Не удалось обновить сеансы. Повторите попытку.' : (error as Error).message);
@@ -51,7 +51,7 @@ export default function ActiveSessions() {
       window.removeEventListener('focus', check);
       window.removeEventListener('online', check);
     };
-  }, [revision]);
+  }, [revision, authBase]);
 
   function date(value: string | null) {
     return value ? new Date(value).toLocaleString('ru-RU', {timeZone: meta.timezone, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'}) : 'Не сохранено';
@@ -78,10 +78,10 @@ export default function ActiveSessions() {
     setError('');
     try {
       if (confirmation.kind === 'others') {
-        const response = await api<{revoked: number}>('/auth/sessions/revoke-others', 'POST');
+        const response = await api<{revoked: number}>(authBase + '/sessions/revoke-others', 'POST');
         notify(response.revoked ? 'Другие сеансы завершены' : 'Других активных сеансов нет');
       } else {
-        await api(`/auth/sessions/${confirmation.session.id}`, 'DELETE');
+        await api(`${authBase}/sessions/${confirmation.session.id}`, 'DELETE');
         notify('Сеанс завершён');
       }
       setConfirmation(null);

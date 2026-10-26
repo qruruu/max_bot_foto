@@ -3,6 +3,15 @@ import { api, photoLink, query, reportPhotoLink, shiftDate } from './api';
 
 afterEach(() => vi.unstubAllGlobals());
 
+it('uses the independent inspector CSRF cookie for inspection mutations',async()=>{
+  vi.stubGlobal('window',{location:{pathname:'/inspection'}});
+  vi.stubGlobal('document',{cookie:'csrf=operator; platform_csrf=owner; inspection_csrf=inspector'});
+  const fetch=vi.fn().mockResolvedValue({ok:true,json:async()=>({ok:true})});vi.stubGlobal('fetch',fetch);
+  await api('/inspection/redeem','POST',{token:'invitation'});
+  expect(fetch.mock.calls[0][0]).toBe('/api/inspection/redeem');
+  expect(fetch.mock.calls[0][1].headers['X-CSRF-Token']).toBe('inspector');
+});
+
 it('uploads the original image bytes with session credentials and CSRF protection', async () => {
   vi.stubGlobal('document', {cookie: 'csrf=test%2Btoken'});
   const fetch = vi.fn().mockResolvedValue({ok: true, json: async () => ({avatar_url: '/api/auth/avatar/1?v=photo'})});

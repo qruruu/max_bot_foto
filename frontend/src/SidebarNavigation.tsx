@@ -1,16 +1,17 @@
 import { useRef, useState } from 'react';
 import type { DragEvent, ReactNode } from 'react';
-import { NavLink } from 'react-router-dom';
+import { Link, NavLink } from 'react-router-dom';
 import { ArrowDown, ArrowUp, ArrowUpDown, GripVertical, PanelLeftClose, PanelLeftOpen, RotateCcw } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { api } from './api';
 import { defaultSidebarOrder, moveSidebarItem, normalizeSidebarOrder, sortSidebarLinks } from './sidebarOrder';
 
-export type SidebarLink = {to: string; label: string; Icon: LucideIcon; badge?: ReactNode};
+export type SidebarLink = {to: string; label: string; Icon: LucideIcon; badge?: ReactNode; href?: string; active?: boolean};
 
-export default function SidebarNavigation({links, order, collapsed, toggle, onSaved}: {
+export default function SidebarNavigation({links, order, collapsed, toggle, onSaved, saveEndpoint = '/auth/sidebar-order', resetOrder = defaultSidebarOrder}: {
   links: SidebarLink[]; order: string[]; collapsed: boolean; toggle: () => void;
   onSaved: (order: string[]) => void;
+  saveEndpoint?: string; resetOrder?: readonly string[];
 }) {
   const [editing, setEditing] = useState(false), [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState(() => normalizeSidebarOrder(order));
@@ -44,7 +45,7 @@ export default function SidebarNavigation({links, order, collapsed, toggle, onSa
     if (saving) return;
     setSaving(true); setError('');
     try {
-      const result = await api<{sidebar_order: string[]}>('/auth/sidebar-order', 'PUT', {sidebar_order: draft});
+      const result = await api<{sidebar_order: string[]}>(saveEndpoint, 'PUT', {sidebar_order: draft});
       onSaved(result.sidebar_order); setEditing(false); setAnnouncement('Порядок меню сохранён');
     } catch (error) { setError((error as Error).message); }
     finally { setSaving(false); }
@@ -68,12 +69,12 @@ export default function SidebarNavigation({links, order, collapsed, toggle, onSa
       <div><button type="button" className="primary" disabled={saving || !changed} onClick={save}>{saving?'Сохраняем…':'Сохранить'}</button>
         <button type="button" disabled={saving} onClick={() => {setEditing(false); setError(''); setAnnouncement('');}}>Отмена</button>
         <button type="button" className="sidebar-order-reset" disabled={saving} title="Вернуть стандартный порядок"
-          aria-label="Вернуть стандартный порядок" onClick={() => {setDraft([...defaultSidebarOrder]); setError('');}}><RotateCcw size={15}/></button></div>
+          aria-label="Вернуть стандартный порядок" onClick={() => {setDraft(normalizeSidebarOrder(resetOrder)); setError('');}}><RotateCcw size={15}/></button></div>
       {error && <p className="sidebar-order-error" role="alert">{error} Изменения не сохранены.</p>}
     </div>}
     <span className="sidebar-order-announcement" role="status" aria-live="polite">{announcement}</span>
     <nav id="workspace-navigation" aria-label="Основная навигация" className={editing?'sidebar-order-editing':undefined}>
-      {shown.map(({to, label, Icon, badge}, index) => editing ? <div key={to}
+      {shown.map(({to, label, Icon, badge, href, active}, index) => editing ? <div key={to}
         className={'sidebar-sort-item' + (dragging===to?' dragging':'') + (drop?.target===to?' drop-'+drop.side:'')}
         draggable={!saving} onDragStart={event => {
           if (saving) {event.preventDefault(); return;}
@@ -98,7 +99,7 @@ export default function SidebarNavigation({links, order, collapsed, toggle, onSa
           <button type="button" disabled={saving || index===shown.length-1} aria-label={`Опустить «${label}»`} title="Ниже"
             onClick={() => move(to,shown[index+1].to,'after')}><ArrowDown size={14}/></button>
         </div>
-      </div> : <NavLink key={to} to={to} title={label} aria-label={label}
+      </div> : href ? <Link key={to} to={href} title={label} aria-label={label} aria-current={active ? 'page' : undefined} className={[active ? 'active' : '',to==='/messages'?'operator-chats-link':''].filter(Boolean).join(' ') || undefined}><Icon size={19}/><span className="nav-item-label">{label}</span>{badge}</Link> : <NavLink key={to} to={to} title={label} aria-label={label}
         className={to==='/messages'?'operator-chats-link':to==='/news'?'news-notifications-link':undefined} end={to==='/'}>
         <Icon size={19}/><span className="nav-item-label">{label}</span>{badge}
       </NavLink>)}

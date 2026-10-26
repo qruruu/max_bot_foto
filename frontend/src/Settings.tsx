@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Bell, Monitor, Palette, ShieldCheck, UserRound } from 'lucide-react';
-import { Navigate, NavLink, useParams } from 'react-router-dom';
+import { Link, Navigate, NavLink, useParams } from 'react-router-dom';
 import { api } from './api';
 import { ErrorBox } from './App';
 import ThemeSettings from './ThemeSettings';
@@ -17,7 +17,7 @@ const sections = [
   {id: 'sessions', name: 'Активные сеансы', Icon: Monitor},
 ];
 
-function SecuritySettings() {
+function SecuritySettings({authBase}: {authBase: string}) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [error, setError] = useState('');
@@ -28,7 +28,7 @@ function SecuritySettings() {
     setError('');
     setBusy(true);
     try {
-      await api('/auth/password', 'POST', {current_password: currentPassword, new_password: newPassword});
+      await api(authBase + '/password', 'POST', {current_password: currentPassword, new_password: newPassword});
       window.location.reload();
     } catch (error) {
       setError((error as Error).message);
@@ -49,8 +49,11 @@ function SecuritySettings() {
   </form>;
 }
 
-export default function Settings() {
-  const {section} = useParams();
+export default function Settings({authBase = '/auth', selectedSection, sectionLink}: {
+  authBase?: string; selectedSection?: string; sectionLink?: (section: string) => string;
+}) {
+  const route = useParams();
+  const section = selectedSection ?? route.section;
   if (!sections.some(item => item.id === section)) return <Navigate to="/settings/profile" replace/>;
 
   return <>
@@ -60,16 +63,16 @@ export default function Settings() {
     </div></header>
     <div className="settings-layout">
       <nav className="settings-nav" aria-label="Разделы настроек">
-        {sections.map(({id, name, Icon}) => <NavLink key={id} to={`/settings/${id}`} title={name} aria-label={name}>
+        {sections.map(({id, name, Icon}) => sectionLink ? <Link key={id} to={sectionLink(id)} className={section === id ? 'active' : undefined} title={name} aria-label={name} aria-current={section === id ? 'page' : undefined}><Icon size={19}/><span>{name}</span></Link> : <NavLink key={id} to={`/settings/${id}`} title={name} aria-label={name}>
           <Icon size={19} aria-hidden="true"/><span>{name}</span>
         </NavLink>)}
       </nav>
       <div className="settings-content">
-        {section === 'profile' && <ProfileSettings/>}
+        {section === 'profile' && <ProfileSettings authBase={authBase}/>}
         {section === 'appearance' && <ThemeSettings/>}
         {section === 'notifications' && <NotificationSettings/>}
-        {section === 'security' && <SecuritySettings/>}
-        {section === 'sessions' && <ActiveSessions/>}
+        {section === 'security' && <SecuritySettings authBase={authBase}/>}
+        {section === 'sessions' && <ActiveSessions authBase={authBase}/>}
       </div>
     </div>
   </>;

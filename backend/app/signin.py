@@ -52,6 +52,10 @@ def common_login(body, request, response, control):
         User.login == body.login.lower(), User.active))
     if verify_password(owner.password_hash if owner else DUMMY_HASH, body.password) and owner:
         return issue_login(owner, request, response, control, password=body.password)
+    from app.inspection_auth import try_inspector_login
+    inspector = try_inspector_login(body, request, response, control)
+    if inspector is not None:
+        return inspector
     candidates = []
     rows = list(control.execute(select(OrganizationLogin, Organization).join(Organization).where(
         OrganizationLogin.login == body.login.lower(), Organization.status == "ACTIVE")))
@@ -127,6 +131,10 @@ def entry(request: Request, db: Db):
         user = db.get(User, owner_session.user_id)
         user._platform_owner = True
         return {"user": user_dict(user)}
+    from app.inspection_auth import authenticated_inspector, inspector_dict
+    identity = authenticated_inspector(request, db)
+    if identity:
+        return {"user": inspector_dict(identity[0], identity[1])}
     token = request.cookies.get("workspace_session", "")
     session = db.get(WorkspaceSession, digest(token)) if token else None
     record = db.get(Organization, session.organization_id) if session and session.expires_at > now() else None

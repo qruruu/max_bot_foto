@@ -13,6 +13,10 @@ from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only
 
+from app import (
+    inspection_chats,  # noqa: F401 - registers the inspection conversation routes
+    inspection_profile,  # noqa: F401 - registers inspector personal settings
+)
 from app.appeals import organization_router as appeals_organization_router
 from app.appeals import owner_router as appeals_owner_router
 from app.appeals import public_router as appeals_public_router
@@ -58,6 +62,9 @@ from app.disk_folders import router as disk_folders_router
 from app.domain import audit, enqueue, now, reassess
 from app.exchange_housekeeping import ARCHIVE_JOB_KEY
 from app.filter_counts import photo_filter_counts
+from app.inspections import admin_router as inspection_admin_router
+from app.inspections import owner_router as inspection_owner_router
+from app.inspections import router as inspection_router
 from app.intake import ingest
 from app.integrations import YandexDisk, safe_url
 from app.media import media_path
@@ -118,6 +125,9 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 app.include_router(auth_router)
+app.include_router(inspection_router)
+app.include_router(inspection_owner_router)
+app.include_router(inspection_admin_router)
 app.include_router(appeals_owner_router)
 app.include_router(appeals_organization_router)
 app.include_router(appeals_public_router)

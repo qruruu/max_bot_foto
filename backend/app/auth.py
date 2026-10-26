@@ -251,6 +251,8 @@ def issue_login(user, request, response, db, *, password=None):
             control.commit()
     if settings().organizations_enabled:
         # Switching accounts must not leave a previous owner's authority in this browser.
+        for name in ("inspection_session", "inspection_csrf"):
+            response.delete_cookie(name, path="/")
         for name in (("workspace_session", "workspace_csrf") if platform_login else ("platform_session", "platform_csrf")):
             response.delete_cookie(name, path="/")
         for name in ("login_choice", "login_choice_csrf"):

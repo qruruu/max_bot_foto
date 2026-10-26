@@ -14,7 +14,9 @@ type NotificationContextValue = {
 };
 const NotificationContext = createContext<NotificationContextValue | null>(null);
 
-export function PhotoNotificationsProvider({userId, canViewPhotos, children}: {userId: number; canViewPhotos: boolean; children: ReactNode}) {
+export function PhotoNotificationsProvider({userId, canViewPhotos, children, endpoint = '/photos/arrivals', photoLink}: {
+  userId: number; canViewPhotos: boolean; children: ReactNode; endpoint?: string; photoLink?: (id?: number) => string;
+}) {
   const [preferences, setPreferences] = useState(() => readNotificationPreferences(userId));
   const [notice, setNotice] = useState<{count: number; photoId: number; revision: number} | null>(null);
   const currentPreferences = useRef(preferences);
@@ -48,15 +50,15 @@ export function PhotoNotificationsProvider({userId, canViewPhotos, children}: {u
 
   useEffect(() => {
     if (!enabled) return;
-    return watchPhotoArrivals(signal => api<ArrivalSnapshot>('/photos/arrivals', 'GET', undefined, signal), ids => {
+    return watchPhotoArrivals(signal => api<ArrivalSnapshot>(endpoint, 'GET', undefined, signal), ids => {
       if (currentPreferences.current.popup) {
         setNotice(previous => ({count: (previous?.count || 0) + ids.length, photoId: ids[ids.length - 1], revision: (previous?.revision || 0) + 1}));
       }
       if (currentPreferences.current.sound) {
-        void playArrivalSound(userId, ids, () => currentPreferences.current.sound && !!sound.current?.play());
+        void playArrivalSound(userId, ids, () => currentPreferences.current.sound && !!sound.current?.play(), endpoint);
       }
     });
-  }, [enabled, userId]);
+  }, [enabled, userId, endpoint]);
 
   useEffect(() => {
     if (!preferences.popup || !canViewPhotos) setNotice(null);
@@ -89,7 +91,7 @@ export function PhotoNotificationsProvider({userId, canViewPhotos, children}: {u
       <span className="photo-notice-icon" aria-hidden="true"><Bell size={21}/></span>
       <div><strong>{notice.count === 1 ? 'Поступила фотография' : `Новые фотографии: ${notice.count}`}</strong>
         <p>{notice.count === 1 ? `Фотография №${notice.photoId} поступила в сервис.` : 'Новые снимки поступили в сервис.'}</p>
-        <Link to={notice.count === 1 ? `/photos/${notice.photoId}` : '/photos?all_dates=1&date_basis=received'} onClick={() => {
+        <Link to={photoLink ? photoLink(notice.count === 1 ? notice.photoId : undefined) : notice.count === 1 ? `/photos/${notice.photoId}` : '/photos?all_dates=1&date_basis=received'} onClick={() => {
           setNotice(null);
           window.dispatchEvent(new Event('refresh-photo-list'));
         }}>

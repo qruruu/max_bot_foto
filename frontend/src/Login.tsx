@@ -7,7 +7,7 @@ import type { User } from './types';
 export type LoginResult = User | {requires_organization: true; choices: {id: string; name: string}[]};
 
 export function signInDestination(user: User) {
-  return user.is_platform_owner ? '/' : user.organization ? '/org/' + user.organization.id + '/' : '/';
+  return user.role === 'INSPECTOR' ? '/inspection' : user.is_platform_owner ? '/' : user.organization ? '/org/' + user.organization.id + '/' : '/';
 }
 
 export function SignInRedirect() {
@@ -50,6 +50,6 @@ export default function Login({onLogin, unified = false, initialError = ''}: {
         <label>Логин<input autoFocus autoComplete="username" value={login} onChange={e => setLogin(e.target.value)} required/></label>
         <label>Пароль<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required/></label>
         <button className="primary" disabled={busy}>{busy ? 'Входим…' : 'Войти в систему'}<ChevronRight size={18}/></button>
-        <p className="hint"><ShieldCheck size={16}/>{unified ? 'Откроется ваша организация. Владелец сервиса увидит все компании.' : 'Доступ выдаёт администратор вашей организации.'}</p></>}
+        <p className="hint"><ShieldCheck size={16}/>{unified ? 'Откроется кабинет вашей организации, проверяющего или владельца сервиса.' : 'Доступ выдаёт администратор вашей организации.'}</p></>}
     </form></main>;
 }

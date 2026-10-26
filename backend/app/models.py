@@ -171,6 +171,75 @@ class DiskAccount(Timestamps, Base):
     login: Mapped[str] = mapped_column(String(150))
 
 
+class InspectionAgency(Timestamps, Base):
+    __tablename__ = "inspection_agencies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(150))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Inspector(Timestamps, Base):
+    __tablename__ = "inspectors"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agency_id: Mapped[str] = mapped_column(ForeignKey("inspection_agencies.id"), index=True)
+    login: Mapped[str] = mapped_column(String(100), unique=True)
+    name: Mapped[str] = mapped_column(String(150))
+    password_hash: Mapped[str] = mapped_column(Text)
+    avatar_image: Mapped[bytes | None] = mapped_column(LargeBinary)
+    sidebar_order: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Only accounts issued by the platform owner may create subordinate accounts.
+    can_create_accounts: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("inspectors.id"))
+
+
+class InspectionSession(Base):
+    __tablename__ = "inspection_sessions"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    csrf_hash: Mapped[str] = mapped_column(String(64))
+    inspector_id: Mapped[int] = mapped_column(ForeignKey("inspectors.id"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    id: Mapped[str] = mapped_column(String(36), server_default=text("gen_random_uuid()::text"), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    user_agent: Mapped[str | None] = mapped_column(String(512))
+    ip_address: Mapped[str | None] = mapped_column(String(45))
+
+
+class InspectionQR(Base):
+    __tablename__ = "inspection_qrs"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_by: Mapped[int | None] = mapped_column(ForeignKey("inspectors.id"))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class InspectionGrant(Base):
+    __tablename__ = "inspection_grants"
+    inspector_id: Mapped[int] = mapped_column(ForeignKey("inspectors.id"), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InspectionMessage(Base):
+    __tablename__ = "inspection_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Separate namespaces prevent tenant user IDs from colliding with platform IDs.
+    sender_key: Mapped[str] = mapped_column(String(100))
+    recipient_key: Mapped[str] = mapped_column(String(100))
+    client_id: Mapped[str] = mapped_column(String(36))
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        UniqueConstraint("sender_key", "client_id", name="uq_inspection_message_client"),
+        CheckConstraint("sender_key <> recipient_key AND length(trim(body)) BETWEEN 1 AND 4000"),
+        Index("ix_inspection_messages_pair", "sender_key", "recipient_key", "id"),
+    )
+
+
 class OrganizationLogin(Base):
     __tablename__ = "organization_logins"
     login: Mapped[str] = mapped_column(String(100), primary_key=True)

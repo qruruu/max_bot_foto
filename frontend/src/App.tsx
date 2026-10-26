@@ -40,8 +40,10 @@ import { workspacePrefix } from './workspace';
 import Login, { SignInRedirect } from './Login';
 import { AppealNotice, useAppealNotifications } from './appeals/notifications';
 const OwnerAppeals = lazy(() => import('./appeals/OwnerAppeals'));
+const InspectionAdministration = lazy(() => import('./inspection/Administration'));
 
 const Context = createContext<{ user: User; meta: Meta; refresh: () => Promise<void>; notify: (text: string) => void; updateUser: (user: User) => void }>(null!);
+export const AppContextProvider = Context.Provider;
 export const useApp = () => useContext(Context);
 export const ErrorBox = ({ error }: { error: string }) => error ? <div className="error" role="alert">{error}</div> : null;
 export const Empty = ({ children }: { children: ReactNode }) => <div className="empty"><Camera size={34}/><h3>Пока ничего нет</h3><p>{children}</p></div>;
@@ -72,6 +74,7 @@ export default function App() {
     {to:'/spam', label:'Спам', Icon:ArchiveX, allowed:hasPermission(user,'spam_view')},
     {to:'/districts', label:'Микрорайоны', Icon:Map, allowed:hasPermission(user,'districts_view')},
     {to:'/appeals', label:'Обращения граждан', Icon:MessageSquare, allowed:admin && !!meta.organization},
+    {to:'/inspectors', label:'Проверяющие', Icon:ShieldCheck, allowed:admin && !!meta.organization},
     {to:'/messages', label:'Чаты операторов', Icon:MessageSquare, allowed:true},
     {to:'/chats', label:'Чаты MAX', Icon:MessageSquare, allowed:hasPermission(user,'chats_manage')},
     {to:'/work-types', label:'Виды работ', Icon:Layers, allowed:admin},
@@ -117,6 +120,7 @@ export default function App() {
           <Route path="/photos/:id" element={protectedPage('photos_view',<PhotoDetail/>)}/>
           <Route path="/districts" element={protectedPage('districts_view',<DistrictMap/>)}/>
           <Route path="/appeals" element={admin && meta.organization ? <Suspense fallback={<p className="loading">Открываем обращения…</p>}><OwnerAppeals organization/></Suspense> : denied}/>
+          <Route path="/inspectors" element={admin && meta.organization ? <Suspense fallback={<p className="loading">Открываем проверяющих…</p>}><InspectionAdministration/></Suspense> : denied}/>
           <Route path="/messages" element={<OperatorChats/>}/>
           <Route path="/chats" element={protectedPage('chats_manage',<Administration key="chats" page="chats"/>)}/>
           <Route path="/work-types" element={admin?<WorkTypes/>:denied}/>

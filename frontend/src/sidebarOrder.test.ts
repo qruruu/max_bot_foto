@@ -11,7 +11,7 @@ describe('personal sidebar order', () => {
     expect(order.slice(0, 2)).toEqual(['/review', '/photos']);
     expect(new Set(order)).toEqual(new Set(defaultSidebarOrder));
     expect(order).toHaveLength(defaultSidebarOrder.length);
-    expect(order.at(-1)).toBe('/learning');
+    expect(order.at(-1)).toBe('/inspectors');
   });
 
   it('moves in both directions with stable identities without modifying the saved order', () => {

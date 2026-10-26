@@ -5,7 +5,7 @@ import { api } from './api';
 const Context = createContext<{unread: number; refreshUnread: () => Promise<void>}>(null!);
 export const useOperatorChats = () => useContext(Context);
 
-export function OperatorChatsProvider({children}: {children: ReactNode}) {
+export function OperatorChatsProvider({children, endpoint = '/operator-chats/unread'}: {children: ReactNode; endpoint?: string}) {
   const [unread, setUnread] = useState(0);
   const request = useRef<AbortController | null>(null);
   const refreshUnread = useCallback(async () => {
@@ -13,10 +13,10 @@ export function OperatorChatsProvider({children}: {children: ReactNode}) {
     const controller = new AbortController();
     request.current = controller;
     try {
-      const result = await api<{unread: number}>('/operator-chats/unread', 'GET', undefined, controller.signal);
+      const result = await api<{unread: number}>(endpoint, 'GET', undefined, controller.signal);
       if (!controller.signal.aborted) setUnread(result.unread);
     } catch { /* Keep the last count during a temporary network interruption. */ }
-  }, []);
+  }, [endpoint]);
 
   useEffect(() => {
     const refresh = () => {if (!document.hidden) void refreshUnread();};

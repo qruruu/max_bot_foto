@@ -1,0 +1,21 @@
+import type { Meta, User } from '../types';
+
+export type Inspector = User & {agency_id: string; agency_name: string; can_create_accounts: boolean; created_by: number | null};
+export type Agency = {id: string; name: string; active: boolean; accounts: number};
+export type Organization = {id: string; name: string; city?: string | null};
+export type InspectionPhoto = {id: number; photo_date: string | null; photo_time: string | null; received_at: string; latitude: number | null;
+  work_type: string | null; district_id: number | null; original_available?: boolean;
+  longitude: number | null; district_name: string | null; work_type_name: string | null; is_defect: boolean;
+  detected_address: string | null; detected_city: string | null; preview_url: string};
+export type PhotoPage = {items: InspectionPhoto[]; total: number; page: number; page_size: number};
+export type InspectionMeta = Pick<Meta, 'districts' | 'work_types' | 'today' | 'timezone' | 'yandex_maps_api_key'>;
+export type InspectionReport = {total: number; defects: number; districts: Breakdown[]; work_types: Breakdown[];
+  work_district_matrix: {work_type: string; district_id: number; count: number}[]};
+export type Breakdown = {id: string | number; name: string; count: number};
+export type Appeal = {id: number; organization_name: string; address: string; place: string; description: string;
+  work_type_name: string; category: string; status: string; created_at: string; photos: {id: string; url: string}[]};
+export type Contact = {key: string; name: string; kind: string; organization_name: string | null; avatar_url: string | null;
+  unread: number; last_message: string | null; last_message_at: string | null; last_message_outgoing: boolean};
+export type Message = {id: number; body: string; outgoing: boolean; created_at: string; read_at: string | null; peer_name?: string};
+export type MessagePage = {items: Message[]; next_before_id: number | null};
+export type ConversationPage = MessagePage & {has_newer: boolean; peer_read_through_id: number};
