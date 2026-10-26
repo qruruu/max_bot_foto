@@ -26,19 +26,19 @@ export default function InspectionOwner({organizations}: {organizations: Organiz
   useEffect(()=>{void load().catch(e=>setError(e.message));},[]);
   useEffect(()=>{detailGeneration.current++;setAccounts([]);setAccount(null);void loadAccounts().catch(e=>setError(e.message));},[selected]);
   const agency=agencies.find(a=>a.id===selected);
-  return <div className="inspection-owner"><header className="page-header"><div><span className="eyebrow">КАБИНЕТ ВЛАДЕЛЬЦА</span><h1>Проверяющие</h1><p>Администрации, аккаунты, доступ к организациям и переписки.</p></div>
+  return <div className="inspection-owner"><header className="page-header"><div><span className="eyebrow">КАБИНЕТ ВЛАДЕЛЬЦА</span><h1>Проверяющие</h1><p>Проверяющие, аккаунты, доступ к организациям и переписки.</p></div>
     <div className="inspection-actions"><button onClick={()=>void run(async()=>{await load();await loadAccounts();if(account)await details(account);})} disabled={busy}><RefreshCw size={17}/>Обновить</button>
-      <button className="primary" onClick={()=>{setName('');setActive(true);setCreate(true);setEditing(true);}}><Plus size={17}/>Создать администрацию</button></div></header>
+      <button className="primary" onClick={()=>{setName('');setActive(true);setCreate(true);setEditing(true);}}><Plus size={17}/>Создать проверяющих</button></div></header>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="organization-grid">{agencies.map(a=><article className="panel organization-card" key={a.id}><h2>{a.name}</h2><p>{a.active?'Работает':'Приостановлена'} · Аккаунтов: {a.accounts}</p>
       <button className={a.id===selected?'primary':''} onClick={()=>{setSelected(a.id);setEditing(false);}}>Открыть</button>
       <button onClick={()=>{setSelected(a.id);setName(a.name);setActive(a.active);setCreate(false);setEditing(true);}}>Настроить</button></article>)}</div>
-    {!agencies.length && <p className="empty">Создайте первую проверяющую администрацию.</p>}
+    {!agencies.length && <p className="empty">Добавьте проверяющих.</p>}
     {editing && <form className="panel inspection-account-form" onSubmit={e=>{e.preventDefault();void run(async()=>{
       if(create){const a=await api<Agency>('/platform/inspection/agencies','POST',{name,active});setSelected(a.id);}
       else await api('/platform/inspection/agencies/'+selected,'PATCH',{name,active});setEditing(false);await load();});}}>
-      <h2>{create?'Новая администрация':'Настройки администрации'}</h2><label>Название<input required maxLength={150} value={name} onChange={e=>setName(e.target.value)}/></label>
-      <label className="checkbox"><input type="checkbox" checked={!active} onChange={e=>setActive(!e.target.checked)}/>Приостановить все аккаунты администрации</label>
+      <h2>{create?'Новые проверяющие':'Настройки проверяющих'}</h2><label>Название<input required maxLength={150} value={name} onChange={e=>setName(e.target.value)}/></label>
+      <label className="checkbox"><input type="checkbox" checked={!active} onChange={e=>setActive(!e.target.checked)}/>Приостановить все аккаунты проверяющих</label>
       <button className="primary" disabled={busy}>Сохранить</button><button type="button" onClick={()=>setEditing(false)}>Отмена</button></form>}
     {agency && <section className="panel"><h2>{agency.name} · Аккаунты</h2><p className="hint">Аккаунты, созданные здесь, могут добавлять сотрудников. Их сотрудники создавать аккаунты не смогут.</p>
       <AccountForm key={selected} busy={busy} onSave={async body=>{setBusy(true);setError('');try{await api('/platform/inspection/agencies/'+selected+'/accounts','POST',body);await loadAccounts();await load();}catch(e){setError((e as Error).message);throw e;}finally{setBusy(false);}}}/>
