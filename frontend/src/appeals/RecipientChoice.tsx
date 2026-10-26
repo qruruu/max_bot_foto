@@ -1,18 +1,19 @@
 type Choice = {value: string; label: string};
 
-export default function RecipientChoice({label, name, options, value, disabled, onChange, autoComplete, placeholder}: {
+export default function RecipientChoice({label, name, options, value, disabled, onChange, autoComplete, placeholder, description}: {
   label: string; name: string; options: Choice[]; value: string; disabled: boolean;
-  onChange: (value: string) => void; autoComplete?: string; placeholder?: string;
+  onChange: (value: string) => void; autoComplete?: string; placeholder?: string; description?: string;
 }) {
   if (!options.length) return null;
   // A pending upload must retain its old payload even if the catalog has changed.
   if (disabled && value && !options.some(option => option.value === value)) return null;
+  const descriptionId = description ? `citizen-${name}-help` : undefined;
   if (options.length === 1) return <dl className="citizen-fixed-field citizen-wide" data-field={name}>
-    <dt>{label}</dt><dd>{options[0].label}</dd>
+    <dt>{label}</dt><dd>{options[0].label}{description && <p className="citizen-help" id={descriptionId}>{description}</p>}</dd>
   </dl>;
   return <label className="citizen-wide">{label}<select name={name} required autoComplete={autoComplete}
-    disabled={disabled} value={value} onChange={event => onChange(event.target.value)}>
+    disabled={disabled} value={value} aria-describedby={descriptionId} onChange={event => onChange(event.target.value)}>
     <option value="">{placeholder || (label === 'Город' ? 'Выберите город' : label === 'Организация' ? 'Выберите организацию' : 'Выберите вид работ')}</option>
     {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-  </select></label>;
+  </select>{description && <p className="citizen-help" id={descriptionId}>{description}</p>}</label>;
 }

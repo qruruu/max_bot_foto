@@ -213,6 +213,8 @@ export default function CitizenAppeal() {
             <RecipientChoice label="Организация" name="organization_id" options={cityOrganizations.map(item => ({value: item.id, label: item.name}))}
               value={form.organization_id} disabled={locked} onChange={chooseOrganization}/>
             <RecipientChoice label="Что случилось?" name="category" placeholder="Выберите проблему" options={recipient?.work_types.map(citizenWorkOption) || []}
+              description={validRecipient(form, catalog) && form.category === 'PLAYGROUND_MAINTENANCE'
+                ? 'Детские, спортивные и тренажёрные площадки: мусор, неубранный снег, сломанные качели или другое оборудование. Освещение сюда не входит.' : undefined}
               value={form.category} disabled={locked} onChange={category => setForm(current => ({...current, category}))}/>
             <label className="citizen-wide">Улица и дом<input required minLength={5} maxLength={300} autoComplete="street-address" placeholder="Улица, номер дома или ближайший адрес" {...field('address')}/></label>
             <label className="citizen-wide">Где именно<input required minLength={2} maxLength={300} placeholder="Например, тротуар у второго подъезда" {...field('place')}/></label>
