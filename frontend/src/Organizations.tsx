@@ -127,7 +127,7 @@ export default function Organizations() {
   if (!user) return <Login onLogin={signedIn} unified initialError={error}/>;
 
   return <main className="organizations-page">
-    <header className="organizations-topbar"><a href="/" className="brand"><span className="brand-mark"><Layers size={25}/></span>MAX Фото</a>
+    <header className="organizations-topbar"><a href="/" className="brand"><span className="brand-mark"><Layers size={25}/></span>Метка</a>
       <div><span className="owner-account"><ShieldCheck size={17}/>{user.name}<small>Владелец сервиса</small></span>
         <button aria-label="Сменить оформление" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}</button>
         <button aria-label="Выйти" onClick={async () => {try {await api('/auth/logout', 'POST'); setUser(null);} catch(e) {setError((e as Error).message);}}}><LogOut size={18}/></button></div></header>

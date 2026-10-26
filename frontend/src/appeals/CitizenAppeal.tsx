@@ -161,7 +161,7 @@ export default function CitizenAppeal() {
   if (!loaded) return <div className="citizen-app citizen-restoring" role="status">Открываем форму…</div>;
 
   return <div className="citizen-app"><div inert={cameraOpen || !!preview}>
-    <header className="citizen-header"><a href="/appeals" className="citizen-brand"><span><Leaf size={23}/></span>Город рядом</a><span className="citizen-header-caption">Обращения жителей</span></header>
+    <header className="citizen-header"><a href="/appeals" className="citizen-brand"><span><Leaf size={23}/></span>Сигнал</a><span className="citizen-header-caption">Обращения жителей</span></header>
     {receipt ? <main className="citizen-success"><span className="citizen-success-mark"><CheckCircle2 size={42}/></span>
       <span className="citizen-kicker">СПАСИБО ЗА УЧАСТИЕ</span><h1>Ваше обращение получено</h1>
       <p>Описание и фотографии переданы администраторам выбранной организации.</p>

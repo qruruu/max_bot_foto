@@ -35,7 +35,7 @@ export default function Login({onLogin, unified = false, initialError = ''}: {
     catch (error) {setError((error as Error).message);} finally {setBusy(false);}
   }
   return <main className="login-page"><div className="login-art">
-    <div className="brand"><span className="brand-mark"><Layers/></span>MAX Фото</div>
+    <div className="brand"><span className="brand-mark"><Layers/></span>Метка</div>
     <div><span className="eyebrow">ГОРОД ПОД КОНТРОЛЕМ</span><h1>Каждая работа.<br/>На своём месте.</h1>
       <p>Фотографии из чатов, выполненные работы и карта микрорайонов — в одном пространстве.</p></div>
     <span className="login-caption">Система учёта и контроля городских работ</span></div>

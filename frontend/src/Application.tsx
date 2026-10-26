@@ -13,6 +13,6 @@ export default function Application() {
     catch (error) { setError((error as Error).message); }
   }
   useEffect(() => {if (!workspacePrefix()) void load();}, []);
-  if (enabled === null) return <div className="full-loading">{error || 'Открываем MAX Фото…'}{error && <button onClick={load}>Повторить</button>}</div>;
+  if (enabled === null) return <div className="full-loading">{error || 'Открываем Метку…'}{error && <button onClick={load}>Повторить</button>}</div>;
   return enabled ? <Organizations/> : <App/>;
 }

@@ -85,7 +85,7 @@ def import_posts(connection):
                 draft=snapshot,
                 published=snapshot,
                 published_at=instant,
-                author_name="Редакция MAX Фото",
+                author_name="Редакция Метки",
                 created_at=instant,
                 updated_at=instant,
             )

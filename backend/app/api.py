@@ -112,7 +112,7 @@ from app.work_types import catalog_rows, require_work_type, work_catalog
 from app.work_types import router as work_types_router
 
 app = FastAPI(
-    title="MAX Фото · операторская панель",
+    title="Метка · операторская панель",
     version="1.0.0",
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",

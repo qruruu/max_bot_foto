@@ -89,7 +89,7 @@ export default function App() {
     <div className={'app ' + (sidebar.collapsed ? 'sidebar-collapsed' : 'sidebar-expanded')}>
       {!sidebar.collapsed&&<button type="button" className="sidebar-backdrop" aria-label="Закрыть боковую панель" onClick={sidebar.toggle}/>}
       <aside className="sidebar">
-        <NavLink className="brand" to={home} aria-label="MAX Фото — главная"><span className="brand-mark"><Layers size={23}/></span><span className="brand-copy">MAX Фото<small>Контроль городских работ</small></span></NavLink>
+        <NavLink className="brand" to={home} aria-label="Метка — главная"><span className="brand-mark"><Layers size={23}/></span><span className="brand-copy">Метка<small>Контроль городских работ</small></span></NavLink>
         <SidebarNavigation key={user.id} links={links.map(link=>({...link,badge:link.to==='/messages'?<OperatorChatBadge/>:link.to==='/appeals' && appeals.count ? <span className="count-pill" aria-label={`Новых обращений: ${appeals.count}`}>{appeals.count}</span>:undefined}))}
           order={user.sidebar_order} collapsed={sidebar.collapsed} toggle={sidebar.toggle}
           onSaved={sidebar_order=>setUser(current=>current?.id===user.id?{...current,sidebar_order}:current)}/>

@@ -27,7 +27,7 @@ export default function News({owner = false}: {owner?: boolean}) {
   return <div className="news-page">
     {slug && <Link className="back-link" to="/news"><ArrowLeft size={16}/>Все новости</Link>}
     {notFound ? <section className="panel news-not-found"><Newspaper size={32}/><h1>Новость не найдена</h1><p>Откройте список публикаций и выберите нужную статью.</p></section> : post ? <ArticleView post={post}/> : <>
-      <header className="page-header"><div><span className="eyebrow">ОБНОВЛЕНИЯ MAX ФОТО</span><h1>Новости</h1><p>Новые возможности и понятные инструкции — со скриншотами и примерами.</p></div>{owner ? <a className="button" href="/?section=news"><PenLine size={17}/>Редактор новостей</a> : <span className="news-page-icon"><Newspaper size={25}/></span>}</header>
+      <header className="page-header"><div><span className="eyebrow">ОБНОВЛЕНИЯ МЕТКИ</span><h1>Новости</h1><p>Новые возможности и понятные инструкции — со скриншотами и примерами.</p></div>{owner ? <a className="button" href="/?section=news"><PenLine size={17}/>Редактор новостей</a> : <span className="news-page-icon"><Newspaper size={25}/></span>}</header>
       <div className="news-layout"><section className="news-feed" aria-label="Публикации об обновлениях">
         {posts.map(item => <Link className="panel news-card" to={'/news/'+item.slug} key={item.slug}>
           {item.cover_src && <img className="news-card-cover" src={item.cover_src} alt="" loading="lazy"/>}

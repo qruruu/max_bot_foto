@@ -13,7 +13,7 @@ from app.models import User
 
 
 def main():
-    parser = argparse.ArgumentParser(description="MAX Фото: управление сервисом")
+    parser = argparse.ArgumentParser(description="Метка: управление сервисом")
     sub = parser.add_subparsers(dest="command", required=True)
     admin = sub.add_parser("create-admin")
     admin.add_argument("--login", required=True)
