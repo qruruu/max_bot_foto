@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type { Meta } from '../types';
 import { assignment, frequencies, newWork } from './types';
@@ -71,4 +72,3 @@ export default function ReportingSetup({config,meta,disabled,change}:Props) {
     <section className="panel"><h2>Основания и недостающие данные</h2><textarea rows={6} value={config.source_notes} onChange={e=>change({...config,source_notes:e.target.value})}/></section>
   </fieldset>;
 }
-import { useState } from 'react';

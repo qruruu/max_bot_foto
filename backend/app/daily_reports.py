@@ -21,6 +21,7 @@ from app.daily_report_schemas import (
     ReportingSettingsInput,
     ReportingVersionInput,
 )
+from app.day_verification import confirmed_condition
 from app.domain import audit, now
 from app.models import (
     DailyReport,
@@ -86,7 +87,7 @@ def issues_for(document, config):
     problems = []
     if not config.profile.company_name.strip() or not any(v.strip() for v in config.profile.recipient) or not config.contracts:
         problems.append("Заполните организацию, адресата и хотя бы один контракт")
-    for kind, label in (("fact", "Факт"), ("plan", "План")):
+    for kind, label in (("fact", "Выполненные работы"), ("plan", "Запланированные работы")):
         if not getattr(document, kind + "_season") and any(w.season != "all" for w in config.works):
             problems.append(label + ": выберите сезон или задайте его границы в настройках")
         works, areas = config_lookups(config)
@@ -140,24 +141,27 @@ def evidence_selection(day, cohort, user):
 
 
 def evidence_for(db, user, day, config, cohort):
-    rows = list(db.scalars(evidence_selection(day, cohort, user)))
+    rows = list(db.execute(evidence_selection(day, cohort, user).add_columns(confirmed_condition())).all())
     works, areas = config_lookups(config)
     counts, unmatched = {}, 0
-    signatures = {}
-    for photo in rows:
+    signatures, confirmed = {}, 0
+    for photo, checked in rows:
         # An unrecognized photo date must never be replaced by its receipt date in a contract letter.
         if photo.photo_date != day:
             continue
         signatures[str(photo.id)] = photo.version
+        confirmed += bool(checked)
         matches = [(w.id, a.area_id) for w in works.values() for a in w.assignments
                    if photo.work_type in w.photo_codes and photo.district_id in areas[a.area_id].district_ids]
         if not matches:
             unmatched += 1
         for work_id, area_id in matches:
-            entry = counts.setdefault(work_id + ":" + area_id, {"total": 0, "needs_review": 0})
+            entry = counts.setdefault(work_id + ":" + area_id, {"total": 0, "needs_review": 0, "confirmed": 0})
             entry["total"] += 1
             entry["needs_review"] += photo.status != "ACCEPTED"
-    return {"rows": counts, "unmatched": unmatched, "total": len(signatures), "signatures": signatures}
+            entry["confirmed"] += bool(checked)
+    return {"rows": counts, "unmatched": unmatched, "total": len(signatures), "confirmed": confirmed,
+            "unconfirmed": len(signatures) - confirmed, "signatures": signatures}
 
 
 def revision(db, report, user, action):
@@ -296,8 +300,19 @@ def refresh_calendar(id: int, body: ReportingSaveInput, db: Db, user: Editor):
     document = body.document
     check_document(document, config)
     past = previous_facts(db, report.cohort, report.day, exclude=report.id)
+    works = {w.id: w for w in config.works}
     for kind, day in (("fact", report.day - timedelta(days=1)), ("plan", report.day)):
-        current = {(r.work_id, r.area_id): r for r in getattr(document, kind)}
+        current = {}
+        for row in getattr(document, kind):
+            work = works[row.work_id]
+            assignment = next(a for a in work.assignments if a.area_id == row.area_id)
+            untouched = (row.decision == "pending" and row.quantity == assignment.quantity
+                         and row.resources == assignment.resources and not row.note and not row.cycle_complete)
+            applicable = work_period(day, work, getattr(document, kind + "_season"), getattr(document, kind + "_events"))
+            # Season/event changes remove only untouched proposals, never an operator's decision or entered fact.
+            if untouched and applicable is None:
+                continue
+            current[(row.work_id, row.area_id)] = row
         generated = build_lines(day, config, getattr(document, kind + "_season"), getattr(document, kind + "_events"), past)
         for line in generated:
             current.setdefault((line.work_id, line.area_id), line)
@@ -395,7 +410,7 @@ def rebuild_report(id: int, body: ReportingVersionInput, db: Db, user: Editor):
 
 @router.get("/{id}/photos")
 def report_photos(id: int, work_id: str, area_id: str, db: Db, user: Reader,
-                  page: int = Query(default=1, ge=1)):
+                  page: int = Query(default=1, ge=1), verified_only: bool = False):
     check_permission(user, Permission.PHOTOS_VIEW)
     report = checked_report(db, id)
     config = ReportingConfig.model_validate(report.config)
@@ -404,6 +419,8 @@ def report_photos(id: int, work_id: str, area_id: str, db: Db, user: Reader,
         raise HTTPException(404, "Работа не найдена в отчёте")
     stmt = evidence_selection(report.day - timedelta(days=1), report.cohort, user).where(
         Photo.work_type.in_(works[work_id].photo_codes), Photo.district_id.in_(areas[area_id].district_ids))
+    if verified_only:
+        stmt = stmt.where(confirmed_condition())
     from sqlalchemy import func
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     return {"total": total, "page": page,

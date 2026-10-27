@@ -11,6 +11,7 @@ import type { PhotoListPosition } from './photoNavigation';
 import PhotoTable from './PhotoTable';
 import OperatorDayStatus from './OperatorDayStatus';
 import { canEditPhoto, updatePhotoDefect } from './photoWork';
+import { hasPermission } from './permissions';
 import './day-reviews.css';
 
 export default function DayReviews() {
@@ -105,6 +106,7 @@ export default function DayReviews() {
         <button aria-label="Следующий день" disabled={busy} onClick={() => change({day: shiftDate(day, 1), work: ''})}><ChevronRight size={18}/></button>
       </div>
       <div className="day-report-actions">
+        {hasPermission(user,'daily_reports_view')&&<Link className="button" to={'/daily-reports?date='+day}>Подготовить отчёт</Link>}
         <button className="primary" disabled={busy || defectBusy !== null || !summary?.can_close} onClick={() => dialog.current?.showModal()}><CheckCheck size={18}/>{added ? 'Добавить в день' : 'Закрыть день'}</button></div>
     </section>
     <ErrorBox error={error}/>

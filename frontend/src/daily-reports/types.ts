@@ -9,7 +9,7 @@ export type Setup = {version:number;config:Config};
 export type Line = {work_id:string;area_id:string;decision:'pending'|'include'|'info'|'skip';quantity:number|null;resources:string;note:string;cycle_complete:boolean};
 export type Document = {fact:Line[];plan:Line[];fact_season:''|'summer'|'winter';plan_season:''|'summer'|'winter';fact_events:string[];plan_events:string[];note:string};
 export type ReportSummary = {id:number;day:string;version:number;approved:boolean;changed:boolean;approved_at:string|null;letter_numbers:Record<string,string>};
-export type Report = ReportSummary & {fact_day:string;cohort:'test'|'production';config:Config;document:Document;issues:string[];evidence:{total:number;unmatched:number;rows:Record<string,{total:number;needs_review:number}>};new_photos:number;changed_photos:number};
+export type Report = ReportSummary & {fact_day:string;cohort:'test'|'production';config:Config;document:Document;issues:string[];evidence:{total:number;confirmed:number;unconfirmed:number;unmatched:number;rows:Record<string,{total:number;needs_review:number;confirmed:number}>};new_photos:number;changed_photos:number};
 export const frequencies:Record<Recurrence,string>={daily:'Ежедневно',monthly:'Раз в месяц',four_windows:'4 окна в месяц',windows:'Периоды в году',deadlines:'Сроки выполнения',dates:'В определённые даты',interval:'Раз в несколько дней',event:'По событию или заявке'};
 export const assignment = (area_id:string):Assignment=>({area_id,quantity:null,resources:'',annual_limit:null});
 export const newWork = ():Work=>({id:crypto.randomUUID(),name:'Новый вид работ',unit:'м²',season:'all',recurrence:'daily',schedule_note:'',windows:[],dates:[],interval_days:5,requires_event:false,photo_codes:[],assignments:[]});

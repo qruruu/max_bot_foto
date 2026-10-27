@@ -19,7 +19,7 @@ function config():Config {
 }
 function report():Report {
   const line={work_id:'bins',area_id:'a',decision:'pending' as const,quantity:null,resources:'',note:'',cycle_complete:false};
-  return {id:1,day:'2026-10-27',fact_day:'2026-10-26',cohort:'test',version:1,approved:false,changed:false,approved_at:null,letter_numbers:{},config:config(),document:{fact:[{...line}],plan:[{...line}],fact_season:'',plan_season:'',fact_events:[],plan_events:[],note:''},issues:['Укажите объём'],evidence:{total:12,unmatched:0,rows:{'bins:a':{total:12,needs_review:1}}},new_photos:0,changed_photos:0};
+  return {id:1,day:'2026-10-27',fact_day:'2026-10-26',cohort:'test',version:1,approved:false,changed:false,approved_at:null,letter_numbers:{},config:config(),document:{fact:[{...line}],plan:[{...line}],fact_season:'',plan_season:'',fact_events:[],plan_events:[],note:''},issues:['Укажите объём'],evidence:{total:12,confirmed:10,unconfirmed:2,unmatched:0,rows:{'bins:a':{total:12,needs_review:1,confirmed:10}}},new_photos:0,changed_photos:0};
 }
 async function mount(entry='/daily-reports') {
   await act(async()=>{root.render(<MemoryRouter initialEntries={[entry]}><DailyReports/></MemoryRouter>);await tick();});
@@ -70,23 +70,26 @@ it('selects districts and adds work from the existing company catalog',async()=>
 });
 
 it('shows photo evidence without filling work quantities or approving the day',async()=>{
-  await mount();await click('Собрать черновик');
-  expect(element.textContent).toContain('12 фото');
-  expect(element.querySelector<HTMLInputElement>('input[aria-label="Факт: Очистка урн — ЭА.2026.00058"]')!.value).toBe('');
+  await mount();await click('Продолжить');
+  expect(element.textContent).toContain('10 фото');
+  expect(element.querySelector<HTMLInputElement>('input[aria-label="Выполнено: Очистка урн — ЭА.2026.00058"]')!.value).toBe('');
   expect(vi.mocked(api).mock.calls.some(c=>c[0].endsWith('/approve'))).toBe(false);
-  await click('Подтвердить строки с объёмом');
-  expect(element.querySelector<HTMLSelectElement>('select[aria-label="Решение: факт Очистка урн — ЭА.2026.00058"]')!.value).toBe('pending');
+  expect(element.querySelector('button[aria-label="Осталось проверить: 2"]')).toBeTruthy();
+  expect(element.textContent).not.toContain('Подтвердить работы с указанным объёмом');
 });
 
 it('saves explicit decisions before approval and switches downloads to the approved version',async()=>{
-  await mount();await click('Собрать черновик');
-  await select('Решение: факт Очистка урн — ЭА.2026.00058','skip');
-  await select('Решение: план Очистка урн — ЭА.2026.00058','info');
-  await click('Утвердить отчёт');
+  await mount();await click('Продолжить');
+  await click('Не выполнялось');
+  await click('Дальше: запланированные работы');
+  await click('Без объёма');
+  await click('Проверить письма');
+  expect(vi.mocked(api).mock.calls.some(c=>c[0].endsWith('/approve'))).toBe(false);
+  await click('Утвердить и получить письма');
   const writes=vi.mocked(api).mock.calls.filter(c=>['PUT','POST'].includes(c[1]||''));
   expect(writes.at(-2)?.[0]).toBe('/daily-reports/1');expect(writes.at(-2)?.[1]).toBe('PUT');
   expect(writes.at(-1)?.[0]).toBe('/daily-reports/1/approve');
-  expect(element.querySelector<HTMLAnchorElement>('a[href*="/xlsx"]')!.getAttribute('href')).toBe('/api/daily-reports/1/xlsx');
+  expect(Array.from(element.querySelectorAll<HTMLAnchorElement>('a')).find(a=>a.textContent==='Скачать Excel')!.getAttribute('href')).toBe('/api/daily-reports/1/xlsx');
 });
 
 it('keeps report settings read-only for an account without configuration permission',async()=>{
@@ -102,5 +105,61 @@ it('does not crash when the report date input is cleared',async()=>{
   await mount();
   const input=element.querySelector<HTMLInputElement>('.daily-day-picker input')!;
   await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,'');input.dispatchEvent(new Event('input',{bubbles:true}));await tick();});
-  expect(element.textContent).toContain('Выберите дату');
+  expect(element.textContent).toContain('За какой день подготовить отчёт');
+  expect(Array.from(element.querySelectorAll('button')).find(b=>b.textContent==='Продолжить')!.disabled).toBe(true);
+});
+
+async function input(label:string,value:string) {
+  const node=element.querySelector<HTMLInputElement>('input[aria-label="'+label+'"]')!;
+  await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(node,value);node.dispatchEvent(new Event('input',{bubbles:true}));await tick();});
+}
+it('uses the selected work day and dates the letter the following day',async()=>{
+  await mount('/daily-reports?date=2026-10-16');await click('Продолжить');
+  expect(vi.mocked(api).mock.calls.find(c=>c[0]==='/daily-reports'&&c[1]==='POST')?.[2]).toEqual({day:'2026-10-17'});
+});
+it('confirms a typed volume and keeps the actionable count consistent after saving',async()=>{
+  await mount();await click('Продолжить');
+  await input('Выполнено: Очистка урн — ЭА.2026.00058','8');
+  expect(element.querySelector('button[aria-label="Осталось проверить: 1"]')).toBeTruthy();
+  await click('Сохранить черновик');
+  expect(stored!.document.fact[0]).toMatchObject({quantity:8,decision:'include'});
+  expect(element.querySelector('button[aria-label="Осталось проверить: 1"]')).toBeTruthy();
+  await act(async()=>{element.querySelector<HTMLButtonElement>('button[aria-label="Осталось проверить: 1"]')!.click();await tick();});
+  expect(element.textContent).toContain('Что запланировали');
+  expect(element.querySelector<HTMLInputElement>('input[aria-label="Запланировано: Очистка урн — ЭА.2026.00058"]')).toBe(document.activeElement);
+});
+it('loads only photographs already included in the checked day',async()=>{
+  const previous=vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async(path,...args)=>path.includes('/photos?')?{total:10,page:1,items:[]}:previous(path,...args));
+  await mount();await click('Продолжить');await click('10 фото');
+  expect(vi.mocked(api).mock.calls.some(c=>c[0].includes('verified_only=true'))).toBe(true);
+  expect(element.textContent).toContain('Повторно проверять их не нужно');
+});
+it('keeps entered work and the pending count when moving between the three steps',async()=>{
+  await mount();await click('Продолжить');await input('Выполнено: Очистка урн — ЭА.2026.00058','5');
+  await click('Дальше: запланированные работы');await click('Проверить письма');await click('Вернуться к работам');
+  const fact=Array.from(element.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(b=>b.textContent?.startsWith('Выполнено за'))!;
+  await act(async()=>{fact.click();await tick();});
+  expect(element.querySelector<HTMLInputElement>('input[aria-label="Выполнено: Очистка урн — ЭА.2026.00058"]')!.value).toBe('5');
+  expect(element.querySelector('button[aria-label="Осталось проверить: 1"]')).toBeTruthy();
+});
+it('fills personnel only in blank fields of the current contract and work day',async()=>{
+  stored=report();
+  const extra={...stored.config.works[0],id:'wash',name:'Промывка урн'};
+  stored.config.works.push(extra);
+  stored.document.fact.push({...stored.document.fact[0],work_id:'wash',resources:'2 человека'});
+  await mount('/daily-reports?report=1');
+  await input('Общий персонал: ЭА.2026.00058','3 человека');
+  await click('Заполнить пустые поля');await click('Сохранить черновик');
+  expect(stored.document.fact.map(r=>r.resources)).toEqual(['3 человека','2 человека']);
+  expect(stored.document.plan[0].resources).toBe('');
+});
+it('keeps suggested quantities unconfirmed until the operator explicitly accepts them',async()=>{
+  stored=report();stored.document.fact[0].quantity=7;
+  await mount('/daily-reports?report=1');
+  expect(element.querySelector('button[aria-label="Осталось проверить: 2"]')).toBeTruthy();
+  expect(stored.document.fact[0].decision).toBe('pending');
+  await click('Подтвердить работы с указанным объёмом');await click('Сохранить черновик');
+  expect(stored.document.fact[0]).toMatchObject({decision:'include',quantity:7});
+  expect(stored.document.plan[0].decision).toBe('pending');
 });

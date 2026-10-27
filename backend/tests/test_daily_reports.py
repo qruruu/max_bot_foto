@@ -167,10 +167,26 @@ def test_photo_evidence_matches_exact_date_area_and_cohort_but_never_sets_work_v
         photos.append(p)
     db.commit()
     report = create(client)
-    assert report["evidence"]["rows"]["bins:area58"] == {"total": 2, "needs_review": 1}
+    assert report["evidence"]["rows"]["bins:area58"] == {"total": 2, "needs_review": 1, "confirmed": 0}
+    assert report["evidence"]["confirmed"] == 0 and report["evidence"]["unconfirmed"] == 2
     assert all(r["quantity"] == 10 and r["decision"] == "pending" for r in report["document"]["fact"])
     page = client.get(f"{BASE}/{report['id']}/photos?work_id=bins&area_id=area58").json()
     assert {p["id"] for p in page["items"]} == {photos[0].id, photos[1].id}
+    from app.day_verification import SNAPSHOT_FIELDS
+    from app.domain import now
+    from app.models import DayClosure, DayPhotoReview
+
+    closure = DayClosure(day=date(2026,10,17), user_id=1, confirmed_at=now(), photo_count=1,
+                         cohort="test", all_chats=True)
+    db.add(closure)
+    db.flush()
+    db.add(DayPhotoReview(photo_id=photos[0].id, closure_id=closure.id,
+                         **{key:getattr(photos[0],key) for key in SNAPSHOT_FIELDS}))
+    db.commit()
+    checked = client.get(f"{BASE}/{report['id']}").json()["evidence"]
+    assert checked["confirmed"] == 1 and checked["unconfirmed"] == 1
+    page = client.get(f"{BASE}/{report['id']}/photos?work_id=bins&area_id=area58&verified_only=true").json()
+    assert [p["id"] for p in page["items"]] == [photos[0].id]
     assert approve(client, complete(client, report)).status_code == 200
     photos[0].version += 1
     db.add(Photo(inbox_id=inbox.id, attachment_index=10, max_chat_id=100, max_message_id="late", chat_name="Тест",
@@ -178,6 +194,11 @@ def test_photo_evidence_matches_exact_date_area_and_cohort_but_never_sets_work_v
     db.commit()
     refreshed = client.get(f"{BASE}/{report['id']}").json()
     assert refreshed["new_photos"] == 1 and refreshed["changed_photos"] == 1
+    # A row-version/storage update doesn't undo the day check; a content edit does.
+    assert refreshed["evidence"]["confirmed"] == 1
+    photos[0].work_type = "SNOW_MANUAL"
+    db.commit()
+    assert client.get(f"{BASE}/{report['id']}").json()["evidence"]["confirmed"] == 0
 
 
 def test_annual_limit_checks_corrections_without_double_counting_the_same_report(reporting):
@@ -243,6 +264,34 @@ def test_no_example_reports_or_historical_quantities_are_created(admin, db):
                    for r in report["document"]["fact"])
 
 
+def test_calendar_season_and_events_remove_only_untouched_proposals(reporting):
+    client, _, config = reporting
+    summer = deepcopy(config["works"][0])
+    summer.update(id="summer", season="summer")
+    winter = deepcopy(summer)
+    winter.update(id="winter", season="winter")
+    event = deepcopy(summer)
+    event.update(id="event", season="all", recurrence="event")
+    settings = client.get(BASE + "/settings").json()
+    settings["config"]["works"] = [summer, winter, event]
+    assert client.put(BASE + "/settings", json=settings).status_code == 200
+    report = create(client)
+    doc = report["document"]
+    doc.update(fact_season="summer", plan_season="summer", fact_events=["event"])
+    report = client.post(f"{BASE}/{report['id']}/calendar",json={"version":report["version"],"document":doc}).json()
+    assert len(report["document"]["fact"]) == 4
+    doc = report["document"]
+    doc["fact"][0]["decision"] = "include"
+    doc["fact"][2]["note"] = "Добавлено оператором"
+    doc.update(fact_season="winter", plan_season="winter", fact_events=[])
+    response = client.post(f"{BASE}/{report['id']}/calendar",json={"version":report["version"],"document":doc})
+    assert response.status_code == 200, response.text
+    changed = response.json()["document"]
+    assert [(r["work_id"],r["decision"]) for r in changed["fact"]] == [
+        ("summer","include"),("event","pending"),("winter","pending"),("winter","pending")]
+    assert all(r["work_id"]=="winter" for r in changed["plan"])
+
+
 def test_setup_reuses_exact_company_districts_and_renames_only_new_snapshots(admin, db):
     names = ["1 мкр", "11 мкр", "Набережная", "Киевская", "ПНМК-6, ОБТОик", "Полигон Снежный"]
     shape = from_shape(MultiPolygon([Polygon([(0,0),(0,1),(1,1),(1,0),(0,0)])]), srid=4326)
@@ -263,7 +312,7 @@ def test_setup_reuses_exact_company_districts_and_renames_only_new_snapshots(adm
                      work_type=code, district_id=districts["1 мкр"].id))
     db.commit()
     first = create(admin)
-    assert first["evidence"]["rows"]["green-clean:area58"] == {"total":2,"needs_review":0}
+    assert first["evidence"]["rows"]["green-clean:area58"] == {"total":2,"needs_review":0,"confirmed":0}
     districts["1 мкр"].name = "1 микрорайон"
     db.commit()
     current = admin.get(BASE + "/settings").json()["config"]
