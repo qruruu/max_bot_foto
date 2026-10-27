@@ -92,7 +92,7 @@ def test_report_export_retains_more_than_twenty_rows_and_escapes_untrusted_value
     row = SimpleNamespace(config=config.model_dump(), approved_config=config.model_dump(), draft=document.model_dump(), approved=document.model_dump(),
                           day=date(2026, 10, 18), cohort="production", version=1, approved_version=1, letter_numbers={"58": "МК-58-005"})
     wb = load_workbook(BytesIO(export_xlsx(row)), data_only=False)
-    letter = wb.worksheets[1]
+    letter = wb.worksheets[0]
     values = [c.value for row in letter for c in row]
     assert all(f"Работа {i}" in values for i in range(30))
     assert not any(c.data_type == "f" for ws in wb for row in ws for c in row)

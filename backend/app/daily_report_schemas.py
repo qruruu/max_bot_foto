@@ -1,6 +1,8 @@
 """Company-owned reporting rules. A missing quantity is never a factual zero."""
 
+import base64
 from datetime import date
+from io import BytesIO
 from typing import Annotated, Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -22,6 +24,30 @@ class ReportingProfile(StrictModel):
     recipient: list[str] = Field(default_factory=list, max_length=5)
     photo_url: str = Field(default="", max_length=1000)
     subject: str = Field(default="по содержанию земель общего пользования", max_length=500)
+    letterhead_image: str = Field(default="", max_length=1_400_000)
+    signature_image: str = Field(default="", max_length=1_400_000)
+
+    @field_validator("letterhead_image", "signature_image")
+    @classmethod
+    def document_image(cls, value):
+        if not value:
+            return value
+        from PIL import Image
+        try:
+            prefix, encoded = value.split(",", 1)
+            expected = {"data:image/png;base64": "PNG", "data:image/jpeg;base64": "JPEG"}.get(prefix)
+            if not expected:
+                raise ValueError()
+            content = base64.b64decode(encoded, validate=True)
+            if len(content) > 1_048_576:
+                raise ValueError()
+            with Image.open(BytesIO(content)) as image:
+                if image.format != expected or max(image.size) > 5000 or image.width * image.height > 12_000_000:
+                    raise ValueError()
+                image.verify()
+        except Exception as error:
+            raise ValueError("Загрузите изображение PNG или JPG размером до 1 МБ и до 5000 пикселей") from error
+        return value
 
     @field_validator("photo_url")
     @classmethod

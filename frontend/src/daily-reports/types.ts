@@ -1,4 +1,4 @@
-export type Profile = {company_name:string;short_name:string;city:string;address:string;inn:string;ogrn:string;phone:string;email:string;recipient:string[];photo_url:string;subject:string};
+export type Profile = {company_name:string;short_name:string;city:string;address:string;inn:string;ogrn:string;phone:string;email:string;recipient:string[];photo_url:string;subject:string;letterhead_image?:string;signature_image?:string};
 export type Contract = {id:string;number:string;prefix:string;next_number:number};
 export type Area = {id:string;contract_id:string;name:string;district_ids:number[]};
 export type Assignment = {area_id:string;quantity:number|null;resources:string;annual_limit:number|null};

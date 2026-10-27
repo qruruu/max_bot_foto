@@ -438,13 +438,17 @@ def report_history(id: int, db: Db, user: Reader):
 
 @router.get("/{id}/xlsx")
 def report_xlsx(id: int, db: Db, user: Reader, draft: bool = False):
-    from app.daily_report_export import export_xlsx
+    from urllib.parse import quote
+
+    from app.daily_report_export import document_title, export_xlsx
     report = checked_report(db, id)
     if not draft and report.approved is None:
         raise HTTPException(409, "Сначала утвердите отчёт или скачайте черновик")
     content = export_xlsx(report, draft=draft)
+    filename = document_title(report, draft=draft) + ".xlsx"
     return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": f'attachment; filename="daily-report-{report.day}.xlsx"'})
+                    headers={"Content-Disposition": f"attachment; filename=report-{report.day}.xlsx; filename*=UTF-8''{quote(filename, safe='')}",
+                             "Cache-Control": "private, no-store"})
 
 
 @router.get("/{id}/print", response_class=HTMLResponse)
@@ -453,4 +457,4 @@ def report_print(id: int, db: Db, user: Reader, draft: bool = False):
     report = checked_report(db, id)
     if not draft and report.approved is None:
         raise HTTPException(409, "Сначала утвердите отчёт или откройте черновик")
-    return HTMLResponse(export_html(report, draft=draft))
+    return HTMLResponse(export_html(report, draft=draft), headers={"Cache-Control": "private, no-store"})

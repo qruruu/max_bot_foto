@@ -7,6 +7,7 @@ import type { Config, Work, Profile } from './types';
 type Props={config:Config;meta:Meta;disabled:boolean;change:(config:Config)=>void};
 export default function ReportingSetup({config,meta,disabled,change}:Props) {
   const [workCode,setWorkCode]=useState('');
+  const [imageError,setImageError]=useState('');
   const districts=meta.districts.filter(d=>d.active||config.areas.some(a=>a.district_ids.includes(d.id)));
   function districtSelection(areaId:string,ids:number[]) {
     const name=ids.map(id=>meta.districts.find(d=>d.id===id)?.name).filter(Boolean).join(', ')||'Микрорайоны не выбраны';
@@ -18,8 +19,17 @@ export default function ReportingSetup({config,meta,disabled,change}:Props) {
     setWorkCode('');
   }
   function profile<K extends keyof Profile>(key:K,value:Profile[K]) {change({...config,profile:{...config.profile,[key]:value}});}
+  function uploadImage(key:'letterhead_image'|'signature_image', file?:File) {
+    setImageError('');
+    if(!file)return;
+    if(!['image/png','image/jpeg'].includes(file.type)||file.size>1048576){setImageError('Выберите PNG или JPG размером до 1 МБ.');return;}
+    const reader=new FileReader();
+    reader.onload=()=>profile(key,String(reader.result));
+    reader.onerror=()=>setImageError('Не удалось прочитать изображение. Выберите файл ещё раз.');
+    reader.readAsDataURL(file);
+  }
   function work(index:number, update:Partial<Work>) {change({...config,works:config.works.map((w,i)=>i===index?{...w,...update}:w)});}
-  const profileFields:[keyof Omit<Profile,'recipient'>,string][]=[['company_name','Полное название организации'],['short_name','Короткое название для письма'],['city','Город'],['address','Адрес'],['inn','ИНН'],['ogrn','ОГРНИП / ОГРН'],['phone','Телефон'],['email','Электронная почта'],['photo_url','Ссылка на фотоотчёт'],['subject','Предмет отчёта']];
+  const profileFields:[keyof Omit<Profile,'recipient'|'letterhead_image'|'signature_image'>,string][]=[['company_name','Полное название организации'],['short_name','Короткое название для письма'],['city','Город'],['address','Адрес'],['inn','ИНН'],['ogrn','ОГРНИП / ОГРН'],['phone','Телефон'],['email','Электронная почта'],['photo_url','Ссылка на фотоотчёт'],['subject','Предмет отчёта']];
   const removeArea=(id:string)=>change({...config,areas:config.areas.filter(a=>a.id!==id),works:config.works.map(w=>({...w,assignments:w.assignments.filter(a=>a.area_id!==id)}))});
   return <fieldset className="daily-setup" disabled={disabled}>
     <section className="panel"><div className="section-title"><h2>1. Реквизиты и письмо</h2><span>Заполняются один раз</span></div>
@@ -27,7 +37,13 @@ export default function ReportingSetup({config,meta,disabled,change}:Props) {
         <label className="daily-full-width">Адресат — по одной строке<input aria-label="Адресат, строка 1" value={config.profile.recipient[0]||''} onChange={e=>profile('recipient',[e.target.value,...config.profile.recipient.slice(1)])}/>
           <input aria-label="Адресат, строка 2" value={config.profile.recipient[1]||''} onChange={e=>profile('recipient',[config.profile.recipient[0]||'',e.target.value,...config.profile.recipient.slice(2)])}/>
           <input aria-label="Адресат, строка 3" value={config.profile.recipient[2]||''} onChange={e=>profile('recipient',[config.profile.recipient[0]||'',config.profile.recipient[1]||'',e.target.value])}/></label>
-      </div><p className="hint">Подпись и печать в файлы автоматически не проставляются.</p></section>
+      </div>
+      <details className="daily-document-branding"><summary>Фирменный бланк, подпись и печать</summary>
+        <p className="hint">Бланк заменяет текстовую шапку письма. Подпись и печать добавляются только в утверждённые рабочие документы. В черновиках и тестовых документах их нет.</p>
+        <div className="daily-form-grid">{([['letterhead_image','Фирменная шапка письма'],['signature_image','Подпись и печать']] as const).map(([key,label])=><div className="daily-branding-item" key={key}><label>{label}<input type="file" accept="image/png,image/jpeg" onChange={e=>{uploadImage(key,e.target.files?.[0]);e.target.value='';}}/></label>{config.profile[key]&&<><img src={config.profile[key]} alt={label}/><button type="button" onClick={()=>profile(key,'')}>Удалить изображение</button></>}</div>)}</div>
+        {imageError&&<p role="alert">{imageError}</p>}
+        <p className="hint">PNG или JPG до 1 МБ. Для каждой организации используются её собственные изображения. При изменении реквизитов обновите и изображение бланка.</p>
+      </details></section>
     <section className="panel"><div className="section-title"><h2>2. Контракты и микрорайоны</h2><button type="button" onClick={()=>change({...config,contracts:[...config.contracts,{id:crypto.randomUUID(),number:'Новый контракт',prefix:'',next_number:1}]})}><Plus size={16}/>Добавить контракт</button></div>
       {config.contracts.map(contract=><div className="daily-contract-setup" key={contract.id}>
         <div className="daily-form-grid"><label>Номер контракта<input value={contract.number} onChange={e=>change({...config,contracts:config.contracts.map(c=>c.id===contract.id?{...c,number:e.target.value}:c)})}/></label>

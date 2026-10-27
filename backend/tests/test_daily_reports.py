@@ -1,6 +1,7 @@
 from copy import deepcopy
 from datetime import date
 from io import BytesIO
+from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -59,6 +60,8 @@ def test_draft_approval_numbers_and_exports_are_persistent_and_idempotent(report
     assert approve(client, report).status_code == 422
     assert client.get(f"{BASE}/{report['id']}/xlsx").status_code == 409
     assert client.get(f"{BASE}/{report['id']}/xlsx?draft=true").status_code == 200
+    draft_header = unquote(client.get(f"{BASE}/{report['id']}/xlsx?draft=true").headers["Content-Disposition"])
+    assert "Черновик" in draft_header and "17.10.2026.xlsx" in draft_header
     assert create(client)["id"] == report["id"]
     report = complete(client, report)
     result = approve(client, report)
@@ -70,6 +73,9 @@ def test_draft_approval_numbers_and_exports_are_persistent_and_idempotent(report
         response = client.get(f"{BASE}/{report['id']}/xlsx")
         wb = load_workbook(BytesIO(response.content))
         assert len(wb.worksheets) == 3
+        assert wb.active.title.startswith("Письмо 1")
+        assert "Отчёт ИП Шашко" in unquote(response.headers["Content-Disposition"])
+        assert "Черновик" not in unquote(response.headers["Content-Disposition"])
         assert "МК-58-001" in client.get(f"{BASE}/{report['id']}/print").text
     settings = client.get(BASE + "/settings").json()
     assert {c["next_number"] for c in settings["config"]["contracts"]} == {2}
