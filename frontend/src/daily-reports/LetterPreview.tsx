@@ -1,5 +1,6 @@
 import { dateLabel } from '../api';
 import type { Report } from './types';
+import './report-letter.css';
 
 export default function LetterPreview({report,draft}:{report:Report;draft:boolean}) {
   const {config,document}=report;
@@ -14,12 +15,14 @@ export default function LetterPreview({report,draft}:{report:Report;draft:boolea
       const rows=document[kind].filter(row=>config.areas.find(area=>area.id===row.area_id)?.contract_id===contract.id&&['include','info'].includes(row.decision));
       return <section className="daily-letter-block" key={kind}>
         <h3>{kind==='fact'?'Фактическая дислокация оказания услуг (производства работ)':'Плановая дислокация оказания услуг'}</h3>
-        <p className="daily-letter-center">{profile.subject}<br/>{profile.short_name||profile.company_name}<br/><b>{kind==='fact'?'За ':'На '}{dateLabel(kind==='fact'?report.fact_day:report.day)} года</b></p>
-        <div className="table-scroll"><table><colgroup>{[5,27,30,14,11,13].map((width,i)=><col key={i} style={{width:width+'%'}}/>)}</colgroup><thead><tr><th>№</th><th>Наименование работ, услуг</th><th>Место оказания услуг (производства работ)</th><th>Спецтехника, персонал</th><th>{kind==='fact'?'Объём':'План, объём'}</th><th>Примечания</th></tr></thead><tbody>{rows.map((row,i)=><tr key={row.work_id+':'+row.area_id}><td>{i+1}</td><td>{config.works.find(work=>work.id===row.work_id)?.name}</td><td>{config.areas.find(area=>area.id===row.area_id)?.name}</td><td>{row.resources}</td><td>{row.decision==='include'&&row.quantity!==null?row.quantity.toLocaleString('ru-RU')+' '+config.works.find(work=>work.id===row.work_id)?.unit:'—'}</td><td>{row.note}</td></tr>)}{!rows.length&&<tr><td colSpan={6}>Работы не заявлены. {document.note}</td></tr>}</tbody></table></div>
+        <p className="daily-letter-center">{profile.subject}<br/><b>{profile.short_name||profile.company_name} {kind==='fact'?'за ':'на '}{dateLabel(kind==='fact'?report.fact_day:report.day)} года</b></p>
+        <div className="table-scroll"><table className={kind+'-table'}><colgroup>{[4,29,29,14,10,14].map((width,i)=><col key={i} style={{width:width+'%'}}/>)}</colgroup><thead><tr><th>№</th><th>Наименование работ, услуг</th><th>Место оказания услуг (производства работ)</th><th>Спецтехника, персонал</th><th>{kind==='fact'?'Объём':'План, объём'}</th><th>Примечания</th></tr></thead><tbody>{rows.map((row,i)=><tr key={row.work_id+':'+row.area_id}><td>{i+1}</td><td>{config.works.find(work=>work.id===row.work_id)?.name}</td><td>{config.areas.find(area=>area.id===row.area_id)?.name}</td><td>{row.resources}</td><td>{row.decision==='include'&&row.quantity!==null?row.quantity.toLocaleString('ru-RU')+' '+config.works.find(work=>work.id===row.work_id)?.unit:'—'}</td><td>{row.note}</td></tr>)}{!rows.length&&<tr><td colSpan={6}>Работы не заявлены. {document.note}</td></tr>}</tbody></table></div>
       </section>;
     })}
-    {profile.photo_url&&<p>Фотоотчёт доступен по ссылке <a href={profile.photo_url} target="_blank" rel="noreferrer">{profile.photo_url}</a></p>}
     {document.note&&<p>Примечание: {document.note}</p>}
-    <div className="daily-letter-signature">{signed?<img src={profile.signature_image} alt="Подпись и печать организации"/>:<p>{profile.short_name||profile.company_name}</p>}</div>
+    <div className="daily-letter-ending">
+      {profile.photo_url&&<p>Фотоотчёт доступен по ссылке <a href={profile.photo_url} target="_blank" rel="noreferrer">{profile.photo_url}</a></p>}
+      <div className="daily-letter-signature">{signed?<img src={profile.signature_image} alt="Подпись и печать организации"/>:<p>{profile.short_name||profile.company_name}</p>}</div>
+    </div>
   </article>)}</div>;
 }

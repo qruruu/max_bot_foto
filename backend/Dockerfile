@@ -8,6 +8,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY app/ocr_models.py /tmp/ocr_models.py
 RUN python /tmp/ocr_models.py /opt/ocr-models && rm /tmp/ocr_models.py
 COPY licenses /opt/ocr-models/licenses
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-liberation2 && rm -rf /var/lib/apt/lists/*
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini .

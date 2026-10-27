@@ -65,12 +65,14 @@ def test_letters_open_first_keep_numbers_numeric_and_do_not_repeat_internal_volu
     workbook = load_workbook(BytesIO(export_xlsx(item)))
     assert workbook.active.title.startswith("Письмо 1")
     assert workbook.worksheets[-1].title == "Сведения"
+    assert workbook.worksheets[-1].sheet_state == "hidden"
     for sheet in workbook.worksheets[:2]:
         assert sheet.sheet_view.showGridLines is False
         assert str(sheet.page_setup.paperSize) == sheet.PAPERSIZE_A4
         assert len(sheet._images) == 2
     cells = [cell.value for row in workbook.worksheets[0] for cell in row]
-    assert 120 in cells and "—" in cells and "Примечание оператора" in cells
+    assert 120 in cells and "—" in cells
+    assert "Примечание оператора" in [str(value).replace("\n", " ") for value in cells]
     assert "Без указания объёма" not in cells
     html = export_html(item)
     assert "Без указания объёма" not in html and "Без объёма" not in html
@@ -103,3 +105,38 @@ def test_document_images_accept_original_png_without_reencoding_and_limit_dimens
     Image.new("RGB", (5001, 1)).save(output, "PNG")
     with pytest.raises(ValidationError):
         ReportingProfile(letterhead_image="data:image/png;base64," + base64.b64encode(output.getvalue()).decode())
+
+
+def test_signature_occupies_one_indivisible_row_and_large_letters_repeat_column_headers():
+    item = report()
+    template = item.config["works"][0]
+    item.config["works"] = [{**deepcopy(template), "id": f"work{i}", "name": f"Контрольная работа {i}"} for i in range(35)]
+    item.approved_config = deepcopy(item.config)
+    item.approved = {"fact": [{"work_id": w["id"], "area_id": "area58", "decision": "include", "quantity": 100 + i,
+                              "resources": "3 человека", "note": "Контрольное примечание"} for i, w in enumerate(item.config["works"])],
+                     "plan": item.approved["plan"]}
+    item.approved["plan"][0]["work_id"] = "work0"
+    workbook = load_workbook(BytesIO(export_xlsx(item)))
+    sheet = workbook.worksheets[0]
+    assert len(sheet.row_breaks.brk) >= 2
+    cells = [cell.value for row in sheet for cell in row]
+    normalized = [str(value).replace("\n", " ") for value in cells]
+    assert all(f"Контрольная работа {i}" in normalized for i in range(35))
+    assert normalized.count("Наименование работ, услуг") >= 3
+    assert "Продолжение" in " ".join(normalized)
+    signature = sheet._images[-1]
+    signature_row = signature.anchor._from.row + 1
+    assert sheet.row_dimensions[signature_row].height >= signature.anchor.ext.cy / 12700 - 1
+    assert max(r.height or 15 for r in sheet.row_dimensions.values()) <= 409
+
+
+def test_document_keeps_large_precise_quantities_and_unbroken_column_labels():
+    item = report()
+    item.approved["plan"][0]["quantity"] = 123456.789
+    html = export_html(item)
+    assert "123456,789 шт." in html and "1.23457e" not in html
+    workbook = load_workbook(BytesIO(export_xlsx(item)))
+    sheet = workbook.worksheets[0]
+    cells = [cell for row in sheet for cell in row]
+    assert any(cell.value == 123456.789 and cell.data_type == "n" for cell in cells)
+    assert sum(cell.value == "Примечания" for cell in cells) == 2

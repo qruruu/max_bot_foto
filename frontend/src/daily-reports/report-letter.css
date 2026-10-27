@@ -1,0 +1,98 @@
+/* The same A4 document rules are used by the app preview and printable letters. */
+.daily-letters {
+  overflow-x: auto;
+  padding: 0 0 12px;
+}
+.daily-letter {
+  box-sizing: border-box;
+  width: 210mm;
+  min-width: 210mm;
+  min-height: 297mm;
+  margin: 20px auto;
+  padding: 12mm;
+  border: 1px solid #d1d1d1;
+  border-radius: 0;
+  background: #fff;
+  color: #111;
+  font: 11pt/1.2 'Times New Roman', serif;
+  text-align: left;
+  overflow-wrap: break-word;
+}
+.daily-letter * { box-sizing: border-box; }
+.daily-letter p { margin: 6pt 0; color: #111; line-height: 1.2; }
+.daily-letter header {
+  display: block;
+  padding: 0 0 6pt;
+  border-bottom: 2px solid #111;
+  text-align: center;
+}
+.daily-letter header h2 { margin: 0 0 6pt; color: #111; font: bold 13pt/1.2 'Times New Roman', serif; }
+.daily-letter header small { color: #111; font-size: 10pt; }
+.daily-letter header.daily-letter-image-header { padding: 0; border: 0; }
+.daily-letter-image-header img { display: block; width: 100%; height: auto; max-height: 150pt; object-fit: contain; }
+.daily-letter-draft { margin: 0 0 6pt; text-align: center; font-weight: bold; color: #111; }
+.daily-letter-recipient {
+  display: grid;
+  grid-template-columns: 62% 38%;
+  gap: 0;
+  margin: 6pt 0;
+  align-items: start;
+}
+.daily-letter-recipient > * { min-width: 0; width: auto; margin: 0; }
+.daily-letter-block { margin: 6pt 0 0; }
+.daily-letter h3 { margin: 0; color: #111; font: bold 11pt/1.2 'Times New Roman', serif; text-align: center; }
+.daily-letter p.daily-letter-center { margin: 0 0 3pt; text-align: center; line-height: 1.2; }
+.daily-letter .table-scroll { margin: 0; overflow: visible; border: 0; border-radius: 0; }
+.daily-letter table {
+  width: 100%;
+  min-width: 0;
+  margin: 0 0 6pt;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font: 10.5pt/1.2 'Times New Roman', serif;
+}
+.daily-letter td, .daily-letter th {
+  font: 10.5pt/1.2 'Times New Roman', serif;
+  padding: 3pt;
+  border: 1px solid #222;
+  background: #fff;
+  color: #111;
+  vertical-align: middle;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  text-align: left;
+}
+.daily-letter th { background: #eef0f2; text-align: center; font-weight: bold; }
+.daily-letter tbody tr:last-child td { border-bottom: 1px solid #222; }
+.daily-letter td:first-child { text-align: center; }
+.daily-letter td:nth-child(5) { text-align: right; }
+.daily-letter a { color: #111; overflow-wrap: anywhere; }
+.daily-letter-ending { margin-top: 6pt; break-inside: avoid; }
+.daily-letter-signature { width: 80%; margin: 6pt 0 0; break-inside: avoid; }
+.daily-letter-signature img { display: block; width: 100%; height: auto; max-height: 116pt; object-fit: contain; object-position: left center; }
+:root[data-theme] .daily-letter th { background: #eef0f2; color: #111; }
+:root[data-theme] .daily-letter td { background: #fff; color: #111; }
+:root[data-theme] .daily-letter :is(td, th) { border-color: #222; }
+body.report-document { margin: 0; background: #e5e5e5; color: #111; }
+.report-document > nav { padding: 16px; font: 14px system-ui; text-align: center; }
+.report-document > nav button { padding: 10px 20px; cursor: pointer; }
+@page { size: A4; margin: 12mm; }
+@media print {
+  body.report-document { background: #fff; }
+  .report-document > nav { display: none; }
+  .report-document .daily-letter {
+    width: auto;
+    min-width: 0;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    break-after: page;
+  }
+  .report-document .daily-letter:last-child { break-after: auto; }
+  .daily-letter thead { display: table-header-group; }
+  .daily-letter tr { break-inside: avoid; }
+  .daily-letter h3, .daily-letter-center { break-after: avoid; }
+  .daily-letter .plan-table { break-after: avoid; }
+}
