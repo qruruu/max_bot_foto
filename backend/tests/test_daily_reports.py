@@ -252,8 +252,18 @@ def test_setup_reuses_exact_company_districts_and_renames_only_new_snapshots(adm
     config = shashko_config(db).model_dump()
     assert config["areas"][0]["district_ids"] == [districts[n].id for n in ["1 мкр", "Набережная"]]
     assert set(config["areas"][1]["district_ids"]) == {districts[n].id for n in ["11 мкр", "Киевская", "ПНМК-6, ОБТОик"]}
+    assert next(w for w in config["works"] if w["id"] == "green-clean")["photo_codes"] == ["GREEN_CLEANING", "LAWN_LITTER"]
     assert admin.put(BASE + "/settings", json={"version":0,"config":config}).status_code == 200
+    inbox = Inbox(max_chat_id=100, message_id="green-work", payload={})
+    db.add(inbox)
+    db.flush()
+    for index, code in enumerate(["GREEN_CLEANING", "LAWN_LITTER"]):
+        db.add(Photo(inbox_id=inbox.id, attachment_index=index, max_chat_id=100, max_message_id="green-work",
+                     chat_name="Тест", cohort="test", photo_date=date(2026,10,17), status="ACCEPTED",
+                     work_type=code, district_id=districts["1 мкр"].id))
+    db.commit()
     first = create(admin)
+    assert first["evidence"]["rows"]["green-clean:area58"] == {"total":2,"needs_review":0}
     districts["1 мкр"].name = "1 микрорайон"
     db.commit()
     current = admin.get(BASE + "/settings").json()["config"]

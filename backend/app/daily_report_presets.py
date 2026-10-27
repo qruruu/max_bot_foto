@@ -37,15 +37,16 @@ def shashko_config(db=None):
                 area["name"] = ", ".join(name for _, name in matched)
 
     def work(id, name, unit, season, recurrence, code, note, **kwargs):
+        codes = [code] if isinstance(code, str) else code
         return {"id": id, "name": name, "unit": unit, "season": season, "recurrence": recurrence,
-                "photo_codes": [code] if available_codes is None or code in available_codes else [],
+                "photo_codes": [c for c in codes if available_codes is None or c in available_codes],
                 "schedule_note": note,
                 "assignments": [{"area_id": a["id"], "quantity": None, "resources": ""} for a in areas], **kwargs}
     mowing_dates = ["06-12", "07-31", "08-30"]
     works = [
         work("bins", "Очистка урн от мусора (включая сбор, транспортировку и утилизацию)", "шт.", "all", "daily", "BIN_EMPTYING", "Круглогодично, ежедневно"),
         work("bin-wash", "Промывка урн", "шт.", "summer", "windows", "BIN_WASHING", "Два окна: 01–15 июня и 01–15 августа", windows=[{"start": "06-01", "end": "06-15"}, {"start": "08-01", "end": "08-15"}]),
-        work("green-clean", "Уборка зелёных зон, газонов (включая сбор, транспортировку и утилизацию)", "м²", "summer", "four_windows", "GREEN_CLEANING", "4 окна в месяц: 01–07, 08–14, 15–21, 22–конец месяца"),
+        work("green-clean", "Уборка зелёных зон, газонов (включая сбор, транспортировку и утилизацию)", "м²", "summer", "four_windows", ["GREEN_CLEANING", "LAWN_LITTER"], "4 окна в месяц: 01–07, 08–14, 15–21, 22–конец месяца"),
         work("mowing", "Выкашивание травы (включая сбор, транспортировку и утилизацию)", "м²", "summer", "deadlines", "GRASS_MOWING", "3 раза: до 12 июня, 31 июля, 30 августа", dates=mowing_dates),
         work("raking", "Уборка зелёных зон, газонов под грабли", "м²", "summer", "event", "LAWN_RAKING", "Весна — до 15.05; осень — после заявки, до 15.10. Включение по подтверждённому заданию"),
         work("playground-monthly", "Содержание детских, спортивных, тренажёрных площадок", "шт.", "all", "monthly", "PLAYGROUND_MAINTENANCE", "Ежемесячно (12 месяцев)"),
