@@ -47,11 +47,14 @@ it('keeps the same page, photo list, scroll and focus after closing a photo',asy
   const calls=vi.mocked(api).mock.calls.filter(([path])=>path.includes('/photos?')).length;
   row.focus();
   await act(async()=>{row.click();await tick();});
-  expect(element.querySelector('[role=dialog]')).not.toBeNull();
-  expect(document.body.style.position).toBe('fixed');
+  expect(element.querySelector('.inspection-photo-detail h1')?.textContent).toBe('Фотография #85');
+  expect(element.querySelector('[role=dialog]')).toBeNull();
+  expect(document.body.style.position).toBe('');
+  expect(element.querySelector('.inspection-photo-detail .review-layout')).not.toBeNull();
+  expect(element.querySelector('.inspection-photo-detail input:not([readonly]):not([disabled])')).toBeNull();
   expect(element.querySelector('#inspection-photo-85')).toBe(row);
   await act(async()=>{button('К списку').click();await tick();});
-  expect(element.querySelector('[role=dialog]')).toBeNull();
+  expect(element.querySelector('.inspection-photo-detail')).toBeNull();
   expect(element.textContent).toContain('Страница 3 из 3');
   expect(window.scrollTo).toHaveBeenLastCalledWith(0,1200);
   expect(document.activeElement).toBe(row);
@@ -120,4 +123,48 @@ it('does not show an all-organizations selector on the overview or with a single
   expect(element.querySelector('a[aria-label="Чаты"] [aria-label="Непрочитанных сообщений: 2"]')).not.toBeNull();
   await act(async()=>{button('Открыть').click();await tick();});
   expect(element.querySelector('.inspection-organization-select')).toBeNull();
+});
+
+it('keeps the conversation, draft and scroll when viewing a photo from another organization',async()=>{
+  const fallback=vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async(path,method,body,signal)=>{
+    if(path==='/inspection/organizations')return [{id:'first',name:'Первая'},{id:'company',name:'Вторая'}];
+    if(path==='/inspection/contacts')return [{key:'i:2',name:'Коллега',kind:'Проверяющий',unread:0,avatar_url:null,last_message:null}];
+    if(path.includes('/inspection/messages/read?'))return {ok:true};
+    if(path.includes('/inspection/messages?'))return {items:[{id:1,body:'Посмотрите фото',outgoing:false,created_at:'2026-10-26T10:00:00Z',read_at:null,photo:{id:85,available:true,organization_id:'company',organization_name:'Вторая',preview_url:'/safe-photo',detail_url:'/inspection/photos/85?org=company&tab=messages&with=i%3A2&inspection_chat=i%3A2'}}],next_before_id:null,has_newer:false,peer_read_through_id:0};
+    return fallback(path,method,body,signal);
+  });
+  await mount('/inspection?tab=messages&with=i%3A2');
+  const log=element.querySelector<HTMLDivElement>('.operator-message-list')!,field=element.querySelector('textarea')!;
+  log.scrollTop=160;
+  await act(async()=>{Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!.set!.call(field,'Мой черновик');field.dispatchEvent(new Event('input',{bubbles:true}));});
+  await act(async()=>{element.querySelector<HTMLAnchorElement>('.operator-message-photo')!.click();await tick();});
+  expect(element.querySelector('.inspection-photo-detail')).not.toBeNull();
+  expect(element.querySelector('.operator-message-list')).toBe(log);
+  await act(async()=>{button('К переписке').click();await tick();});
+  expect(element.querySelector('.inspection-photo-detail')).toBeNull();
+  expect(element.querySelector('.operator-message-list')).toBe(log);
+  expect(log.scrollTop).toBe(160);
+  expect(element.querySelector('textarea')?.value).toBe('Мой черновик');
+});
+
+it('opens photo forwarding from the read-only card',async()=>{
+  const fallback=vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async(path,method,body,signal)=>path.startsWith('/inspection/contacts?')?[{key:'o:1',name:'Владелец',kind:'Владелец сервиса'}]:fallback(path,method,body,signal));
+  await mount();
+  await act(async()=>{element.querySelector<HTMLButtonElement>('#inspection-photo-85')!.click();await tick();});
+  await act(async()=>{button('Переслать фото').click();await tick();});
+  expect(element.querySelector('[role=dialog] h2')?.textContent).toBe('Переслать фото');
+  expect(element.querySelector('option[value="o:1"]')?.textContent).toContain('Владелец сервиса');
+  expect(vi.mocked(api).mock.calls.some(([path])=>path==='/inspection/contacts?photo_organization_id=company&photo_id=85')).toBe(true);
+});
+
+it('ignores a legacy work-type filter and removes work-type selection from the inspector archive',async()=>{
+  await mount('/inspection?org=company&tab=photos&work_type=CLEAN');
+  expect(element.querySelector('[aria-label="Вид работы"]')).toBeNull();
+  expect(element.textContent).not.toContain('Все виды работ');
+  const requests=vi.mocked(api).mock.calls.filter(([path])=>path.includes('/photos?'));
+  expect(requests.length).toBeGreaterThan(0);
+  expect(requests.every(([path])=>!path.includes('work_type='))).toBe(true);
+  expect(element.querySelector('.export')?.getAttribute('href')).not.toContain('work_type=');
 });

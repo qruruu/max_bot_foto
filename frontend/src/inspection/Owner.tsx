@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import { api } from '../api';
+import { useSearchParams } from 'react-router-dom';
+import InspectionChats from './Chats';
+import { OperatorChatBadge, OperatorChatsProvider } from '../OperatorChatsProvider';
 import { AccountForm } from './Accounts';
 import { OrganizationQR } from './QR';
 import type { Agency, Inspector, MessagePage, Organization } from './types';
 import './inspection.css';
 
 export default function InspectionOwner({organizations}: {organizations: Organization[]}) {
+  const [params,setParams]=useSearchParams();
+  const chatView=params.get('inspection_tab')==='messages';
+  const [chatRevision,setChatRevision]=useState(0);
   const [agencies,setAgencies]=useState<Agency[]>([]),[selected,setSelected]=useState('');
   const [accounts,setAccounts]=useState<Inspector[]>([]),[account,setAccount]=useState<Inspector|null>(null);
   const [grants,setGrants]=useState<Organization[]>([]),[messages,setMessages]=useState<MessagePage>({items:[],next_before_id:null});
@@ -26,10 +32,13 @@ export default function InspectionOwner({organizations}: {organizations: Organiz
   useEffect(()=>{void load().catch(e=>setError(e.message));},[]);
   useEffect(()=>{detailGeneration.current++;setAccounts([]);setAccount(null);void loadAccounts().catch(e=>setError(e.message));},[selected]);
   const agency=agencies.find(a=>a.id===selected);
-  return <div className="inspection-owner"><header className="page-header"><div><span className="eyebrow">КАБИНЕТ ВЛАДЕЛЬЦА</span><h1>Проверяющие</h1><p>Проверяющие, аккаунты, доступ к организациям и переписки.</p></div>
-    <div className="inspection-actions"><button onClick={()=>void run(async()=>{await load();await loadAccounts();if(account)await details(account);})} disabled={busy}><RefreshCw size={17}/>Обновить</button>
-      <button className="primary" onClick={()=>{setName('');setActive(true);setCreate(true);setEditing(true);}}><Plus size={17}/>Создать проверяющих</button></div></header>
+  return <OperatorChatsProvider endpoint="/platform/inspection/chat/unread"><div className="inspection-owner"><header className="page-header"><div><span className="eyebrow">КАБИНЕТ ВЛАДЕЛЬЦА</span><h1>Проверяющие</h1><p>Проверяющие, аккаунты, доступ к организациям и переписки.</p></div>
+    <div className="inspection-actions"><button onClick={()=>void run(async()=>{setChatRevision(value=>value+1);await load();await loadAccounts();if(account)await details(account);})} disabled={busy}><RefreshCw size={17}/>Обновить</button>
+      <button className="primary" onClick={()=>{setParams(previous=>{const next=new URLSearchParams(previous);next.set('section','inspectors');next.delete('inspection_tab');next.delete('with');return next;});setName('');setActive(true);setCreate(true);setEditing(true);}}><Plus size={17}/>Создать проверяющих</button></div></header>
     {error && <p className="error" role="alert">{error}</p>}
+    <nav className="organization-tabs" aria-label="Управление проверяющими"><button className={!chatView?'selected':''} onClick={()=>setParams(previous=>{const next=new URLSearchParams(previous);next.set('section','inspectors');next.delete('inspection_tab');next.delete('with');return next;})}>Управление</button>
+      <button className={chatView?'selected':''} onClick={()=>setParams(previous=>{const next=new URLSearchParams(previous);next.set('section','inspectors');next.set('inspection_tab','messages');return next;})}>Чаты с проверяющими<OperatorChatBadge/></button></nav>
+    {chatView?<InspectionChats base="/platform/inspection/chat" revision={chatRevision}/>:<>
     <div className="organization-grid">{agencies.map(a=><article className="panel organization-card" key={a.id}><h2>{a.name}</h2><p>{a.active?'Работает':'Приостановлена'} · Аккаунтов: {a.accounts}</p>
       <button className={a.id===selected?'primary':''} onClick={()=>{setSelected(a.id);setEditing(false);}}>Открыть</button>
       <button onClick={()=>{setSelected(a.id);setName(a.name);setActive(a.active);setCreate(false);setEditing(true);}}>Настроить</button></article>)}</div>
@@ -51,10 +60,10 @@ export default function InspectionOwner({organizations}: {organizations: Organiz
       <button disabled={busy}>Сохранить</button><button type="button" disabled={busy} onClick={()=>void run(async()=>{const updated=await api<Inspector>('/platform/inspection/accounts/'+account.id,'PATCH',{active:!account.active});await loadAccounts();await details(updated);})}>{account.active?'Приостановить аккаунт':'Возобновить аккаунт'}</button></form>
       <h3>Доступные организации</h3>{grants.map(g=><div className="inspection-grant" key={g.id}><span>{g.name}</span><button disabled={busy} onClick={()=>void run(async()=>{await api('/platform/inspection/accounts/'+account.id+'/grants/'+g.id,'DELETE');await details(account);})}>Отозвать доступ</button></div>)}{!grants.length && <p className="hint">Нет доступов. Проверяющий должен использовать QR каждой организации.</p>}
       <h3>Переписки</h3>{messages.next_before_id && <button disabled={busy} onClick={()=>void run(async()=>{const page=await api<MessagePage>('/platform/inspection/accounts/'+account.id+'/messages?before_id='+messages.next_before_id);setMessages({items:[...page.items,...messages.items],next_before_id:page.next_before_id});})}>Предыдущие сообщения</button>}
-      <div className="inspection-message-list">{messages.items.map(m=><article key={m.id}><strong>{m.outgoing?account.name:m.peer_name} → {m.outgoing?m.peer_name:account.name}</strong><p>{m.body}</p><small>{new Date(m.created_at).toLocaleString('ru-RU')}</small></article>)}</div>
+      <div className="inspection-message-list">{messages.items.map(m=><article key={m.id}><strong>{m.outgoing?account.name:m.peer_name} → {m.outgoing?m.peer_name:account.name}</strong><p>{m.forwarded&&'Переслано · '}{m.photo&&'Фотография #'+m.photo.id+' · '}{m.body}</p><small>{new Date(m.created_at).toLocaleString('ru-RU')}</small></article>)}</div>
       {!messages.items.length && <p className="hint">Сообщений пока нет.</p>}
     </section>}
     <section className="panel"><h2>QR организации</h2><label>Организация<select value={qrOrg} onChange={e=>setQrOrg(e.target.value)}><option value="">Выберите организацию</option>{organizations.map(o=><option value={o.id} key={o.id}>{o.name}</option>)}</select></label>
       {qrOrg && <OrganizationQR key={qrOrg} endpoint={'/platform/inspection/organizations/'+qrOrg+'/qr'}/>}</section>
-  </div>;
+  </>}</div></OperatorChatsProvider>;
 }

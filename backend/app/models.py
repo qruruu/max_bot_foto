@@ -231,11 +231,18 @@ class InspectionMessage(Base):
     recipient_key: Mapped[str] = mapped_column(String(100))
     client_id: Mapped[str] = mapped_column(String(36))
     body: Mapped[str] = mapped_column(Text)
+    photo_organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"))
+    photo_id: Mapped[int | None] = mapped_column(Integer)
+    forwarded_from_id: Mapped[int | None] = mapped_column(ForeignKey("inspection_messages.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (
         UniqueConstraint("sender_key", "client_id", name="uq_inspection_message_client"),
-        CheckConstraint("sender_key <> recipient_key AND length(trim(body)) BETWEEN 1 AND 4000"),
+        CheckConstraint("sender_key <> recipient_key AND length(trim(body)) BETWEEN 0 AND 4000 "
+                        "AND (length(trim(body)) > 0 OR photo_id IS NOT NULL) "
+                        "AND ((photo_id IS NULL AND photo_organization_id IS NULL) "
+                        "OR (photo_id IS NOT NULL AND photo_id > 0 AND photo_organization_id IS NOT NULL))",
+                        name="ck_inspection_message_content"),
         Index("ix_inspection_messages_pair", "sender_key", "recipient_key", "id"),
     )
 

@@ -1,9 +1,8 @@
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { dateLabel, shiftDate } from '../api';
-import CountedSelect from '../CountedSelect';
 import type { InspectionMeta } from './types';
 
-export const inspectionFilterKeys=['date_from','date_to','district_id','work_type','is_defect','date_basis','sort_order','photo_id'];
+export const inspectionFilterKeys=['date_from','date_to','district_id','is_defect','date_basis','sort_order','photo_id'];
 
 export default function InspectionFilters({meta,filters,change,base}: {
   meta: InspectionMeta; filters: Record<string,string>; change: (values: Record<string,string>)=>void; base: string;
@@ -21,7 +20,6 @@ export default function InspectionFilters({meta,filters,change,base}: {
     <div className="filters inspection-archive-filters"><label>Дата от<input type="date" value={filters.date_from||''} onChange={e=>change({date_from:e.target.value})}/></label>
       <label>Дата до<input type="date" value={filters.date_to||''} onChange={e=>change({date_to:e.target.value})}/></label>
       <label>Микрорайон<select aria-label="Микрорайон" value={filters.district_id||''} onChange={e=>change({district_id:e.target.value})}><option value="">Все микрорайоны</option><option value="0">Не определён</option>{meta.districts.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
-      <CountedSelect label="Вид работы" value={filters.work_type||''} options={[{value:'',name:'Все виды работ',label:'Все виды работ'},{value:'NONE',name:'Не определён',label:'Не определён'},...meta.work_types.map(w=>({value:w.code,name:w.name,label:w.name,description:w.description}))]} onChange={value=>change({work_type:value})}/>
       <label>Неисправность<select value={filters.is_defect||''} onChange={e=>change({is_defect:e.target.value})}><option value="">Все фотографии</option><option value="true">С неисправностями</option><option value="false">Без неисправностей</option></select></label>
       <label>Сортировка<select aria-label="Сортировка" value={sort} onChange={e=>{const [date_basis,sort_order]=e.target.value.split('_');change({date_basis,sort_order});}}>
         <option value="photo_desc">Сначала поздние фотографии</option><option value="photo_asc">Сначала ранние фотографии</option><option value="received_desc">Сначала поздние получения</option><option value="received_asc">Сначала ранние получения</option></select></label>

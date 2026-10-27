@@ -33,3 +33,13 @@
 .inspection-app .work-district-panel { margin-top: 22px; }
 @media(max-width: 850px) { .inspection-organization-select>span { display: none; } }
 @media(max-width: 600px) { .inspection-archive-filters { grid-template-columns: repeat(2,minmax(0,1fr)); } .inspection-context { flex-wrap: wrap; } .inspection-organization-select { width: 100%; } .inspection-organization-select select { max-width: none; width: 100%; } .inspection-number-search { align-items: stretch; flex-direction: column; } }
+
+.inspection-photo-detail .review-image { min-height: 300px; }
+.inspection-photo-detail .review-image img { max-height: 72dvh; }
+.inspection-photo-navigation { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 22px; margin-top: 26px; border-top: 1px solid var(--border); }
+@media(max-width:600px) { .inspection-photo-navigation { flex-wrap: wrap; } }
+
+.inspection-work-summary { display: block; font-size: 12px; }
+.inspection-work-summary>div:first-child { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.inspection-work-summary:nth-child(3n) .bar i { background: #bac891; }
+:root[data-theme="dark"] .inspection-work-summary:nth-child(3n) .bar i { background: #98baff; }

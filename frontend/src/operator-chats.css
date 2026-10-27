@@ -76,3 +76,7 @@
 .operator-message-photo small { display: block; margin-top: 4px; font-size: 11px; font-weight: 400; color: var(--muted); }
 .operator-message-photo-placeholder { display: grid; place-items: center; height: 120px; border-radius: 7px; border: 1px solid var(--border); margin-bottom: 8px; color: var(--muted); }
 .operator-message-photo-unavailable { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+
+.operator-message-forwarded { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; margin-bottom: 8px; }
+.operator-message-meta .operator-message-forward { display: inline-flex; align-items: center; padding: 3px; border: 0; background: transparent; color: var(--muted); }
+.inspection-forward-summary { padding: 12px; border-left: 3px solid var(--accent,var(--green)); margin: 18px 0; max-height: 200px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }

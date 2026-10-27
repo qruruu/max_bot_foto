@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
-import { RefreshCw } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { Camera, RefreshCw } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError, api } from '../api';
 import ChatPanel from '../ChatPanel';
 import { useOperatorChats } from '../OperatorChatsProvider';
+import InspectionForward from './Forward';
 import type { Contact, Message, ConversationPage as MessagePage } from './types';
 
 const labels = {contacts: 'Собеседники', search: 'Найти собеседника', loading: 'Загружаем собеседников…',
@@ -12,7 +13,7 @@ const labels = {contacts: 'Собеседники', search: 'Найти собе
   back: 'К списку собеседников', message: 'Сообщение'};
 const merge = (current: Message[], incoming: Message[]) => [...new Map([...current, ...incoming].map(message => [message.id, message])).values()].sort((a, b) => a.id - b.id);
 
-export default function InspectionChats({base = '/inspection', revision = 0, timezone = 'Asia/Yekaterinburg'}: {base?: string; revision?: number; timezone?: string}) {
+export default function InspectionChats({base = '/inspection', revision = 0, timezone = 'Asia/Yekaterinburg', openPhotoLink, active=true}: {base?: string; revision?: number; timezone?: string; openPhotoLink?: (url: string) => void; active?: boolean}) {
   const notifications = useOperatorChats();
   const [params, setParams] = useSearchParams(), peerKey = params.get('with') || '';
   const [contacts, setContacts] = useState<Contact[]>([]), [contactLoading, setContactLoading] = useState(true), [contactError, setContactError] = useState('');
@@ -20,11 +21,13 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
   const [loading, setLoading] = useState(false), [loadingOlder, setLoadingOlder] = useState(false), [readThrough, setReadThrough] = useState(0);
   const [drafts, setDrafts] = useState<Record<string, string>>({}), [sendError, setSendError] = useState(''), [historyError, setHistoryError] = useState('');
   const [sendingPeer, setSendingPeer] = useState(''), [refreshKey, setRefreshKey] = useState(0);
+  const [forwarding,setForwarding]=useState<Message|null>(null);
   const retry = useRef<{body: string; peer: string; id: string} | null>(null);
   const list = useRef<HTMLDivElement>(null), stickToBottom = useRef(true), scrollAnchor = useRef<{height: number; top: number} | null>(null);
   const currentPeer = useRef(peerKey), olderRequest = useRef<AbortController | null>(null);
   const refreshContacts = useRef<() => Promise<void>>(async () => {}), refreshMessages = useRef<() => Promise<void>>(async () => {});
   currentPeer.current = peerKey;
+  const chatVisible=useRef(active);chatVisible.current=active;
   const contact = contacts.find(item => item.key === peerKey), draft = drafts[peerKey] || '';
   function select(key: string) {setParams(previous => {const next = new URLSearchParams(previous); key ? next.set('with', key) : next.delete('with'); return next;});}
 
@@ -32,7 +35,7 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
     const controller = new AbortController();
     let busy = false;
     const refresh = async () => {
-      if (busy || document.hidden) return;
+      if (busy || document.hidden || !chatVisible.current) return;
       busy = true;
       try {
         const result = await api<Contact[]>(base + '/contacts', 'GET', undefined, controller.signal);
@@ -58,22 +61,23 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
     let busy = false, initial = true, cursor = 0, acknowledged = 0;
     setLoading(true);
     const refresh = async () => {
-      if (busy || document.hidden) return;
+      if (busy || document.hidden || !chatVisible.current) return;
       busy = true;
       try {
         // Fetch new messages in order, including bursts larger than one page.
         for (let page = 0; page < 5; page++) {
           const result = await api<MessagePage>(base + '/messages?' + new URLSearchParams({peer: peerKey, ...(!initial ? {after_id: String(cursor)} : {})}), 'GET', undefined, controller.signal);
-          if (controller.signal.aborted) return;
+          if (controller.signal.aborted || !chatVisible.current) return;
           const first = initial, element = list.current;
           if (result.items.length) {
-            stickToBottom.current = initial || !element || element.scrollHeight - element.scrollTop - element.clientHeight < 90;
+            const added=initial||result.items.some(message=>message.id>cursor);
+            stickToBottom.current = added && (initial || !element || element.scrollHeight - element.scrollTop - element.clientHeight < 90);
             setItems(previous => first ? result.items : merge(previous, result.items));
             cursor = Math.max(cursor, ...result.items.map(message => message.id));
           }
           if (initial) setBefore(result.next_before_id);
           initial = false; setReadThrough(result.peer_read_through_id); setHistoryError(''); setLoading(false);
-          if (cursor > acknowledged && !document.hidden) {
+          if (cursor > acknowledged && !document.hidden && chatVisible.current) {
             await api(base + '/messages/read?' + new URLSearchParams({peer: peerKey}), 'POST', {through_id: cursor}, controller.signal);
             if (controller.signal.aborted) return;
             acknowledged = cursor;
@@ -96,7 +100,7 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
     return () => {controller.abort(); olderRequest.current?.abort(); window.clearInterval(timer); document.removeEventListener('visibilitychange', visible);};
   }, [base, peerKey]);
 
-  useEffect(() => {void refreshContacts.current(); void refreshMessages.current();}, [revision, refreshKey]);
+  useEffect(() => {if(active){void refreshContacts.current(); void refreshMessages.current();}}, [revision, refreshKey, active]);
   useLayoutEffect(() => {
     const element = list.current;
     if (!element) return;
@@ -137,9 +141,17 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
     <ChatPanel contacts={contacts.map(item => ({key: item.key, name: item.name, avatar_url: item.avatar_url, active: true, unread: item.unread,
       subtitle: [item.kind, item.organization_name].filter(Boolean).join(' · '), organization: item.organization_name,
       preview: item.last_message ? (item.last_message_outgoing ? 'Вы: ' : '') + item.last_message : null, preview_at: item.last_message_at}))}
-      selected={peerKey} select={select} contactLoading={contactLoading} contactError={contactError} messages={items.map(item => ({...item, read: !!item.read_at || item.id <= readThrough}))}
+      selected={peerKey} select={select} contactLoading={contactLoading} contactError={contactError} messages={items.map(item => ({...item, read: !!item.read_at || item.id <= readThrough,
+        canForward: !item.photo || item.photo.available,
+        attachment: item.photo && (item.photo.available && item.photo.detail_url ? (base==='/inspection' ? <Link className="operator-message-photo" to={item.photo.detail_url} onClick={event=>{if(openPhotoLink){event.preventDefault();openPhotoLink(item.photo!.detail_url!);}}}>
+          {item.photo.preview_url?<img src={item.photo.preview_url} loading="lazy" alt={'Фотография №'+item.photo.id}/>:<span className="operator-message-photo-placeholder"><Camera size={30}/></span>}<span>Фотография #{item.photo.id}<small>{item.photo.organization_name} · Открыть карточку</small></span>
+        </Link> : <a className="operator-message-photo" href={item.photo.detail_url} target="_blank" rel="noreferrer">
+          {item.photo.preview_url&&<img src={item.photo.preview_url} loading="lazy" alt={'Фотография №'+item.photo.id}/>}<span>Фотография #{item.photo.id}<small>{item.photo.organization_name} · Открыть карточку</small></span>
+        </a>) : <div className="operator-message-photo-unavailable">Фотография #{item.photo.id} недоступна</div>)}))}
       historyError={historyError} loading={loading} hasOlder={!!before} loadingOlder={loadingOlder} older={older} listRef={list}
       draft={draft} changeDraft={value => {setDrafts(previous => ({...previous, [peerKey]: value})); setSendError('');}}
-      send={send} keyDown={keyDown} sending={!!sendingPeer} sendError={sendError} timezone={timezone} labels={labels}/>
+      send={send} keyDown={keyDown} sending={!!sendingPeer} sendError={sendError} timezone={timezone} labels={labels}
+      forward={id=>setForwarding(items.find(item=>item.id===id)||null)}/>
+    {forwarding&&<InspectionForward key={forwarding.id} base={base} message={forwarding} onClose={()=>setForwarding(null)} onSent={peer=>{setForwarding(null);select(peer.key);void refreshContacts.current();void refreshMessages.current();}}/>}
   </>;
 }

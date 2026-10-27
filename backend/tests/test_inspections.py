@@ -320,6 +320,120 @@ def test_chat_history_cursors_read_receipts_and_contact_avatars(inspection):
     assert admins[0].get(admin_contacts[0]["avatar_url"]).status_code == 404
 
 
+def test_inspectors_can_write_owner_and_forward_only_their_own_available_messages(inspection):
+    owner, scopes, operators, _, accounts, clients = inspection
+    client, colleague = clients
+    owner_peer = next(c["key"] for c in client.get("/api/inspection/contacts").json() if c["kind"] == "Владелец сервиса")
+    peer = f'i:{accounts[0]["id"]}'
+    endpoint = "/api/inspection/messages"
+    sent = client.post(endpoint, params={"peer": owner_peer}, json={"client_id": str(uuid4()), "body": "Вопрос владельцу"})
+    assert sent.status_code == 201, sent.text
+    owner_endpoint = "/api/platform/inspection/chat/messages"
+    assert owner.get("/api/platform/inspection/chat/unread").json() == {"unread": 1}
+    assert owner.get(owner_endpoint, params={"peer": peer}).json()["items"][0]["body"] == "Вопрос владельцу"
+    assert owner.get(owner_endpoint, params={"peer": f'i:{accounts[1]["id"]}'}).json()["items"] == []
+    assert client.get("/api/platform/inspection/chat/contacts").status_code in (401, 403)
+    assert operators[0].get(scopes[0].prefix + "/api/platform/inspection/chat/contacts").status_code in (401, 403, 404)
+    response = owner.post(owner_endpoint, params={"peer": peer}, json={"client_id": str(uuid4()), "body": "Ответ владельца"})
+    assert response.status_code == 201, response.text
+    assert client.get("/api/inspection/unread").json() == {"unread": 1}
+    read = owner.post(owner_endpoint + "/read", params={"peer": peer}, json={"through_id": sent.json()["id"]})
+    assert read.status_code == 200 and owner.get("/api/platform/inspection/chat/unread").json() == {"unread": 0}
+    forward_body = {"client_id": str(uuid4()), "forward_message_id": response.json()["id"]}
+    assert colleague.post(endpoint, params={"peer": owner_peer}, json=forward_body).status_code == 404
+    forwarded = client.post(endpoint, params={"peer": f'i:{accounts[1]["id"]}'}, json=forward_body)
+    assert forwarded.status_code == 201, forwarded.text
+    assert forwarded.json()["body"] == "Ответ владельца" and forwarded.json()["forwarded"]
+    assert "forwarded_from_id" not in forwarded.json() and "sender_key" not in forwarded.json()
+    assert client.post(endpoint, params={"peer": f'i:{accounts[1]["id"]}'}, json=forward_body).json()["id"] == forwarded.json()["id"]
+    assert client.post(endpoint, params={"peer": owner_peer}, json=forward_body).status_code == 409
+    assert client.post(endpoint, params={"peer": owner_peer}, json={**forward_body, "client_id": str(uuid4()), "body": "Изменить оригинал"}).status_code == 422
+    assert colleague.get(endpoint, params={"peer": peer}).json()["items"][0]["body"] == "Ответ владельца"
+    assert colleague.get(endpoint, params={"peer": owner_peer}).json()["items"] == []
+
+
+def test_photo_sharing_and_forwarding_preserve_each_recipients_own_access(inspection):
+    owner, scopes, _, _, accounts, clients = inspection
+    client, colleague = clients
+    scope = scopes[0]
+    seed_photos(scope)
+    grant(owner, client, scope)
+    owner_peer = next(c["key"] for c in client.get("/api/inspection/contacts").json() if c["kind"] == "Владелец сервиса")
+    peer = f'i:{accounts[1]["id"]}'
+    endpoint = "/api/inspection/messages"
+    owner_endpoint = "/api/platform/inspection/chat/messages"
+    content = {"client_id": str(uuid4()), "photo_organization_id": scope.id, "photo_id": 10}
+    assert client.post(endpoint, params={"peer": owner_peer}, json=content).status_code == 404
+    close(owner, scope)
+    assert client.post(endpoint, params={"peer": peer}, json=content).status_code == 404
+    candidates = client.get("/api/inspection/contacts", params={"photo_organization_id": scope.id, "photo_id": 10}).json()
+    assert [c["key"] for c in candidates] == [owner_peer]
+    sent = client.post(endpoint, params={"peer": owner_peer}, json=content)
+    assert sent.status_code == 201, sent.text
+    assert sent.json()["body"] == "" and sent.json()["photo"]["organization_id"] == scope.id
+    assert client.post(endpoint, params={"peer": owner_peer}, json=content).json()["id"] == sent.json()["id"]
+    assert client.post(endpoint, params={"peer": owner_peer}, json={**content, "photo_id": 20}).status_code == 409
+    preview = sent.json()["photo"]["preview_url"]
+    assert client.get(preview).content == b"safe preview"
+    assert colleague.get(preview).status_code == 404
+    received = owner.get(owner_endpoint, params={"peer": f'i:{accounts[0]["id"]}'}).json()["items"][0]
+    assert received["photo"]["available"] and owner.get(received["photo"]["preview_url"]).content == b"safe preview"
+    forward = {"client_id": str(uuid4()), "forward_message_id": sent.json()["id"]}
+    assert owner.post(owner_endpoint, params={"peer": peer}, json=forward).status_code == 404
+    grant(owner, colleague, scope)
+    forwarded = client.post(endpoint, params={"peer": peer}, json=forward)
+    assert forwarded.status_code == 201 and forwarded.json()["forwarded"], forwarded.text
+    own_history = colleague.get(endpoint, params={"peer": f'i:{accounts[0]["id"]}'}).json()["items"]
+    assert len(own_history) == 1 and own_history[0]["photo"]["available"]
+    recipient_preview = own_history[0]["photo"]["preview_url"]
+    assert colleague.get(recipient_preview).content == b"safe preview"
+    assert "inspection_chat=" in own_history[0]["photo"]["detail_url"]
+    assert owner.post(owner_endpoint, params={"peer": peer}, json={**forward, "client_id": str(uuid4())}).status_code == 201
+    owner.delete(f'/api/platform/inspection/accounts/{accounts[1]["id"]}/grants/{scope.id}')
+    unavailable = colleague.get(endpoint, params={"peer": f'i:{accounts[0]["id"]}'}).json()["items"][0]["photo"]
+    assert not unavailable["available"] and unavailable["preview_url"] is None and unavailable["organization_id"] is None
+    assert colleague.get(recipient_preview).status_code == 404
+    assert colleague.get("/api/inspection/contacts", params={"forward_message_id": forwarded.json()["id"]}).status_code == 404
+    assert client.post(endpoint, params={"peer": peer}, json={**forward, "client_id": str(uuid4())}).status_code == 404
+    with organization_scope(scope), Session(engine()) as tenant:
+        tenant.get(Photo, 10).is_defect = True
+        tenant.commit()
+    assert client.get(preview).status_code == 404
+    assert owner.get(received["photo"]["preview_url"]).status_code == 404
+    assert client.post(endpoint, params={"peer": owner_peer}, json={"client_id": str(uuid4()), "body": " "}).status_code == 422
+    assert client.post(endpoint, params={"peer": owner_peer}, json={"client_id": str(uuid4()), "photo_id": 10}).status_code == 422
+
+
+def test_organization_admin_can_forward_only_to_its_authorized_inspectors(inspection):
+    owner, scopes, admins, _, accounts, clients = inspection
+    scope, admin, client = scopes[0], admins[0], clients[0]
+    with organization_scope(scope), Session(engine()) as db:
+        operator = db.scalar(select(User).where(User.login == "same-login"))
+        operator.role = "ADMIN_OPERATOR"
+        admin_peer = f"a:{scope.id}:{operator.id}"
+        db.commit()
+    seed_photos(scope)
+    close(owner, scope)
+    grant(owner, client, scope)
+    sent = client.post("/api/inspection/messages", params={"peer": admin_peer}, json={
+        "client_id": str(uuid4()), "photo_organization_id": scope.id, "photo_id": 10, "body": "Для проверки"})
+    assert sent.status_code == 201, sent.text
+    endpoint = scope.prefix + "/api/inspection-admin"
+    received = admin.get(endpoint + "/messages", params={"peer": f'i:{accounts[0]["id"]}'}).json()["items"][0]
+    assert received["photo"]["preview_url"].startswith(scope.prefix + "/api/inspection-admin/")
+    assert admin.get(received["photo"]["preview_url"]).content == b"safe preview"
+    body = {"client_id": str(uuid4()), "forward_message_id": sent.json()["id"]}
+    peer = f'i:{accounts[1]["id"]}'
+    assert admin.post(endpoint + "/messages", params={"peer": peer}, json=body).status_code == 404
+    grant(owner, clients[1], scope)
+    result = admin.post(endpoint + "/messages", params={"peer": peer}, json=body)
+    assert result.status_code == 201 and result.json()["forwarded"], result.text
+    assert clients[1].get("/api/inspection/messages/" + str(sent.json()["id"]) + "/photo").status_code == 404
+    history = clients[1].get("/api/inspection/messages", params={"peer": admin_peer}).json()["items"]
+    assert len(history) == 1 and history[0]["body"] == "Для проверки"
+    assert clients[1].get(history[0]["photo"]["preview_url"]).content == b"safe preview"
+
+
 def test_appeals_and_photos_are_scoped_to_personal_organization_grant(inspection):
     owner, scopes, _, _, _, clients = inspection
     grant(owner, clients[0], scopes[0])

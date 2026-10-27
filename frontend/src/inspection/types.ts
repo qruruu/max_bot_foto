@@ -16,6 +16,9 @@ export type Appeal = {id: number; organization_name: string; address: string; pl
   work_type_name: string; category: string; status: string; created_at: string; photos: {id: string; url: string}[]};
 export type Contact = {key: string; name: string; kind: string; organization_name: string | null; avatar_url: string | null;
   unread: number; last_message: string | null; last_message_at: string | null; last_message_outgoing: boolean};
-export type Message = {id: number; body: string; outgoing: boolean; created_at: string; read_at: string | null; peer_name?: string};
+export type MessagePhoto = {id: number; available: boolean; organization_id: string | null; organization_name: string | null;
+  preview_url: string | null; detail_url: string | null};
+export type Message = {id: number; body: string; outgoing: boolean; created_at: string; read_at: string | null; peer_name?: string;
+  forwarded?: boolean; photo?: MessagePhoto | null};
 export type MessagePage = {items: Message[]; next_before_id: number | null};
 export type ConversationPage = MessagePage & {has_newer: boolean; peer_read_through_id: number};

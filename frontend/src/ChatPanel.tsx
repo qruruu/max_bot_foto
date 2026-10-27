@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode, RefObject } from 'react';
-import { ArrowLeft, Check, CheckCheck, MessageCircle, Search, Send } from 'lucide-react';
+import { ArrowLeft, Check, CheckCheck, MessageCircle, Search, Send, Share2 } from 'lucide-react';
 import { ErrorBox } from './App';
 import Avatar from './Avatar';
 import { messageDay, messageTime } from './operatorChatData';
@@ -11,7 +11,7 @@ export type ChatContact = {
   unread: number; preview: string | null; preview_at?: string | null; organization?: string | null;
 };
 export type ChatMessage = {
-  id: number; body: string; outgoing: boolean; created_at: string; read: boolean; attachment?: ReactNode;
+  id: number; body: string; outgoing: boolean; created_at: string; read: boolean; attachment?: ReactNode; forwarded?: boolean; canForward?: boolean;
 };
 type Props = {
   contacts: ChatContact[]; selected: string; select: (key: string) => void;
@@ -20,6 +20,7 @@ type Props = {
   listRef: RefObject<HTMLDivElement | null>; draft: string; changeDraft: (value: string) => void;
   send: (event?: FormEvent) => void; keyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   sending: boolean; sendError: string; timezone: string;
+  forward?: (id: number) => void;
   labels?: {contacts: string; search: string; loading: string; none: string; empty: string; back: string; message: string};
 };
 const operatorLabels = {
@@ -60,7 +61,7 @@ export default function ChatPanel(props: Props) {
               const day = messageDay(message.created_at, timezone);
               return <Fragment key={message.id}>
                 {(index === 0 || messageDay(messages[index - 1].created_at, timezone) !== day) && <li className="operator-message-day">{day}</li>}
-                <li className={`operator-message ${message.outgoing ? 'own' : ''}`}><div className="operator-message-bubble">{message.attachment}{message.body && <p>{message.body}</p>}<div className="operator-message-meta"><time dateTime={message.created_at}>{messageTime(message.created_at, timezone)}</time>{message.outgoing && <span className={message.read ? 'message-read' : ''} aria-label={message.read ? 'Прочитано' : 'Отправлено'} title={message.read ? 'Прочитано' : 'Отправлено'}>{message.read ? <CheckCheck size={14} aria-hidden="true"/> : <Check size={14} aria-hidden="true"/>}</span>}</div></div></li>
+                <li className={`operator-message ${message.outgoing ? 'own' : ''}`}><div className="operator-message-bubble">{message.forwarded && <span className="operator-message-forwarded"><Share2 size={12}/>Пересланное сообщение</span>}{message.attachment}{message.body && <p>{message.body}</p>}<div className="operator-message-meta"><time dateTime={message.created_at}>{messageTime(message.created_at, timezone)}</time>{props.forward && <button type="button" className="operator-message-forward" aria-label={'Переслать сообщение №'+message.id} title="Переслать сообщение" disabled={message.canForward===false} onClick={()=>props.forward?.(message.id)}><Share2 size={13}/></button>}{message.outgoing && <span className={message.read ? 'message-read' : ''} aria-label={message.read ? 'Прочитано' : 'Отправлено'} title={message.read ? 'Прочитано' : 'Отправлено'}>{message.read ? <CheckCheck size={14} aria-hidden="true"/> : <Check size={14} aria-hidden="true"/>}</span>}</div></div></li>
               </Fragment>;
             })}
           </ol>

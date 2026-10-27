@@ -64,6 +64,8 @@ export function PhotoNotificationsProvider({userId, canViewPhotos, children, end
     if (!preferences.popup || !canViewPhotos) setNotice(null);
   }, [preferences.popup, canViewPhotos]);
 
+  useEffect(() => {setNotice(null);}, [endpoint]);
+
   useEffect(() => {
     if (!notice) return;
     let timeout: number | undefined;
