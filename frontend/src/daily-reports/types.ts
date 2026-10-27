@@ -1,0 +1,16 @@
+export type Profile = {company_name:string;short_name:string;city:string;address:string;inn:string;ogrn:string;phone:string;email:string;recipient:string[];photo_url:string;subject:string};
+export type Contract = {id:string;number:string;prefix:string;next_number:number};
+export type Area = {id:string;contract_id:string;name:string;district_ids:number[]};
+export type Assignment = {area_id:string;quantity:number|null;resources:string;annual_limit:number|null};
+export type Recurrence = 'daily'|'monthly'|'four_windows'|'windows'|'deadlines'|'dates'|'interval'|'event';
+export type Work = {id:string;name:string;unit:string;season:'all'|'summer'|'winter';recurrence:Recurrence;schedule_note:string;windows:{start:string;end:string}[];dates:string[];interval_days:number;requires_event:boolean;photo_codes:string[];assignments:Assignment[]};
+export type Config = {profile:Profile;contracts:Contract[];areas:Area[];works:Work[];summer_start:string;summer_end:string;source_notes:string};
+export type Setup = {version:number;config:Config};
+export type Line = {work_id:string;area_id:string;decision:'pending'|'include'|'info'|'skip';quantity:number|null;resources:string;note:string;cycle_complete:boolean};
+export type Document = {fact:Line[];plan:Line[];fact_season:''|'summer'|'winter';plan_season:''|'summer'|'winter';fact_events:string[];plan_events:string[];note:string};
+export type ReportSummary = {id:number;day:string;version:number;approved:boolean;changed:boolean;approved_at:string|null;letter_numbers:Record<string,string>};
+export type Report = ReportSummary & {fact_day:string;cohort:'test'|'production';config:Config;document:Document;issues:string[];evidence:{total:number;unmatched:number;rows:Record<string,{total:number;needs_review:number}>};new_photos:number;changed_photos:number};
+export const frequencies:Record<Recurrence,string>={daily:'Ежедневно',monthly:'Раз в месяц',four_windows:'4 окна в месяц',windows:'Периоды в году',deadlines:'Сроки выполнения',dates:'В определённые даты',interval:'Раз в несколько дней',event:'По событию или заявке'};
+export const assignment = (area_id:string):Assignment=>({area_id,quantity:null,resources:'',annual_limit:null});
+export const newWork = ():Work=>({id:crypto.randomUUID(),name:'Новый вид работ',unit:'м²',season:'all',recurrence:'daily',schedule_note:'',windows:[],dates:[],interval_days:5,requires_event:false,photo_codes:[],assignments:[]});
+export const newLine = (work:Work, a:Assignment):Line=>({work_id:work.id,area_id:a.area_id,decision:'pending',quantity:a.quantity,resources:a.resources,note:'',cycle_complete:false});

@@ -21,9 +21,19 @@ class Permission(StrEnum):
     LEARNING_MANAGE = "learning_manage"
     NEWS_VIEW = "news_view"
     DAYS_REVIEW = "days_review"
+    DAILY_REPORTS_VIEW = "daily_reports_view"
+    DAILY_REPORTS_EDIT = "daily_reports_edit"
+    DAILY_REPORTS_CONFIGURE = "daily_reports_configure"
 
 
 PERMISSIONS = {
+    Permission.DAILY_REPORTS_VIEW: ("Просмотр ежедневных отчётов по контрактам", "Отчётность по контрактам", ()),
+    Permission.DAILY_REPORTS_EDIT: (
+        "Составление и утверждение ежедневных отчётов", "Отчётность по контрактам", (Permission.DAILY_REPORTS_VIEW,),
+    ),
+    Permission.DAILY_REPORTS_CONFIGURE: (
+        "Настройка реквизитов, контрактов и календаря работ", "Отчётность по контрактам", (Permission.DAILY_REPORTS_VIEW,),
+    ),
     Permission.REPORTS_VIEW: ("Обзор и отчёты", "Фотографии и отчёты", ()),
     Permission.PHOTOS_VIEW: ("Просмотр фотографий", "Фотографии и отчёты", ()),
     Permission.PHOTOS_SORT: (

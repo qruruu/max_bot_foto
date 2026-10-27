@@ -55,6 +55,7 @@ from app.chat_access import (
 from app.chat_senders import photo_sender_name
 from app.chat_senders import router as chat_senders_router
 from app.config import settings
+from app.daily_reports import router as daily_reports_router
 from app.day_reviews import router as day_reviews_router
 from app.disk_accounts import router as disk_accounts_router
 from app.disk_folders import current_disk_roots
@@ -139,6 +140,7 @@ app.include_router(news_router)
 app.include_router(news_editor_router)
 app.include_router(disk_folders_router)
 app.include_router(day_reviews_router)
+app.include_router(daily_reports_router)
 app.include_router(organizations_router)
 app.include_router(disk_accounts_router)
 app.include_router(photo_promotion_router)

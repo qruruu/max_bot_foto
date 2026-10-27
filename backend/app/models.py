@@ -122,6 +122,46 @@ class NewsRead(Base):
     read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class DailyReportingSettings(Timestamps, Base):
+    __tablename__ = "daily_reporting_settings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    config: Mapped[dict] = mapped_column(JSONB)
+
+
+class DailyReport(Timestamps, Base):
+    __tablename__ = "daily_reports"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    cohort: Mapped[str] = mapped_column(String(20))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    config: Mapped[dict] = mapped_column(JSONB)
+    draft: Mapped[dict] = mapped_column(JSONB)
+    approved: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    approved_config: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    approved_version: Mapped[int | None] = mapped_column(Integer)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    letter_numbers: Mapped[dict] = mapped_column(JSONB, default=dict)
+    evidence: Mapped[dict] = mapped_column(JSONB, default=dict)
+    __table_args__ = (
+        UniqueConstraint("day", "cohort"),
+        CheckConstraint("cohort IN ('test', 'production')"),
+        CheckConstraint("version >= 1"),
+    )
+
+
+class DailyReportRevision(Base):
+    __tablename__ = "daily_report_revisions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey("daily_reports.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    action: Mapped[str] = mapped_column(String(30))
+    document: Mapped[dict] = mapped_column(JSONB)
+    author_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class NewsRevision(Base):
     __tablename__ = "news_revisions"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)

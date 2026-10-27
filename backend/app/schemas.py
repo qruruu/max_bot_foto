@@ -24,7 +24,7 @@ class PasswordInput(StrictModel):
 
 SIDEBAR_ROUTES = (
     "/", "/news", "/photos", "/photo-map", "/review", "/days", "/spam", "/districts", "/appeals", "/messages",
-    "/chats", "/work-types", "/users", "/audit", "/jobs", "/exchange", "/learning", "/inspectors",
+    "/chats", "/work-types", "/users", "/audit", "/jobs", "/exchange", "/learning", "/daily-reports", "/inspectors",
 )
 
 

@@ -124,7 +124,9 @@ def check_permission(user: User, code):
 def require_permission(code):
     def allowed(user: CurrentUser):
         check_permission(user, code)
-        if code in {Permission.EXCHANGE_MANAGE, Permission.LEARNING_MANAGE}:
+        if code in {Permission.EXCHANGE_MANAGE, Permission.LEARNING_MANAGE,
+                    Permission.DAILY_REPORTS_VIEW, Permission.DAILY_REPORTS_EDIT,
+                    Permission.DAILY_REPORTS_CONFIGURE}:
             require_all_chats(user)
         return user
 

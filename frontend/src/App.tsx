@@ -41,6 +41,7 @@ import Login, { SignInRedirect } from './Login';
 import { AppealNotice, useAppealNotifications } from './appeals/notifications';
 const OwnerAppeals = lazy(() => import('./appeals/OwnerAppeals'));
 const InspectionAdministration = lazy(() => import('./inspection/Administration'));
+const DailyReports = lazy(() => import('./daily-reports/DailyReports'));
 
 const Context = createContext<{ user: User; meta: Meta; refresh: () => Promise<void>; notify: (text: string) => void; updateUser: (user: User) => void }>(null!);
 export const AppContextProvider = Context.Provider;
@@ -71,6 +72,7 @@ export default function App() {
     {to:'/photo-map', label:'Карта фотографий', Icon:MapPin, allowed:hasPermission(user,'photos_view')},
     {to:'/review', label:'Требуют проверки', Icon:ClipboardCheck, allowed:hasPermission(user,'photos_edit')},
     {to:'/days', label:'Проверка дней', Icon:CheckCheck, allowed:hasPermission(user,'days_review')},
+    {to:'/daily-reports', label:'Ежедневные отчёты', Icon:ClipboardCheck, allowed:hasPermission(user,'daily_reports_view')},
     {to:'/spam', label:'Спам', Icon:ArchiveX, allowed:hasPermission(user,'spam_view')},
     {to:'/districts', label:'Микрорайоны', Icon:Map, allowed:hasPermission(user,'districts_view')},
     {to:'/appeals', label:'Обращения граждан', Icon:MessageSquare, allowed:admin && !!meta.organization},
@@ -116,6 +118,7 @@ export default function App() {
           <Route path="/photo-map" element={protectedPage('photos_view',<PhotoMap/>)}/>
           <Route path="/review" element={protectedPage('photos_edit',<PhotoList review/>)}/>
           <Route path="/days" element={protectedPage('days_review',<DayReviews/>)}/>
+          <Route path="/daily-reports" element={protectedPage('daily_reports_view',<Suspense fallback={<p className="loading">Открываем отчётность…</p>}><DailyReports/></Suspense>)}/>
           <Route path="/spam" element={protectedPage('spam_view',<PhotoList spam/>)}/>
           <Route path="/photos/:id" element={protectedPage('photos_view',<PhotoDetail/>)}/>
           <Route path="/districts" element={protectedPage('districts_view',<DistrictMap/>)}/>

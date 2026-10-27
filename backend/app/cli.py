@@ -26,6 +26,9 @@ def main():
     initialize.add_argument("--name", required=True)
     initialize.add_argument("--slug", required=True)
     sub.add_parser("migrate", help="Обновить общую базу и базы всех организаций")
+    reporting = sub.add_parser("configure-daily-reports", help="Первичное заполнение отчётности из документов организации")
+    reporting.add_argument("--organization", required=True)
+    reporting.add_argument("--preset", required=True, choices=["shashko"])
     prepare_import = sub.add_parser("prepare-organization-import", help="Подготовить пустую организацию для переноса")
     prepare_import.add_argument("--organization", required=True)
     finish_import = sub.add_parser("finish-organization-import", help="Проверить перенесённые данные и закрепить чаты")
@@ -36,7 +39,31 @@ def main():
     finish_import.add_argument("--exchange-root")
     finish_import.add_argument("--spam-root")
     args = parser.parse_args()
-    if args.command == "prepare-organization-import":
+    if args.command == "configure-daily-reports":
+        from app.daily_report_presets import shashko_config
+        from app.daily_report_schemas import ReportingSettingsInput
+        from app.daily_reports import save_settings
+        from app.models import DailyReportingSettings, Organization
+        from app.organization_context import organization_scope
+        from app.organization_registry import control_session, scope_for
+
+        with control_session() as control:
+            record = control.get(Organization, args.organization)
+            if not record or record.status not in {"ACTIVE", "PAUSED"} or "шашко" not in record.name.casefold():
+                raise SystemExit("Для этого набора документов выберите организацию ИП Шашко")
+            scope = scope_for(record)
+        with organization_scope(scope), Session(engine()) as db:
+            if db.get(DailyReportingSettings, 1):
+                print("Настройки уже существуют; изменения доступны в форме организации. Ничего не перезаписано.")
+                return
+            user = db.get(User, scope.owner_user_id)
+            config = shashko_config(db)
+            save_settings(ReportingSettingsInput(version=0, config=config), db, user)
+            print(f"{scope.name}: сохранены {len(config.contracts)} контракта и {len(config.works)} правил работ")
+            for area in config.areas:
+                print(f"Контракт {area.contract_id}: {area.name} ({len(area.district_ids)} микрорайонов)")
+            print("Отчёты и демонстрационные объёмы не создавались. Нормы и персонал остаются незаданными.")
+    elif args.command == "prepare-organization-import":
         from app.organization_import import prepare
         try:
             database, directory = prepare(args.organization)
