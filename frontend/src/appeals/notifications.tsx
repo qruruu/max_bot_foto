@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Bell, X } from 'lucide-react';
 import { api, ApiError } from '../api';
 
-export type AppealNotifications = {new_count: number; latest_id: number};
+export type AppealNotifications = {new_count: number; latest_id: number; organization_id?: string | null};
 
 export function watchAppealNotifications(load: (signal: AbortSignal) => Promise<AppealNotifications>, update: (value: AppealNotifications) => void) {
   let stopped = false, active: AbortController | null = null;
@@ -31,27 +31,30 @@ export function watchAppealNotifications(load: (signal: AbortSignal) => Promise<
   checkNow(); return stop;
 }
 
-export function useAppealNotifications(enabled: boolean, userId?: number) {
+export function useAppealNotifications(enabled: boolean, userId?: number, endpoint = '/appeals/notifications') {
   const [count, setCount] = useState(0), [notice, setNotice] = useState(0);
+  const [organizationId, setOrganizationId] = useState('');
   useEffect(() => {
-    setCount(0); setNotice(0);
+    setCount(0); setNotice(0); setOrganizationId('');
     if (!enabled) return;
-    let latest = -1;
-    return watchAppealNotifications(signal => api<AppealNotifications>('/appeals/notifications', 'GET', undefined, signal), data => {
+    let latest = -1, previousCount = 0;
+    return watchAppealNotifications(signal => api<AppealNotifications>(endpoint, 'GET', undefined, signal), data => {
       setCount(data.new_count);
+      setOrganizationId(data.organization_id || '');
       if (!data.new_count) setNotice(0);
-      else if (data.latest_id > latest) setNotice(data.new_count);
+      else if (data.latest_id > latest || data.new_count > previousCount) setNotice(data.new_count);
       latest = Math.max(latest, data.latest_id);
+      previousCount = data.new_count;
     });
-  }, [enabled, userId]);
-  return {count, notice, dismiss: () => setNotice(0)};
+  }, [enabled, userId, endpoint]);
+  return {count, notice, organizationId, dismiss: () => setNotice(0)};
 }
 
 export function AppealNotice({count, dismiss}: {count: number; dismiss: () => void}) {
   if (!count) return null;
   return <section className="photo-notice appeal-notice" role="status" aria-live="polite">
-    <span className="photo-notice-icon"><Bell size={21}/></span><div><strong>Новое обращение о нарушении</strong>
-      <p>В вашей организации ожидают рассмотрения: {count}.</p>
+    <span className="photo-notice-icon"><Bell size={21}/></span><div><strong>Обращения и задачи требуют внимания</strong>
+      <p>В вашей организации: {count}.</p>
       <Link to="/appeals" onClick={() => {dismiss(); window.dispatchEvent(new Event('refresh-appeals'));}}>Открыть обращения</Link></div>
     <button type="button" className="photo-notice-close" aria-label="Закрыть уведомление об обращениях" onClick={dismiss}><X size={17}/></button>
   </section>;

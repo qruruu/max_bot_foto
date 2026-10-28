@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db import database_engine
-from app.models import District, Organization, WorkType
+from app.models import AppealAddress, District, Organization, WorkType
 from app.organization_registry import scope_for
 
 log = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ def organization_catalog(record):
         tenant.execute(text("SET TRANSACTION READ ONLY"))
         tenant.execute(text("SET LOCAL statement_timeout = '4000ms'"))
         works = [{"code": code, "name": name} for code, name in tenant.execute(
-            select(WorkType.code, WorkType.name).where(WorkType.code != "SPAM")
+            select(WorkType.code, WorkType.name).where(WorkType.code.not_in(("SPAM", "DRAIN_CLEANING")))
             .order_by(WorkType.sort_order, WorkType.id))]
         territories = [{"id": id, "name": name, "geometry": json.loads(geometry)}
                        for id, name, geometry in tenant.execute(select(
@@ -56,7 +56,7 @@ def public_organizations(db):
         if record.status != "ACTIVE" or not record.city:
             continue
         try:
-            item = organization_catalog(record)
+            item = organization_appeal_catalog(db, record)
         except (OSError, ValueError, RuntimeError, SQLAlchemyError):
             log.warning("appeal_catalog_unavailable organization=%s", record.id)
             continue
@@ -64,6 +64,16 @@ def public_organizations(db):
         if item["work_types"]:
             items.append({**item, "color": colors[record.id]})
     return items
+
+
+def organization_appeal_catalog(db, record):
+    item = organization_catalog(record)
+    districts = {area["id"] for area in item["territories"]}
+    addresses = [{"id": address.id, "label": address.label, "district_id": address.district_id}
+                 for address in db.scalars(select(AppealAddress).where(
+                     AppealAddress.organization_id == record.id, AppealAddress.active)
+                     .order_by(AppealAddress.label, AppealAddress.id)) if address.district_id in districts]
+    return {**item, "addresses": addresses}
 
 
 def validate_recipient(db, body):

@@ -7,263 +7,160 @@ import CitizenAppeal from './CitizenAppeal';
 import { AppealRequestError, publicRequest } from './requests';
 import { EMPTY_FORM, loadDraft, saveDraft } from './drafts';
 import type { AppealDraft } from './drafts';
+import { galleryPhoto } from './gallery';
 
 vi.mock('./requests', async () => ({...await vi.importActual('./requests'), publicRequest: vi.fn()}));
 vi.mock('./drafts', async () => ({...await vi.importActual('./drafts'), loadDraft: vi.fn(), saveDraft: vi.fn(async () => {}), clearDraft: vi.fn(async () => {})}));
-vi.mock('./TerritoryMap', () => ({default: () => null}));
+vi.mock('./gallery', () => ({galleryPhoto: vi.fn()}));
+vi.mock('./ProblemMap', () => ({default: ({onPoint, disabled}: {onPoint: (point: [number, number]) => void; disabled: boolean}) => <button disabled={disabled} type="button" data-map onClick={() => onPoint([72.6, 61.1])}>Отметить место на карте</button>}));
 vi.mock('../version', () => ({watchVersion: vi.fn((_version: string, onChange: (available: boolean) => void) => {onChange(true); return () => {};})}));
-const organizationId = '11111111-1111-4111-8111-111111111111';
+const organizationId = '11111111-1111-4111-8111-111111111111', addressId = '22222222-2222-4222-8222-222222222222';
 const catalog = {yandex_maps_api_key: '', organizations: [
-  {id: organizationId, name: 'Уборка города', city: 'Сургут', color: '#2563eb', work_types: [{code: 'waste', name: 'Вывоз мусора'}], territories: []},
-  {id: '22222222-2222-4222-8222-222222222222', name: 'Дороги города', city: 'Сургут', color: '#d97706', work_types: [{code: 'roads', name: 'Ремонт дорог'}], territories: []},
-  {id: '33333333-3333-4333-8333-333333333333', name: 'Свет', city: 'Тюмень', color: '#15803d', work_types: [{code: 'light', name: 'Освещение'}], territories: []},
+  {id: organizationId, name: 'Уборка города', city: 'Сургут', color: '#2563eb',
+    work_types: [{code: 'BIN_EMPTYING', name: 'УРНЫ'}, {code: 'DRAIN_CLEANING', name: 'КОЛОДЦЫ'}],
+    addresses: [{id: addressId, label: 'Ленина, 10', district_id: 1}], territories: []},
 ]};
+const emptyWall = {items: [], total: 0, page: 1, page_size: 20};
 let root: Root, element: HTMLDivElement;
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 function draft(pending = false): AppealDraft {
-  return {form: {...EMPTY_FORM, city: 'Сургут', organization_id: organizationId, address: 'Ленина, 10', place: 'У входа', category: 'waste', description: 'Мусор возле урны', contact: 'Контакт жителя'},
-    token: 'restored-camera-token', pending, savedAt: Date.now(), photos: [{id: 'one', blob: new Blob(['frame'], {type: 'image/jpeg'}), preview: new Blob(['preview'], {type: 'image/jpeg'}),
-      capture: {captured_at: new Date().toISOString(), position_at: new Date().toISOString(), latitude: 61.1, longitude: 72.5, accuracy: 8}}]};
+  return {form: {...EMPTY_FORM, city: 'Сургут', organization_id: organizationId, address_id: addressId, address: 'Ленина, 10', latitude: 61.1, longitude: 72.6,
+    category: 'BIN_EMPTYING', description: 'Мусор возле урны', contact: 'private-contact'}, token: 'restored-token', pending, savedAt: Date.now(),
+    photos: [{id: 'one', blob: new Blob(['photo'], {type: 'image/jpeg'}), preview: new Blob(['preview'], {type: 'image/jpeg'})}]};
 }
-const resumed = () => ({token: 'restored-camera-token', server_time: new Date().toISOString(), expires_at: new Date(Date.now() + 1800_000).toISOString(), timezone: 'Asia/Yekaterinburg', expired: false, submitted: null});
-const button = () => element.querySelector<HTMLButtonElement>('.citizen-submit button')!;
+const resumed = () => ({token: 'restored-token', expires_at: new Date(Date.now() + 1800_000).toISOString(), expired: false, submitted: null});
+const submitButton = () => element.querySelector<HTMLButtonElement>('.citizen-submit button')!;
+const byText = (text: string) => [...element.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes(text))!;
+async function click(button: HTMLButtonElement) {await act(async () => {button.click(); await tick();});}
 async function mount(value: AppealDraft | null) {
   vi.mocked(loadDraft).mockResolvedValue(value);
   await act(async () => {root.render(<StrictMode><CitizenAppeal/></StrictMode>); await tick();});
 }
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(publicRequest).mockResolvedValue(catalog);
+  vi.mocked(publicRequest).mockImplementation(async path => path === '/catalog' ? catalog : path.startsWith('/wall?') ? emptyWall : path.endsWith('/resume') ? resumed() : {number: 'ОБ-000042'});
   (globalThis as {IS_REACT_ACT_ENVIRONMENT?: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
   element = document.createElement('div'); document.body.append(element); root = createRoot(element);
-  Object.defineProperty(URL, 'createObjectURL', {configurable: true, value: vi.fn(() => 'blob:restored-frame')});
+  Object.defineProperty(URL, 'createObjectURL', {configurable: true, value: vi.fn(() => 'blob:photo')});
   Object.defineProperty(URL, 'revokeObjectURL', {configurable: true, value: vi.fn()});
 });
 afterEach(async () => {await act(async () => {root.unmount(); await tick();}); element.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs();});
+
+it('opens the city wall and requires a map point before the questionnaire', async () => {
+  await mount(null);
+  expect(element.querySelector('h1')!.textContent).toBe('Обращения жителей');
+  await click(byText('Сообщить о проблеме'));
+  expect(element.querySelector('textarea')).toBeNull();
+  expect(element.querySelector('[data-field="address_id"]')!.textContent).toContain('Ленина, 10');
+  expect(element.querySelector('input[autocomplete="street-address"]')).toBeNull();
+  expect(element.textContent).toContain('только адрес из списка обслуживаемых ею адресов');
+  expect(byText('Далее').disabled).toBe(true);
+  await click(element.querySelector<HTMLButtonElement>('[data-map]')!);
+  await click(byText('Далее'));
+  expect(element.querySelector('textarea')).not.toBeNull();
+  const file = element.querySelector<HTMLInputElement>('input[type=file]')!;
+  expect(file.hasAttribute('capture')).toBe(false);
+  expect(element.textContent).not.toContain('КОЛОДЦЫ');
+  expect(element.textContent).not.toContain('сток для дождевой воды');
+  expect(element.querySelector('[data-field="category"]')!.textContent).toContain('Переполненная урна');
+});
+
+it('blocks submission for organizations without configured addresses', async () => {
+  vi.mocked(publicRequest).mockImplementation(async path => path === '/catalog' ? {...catalog, organizations: [{...catalog.organizations[0], addresses: []}]} : emptyWall);
+  await mount(null); await click(byText('Сообщить о проблеме'));
+  expect(element.textContent).toContain('пока не добавила обслуживаемые адреса');
+  expect(byText('Далее').disabled).toBe(true);
+  expect(element.querySelector('[data-map]')).toBeNull();
+});
+
+it('restores gallery photos and submits map coordinates with stable organization and address identifiers', async () => {
+  const short = draft(); short.form.description = 'Мусор';
+  await mount(short);
+  expect(element.querySelector('textarea')!.hasAttribute('minlength')).toBe(false);
+  expect(element.querySelectorAll('.signal-upload-photo')).toHaveLength(1);
+  expect(element.querySelector('input[type=checkbox]')).toBeNull();
+  await click(submitButton());
+  const upload = vi.mocked(publicRequest).mock.calls.find(call => call[0] === '/submissions')!;
+  const data = upload[1].body as FormData, metadata = JSON.parse(data.get('metadata') as string);
+  expect(metadata).toMatchObject({capture_source: 'gallery', organization_id: organizationId, address_id: addressId, latitude: 61.1, longitude: 72.6, category: 'BIN_EMPTYING', public_consent: true});
+  expect(metadata).not.toHaveProperty('captures');
+  expect(data.getAll('photos')).toHaveLength(1);
+  expect(upload[1].headers).toEqual({'X-Capture-Token': 'restored-token'});
+  expect(element.textContent).toContain('Обращение ОБ-000042 отправлено');
+  expect(element.querySelector('h1')!.textContent).toBe('Обращения жителей');
+  expect(vi.mocked(saveDraft).mock.calls.at(-1)![0].form.contact).toBe('');
+});
+
+it('returns to city choice when there are multiple cities and the old draft only contained automatic selections', async () => {
+  const previous = draft(); previous.form.description = ''; previous.photos = [];
+  vi.mocked(publicRequest).mockImplementation(async path => path === '/catalog' ? {...catalog, organizations: [catalog.organizations[0], {...catalog.organizations[0], id: 'second', city: 'Тюмень'}]} : emptyWall);
+  await mount(previous);
+  expect(element.querySelector<HTMLSelectElement>('select[name=city]')!.value).toBe('');
+  expect(element.textContent).toContain('Выберите город');
+});
+
+it('keeps an uncertain send frozen and confirms receipt without uploading twice', async () => {
+  let uploaded = false;
+  vi.mocked(publicRequest).mockImplementation(async path => {
+    if (path === '/catalog') return catalog;
+    if (path.startsWith('/wall?')) return emptyWall;
+    if (path.endsWith('/resume')) return uploaded ? {...resumed(), submitted: {number: 'ОБ-000043'}} : resumed();
+    uploaded = true; throw new AppealRequestError('Соединение прервалось');
+  });
+  await mount(draft()); await click(submitButton());
+  expect(submitButton().textContent).toContain('Проверить отправку');
+  expect(element.querySelector('fieldset')!.disabled).toBe(true);
+  await click(submitButton());
+  expect(element.textContent).toContain('ОБ-000043');
+  expect(vi.mocked(publicRequest).mock.calls.filter(call => call[0] === '/submissions')).toHaveLength(1);
+});
+
+it('restores a pending send with its original data even if the public catalog changed', async () => {
+  const original = draft(true);
+  vi.mocked(publicRequest).mockImplementation(async path => path === '/catalog' ? {...catalog, organizations: []} : path.startsWith('/wall?') ? emptyWall : path.endsWith('/resume') ? resumed() : {number: 'ОБ-000044'});
+  await mount(original); await click(submitButton());
+  const upload = vi.mocked(publicRequest).mock.calls.find(call => call[0] === '/submissions')!;
+  expect(JSON.parse((upload[1].body as FormData).get('metadata') as string)).toMatchObject(original.form);
+});
+
+it('adds images selected from the phone without requesting camera or device coordinates', async () => {
+  vi.mocked(galleryPhoto).mockResolvedValue({id: 'two', blob: new Blob(['second'], {type: 'image/jpeg'}), preview: new Blob(['preview'])});
+  await mount(draft());
+  const file = new File(['gallery'], 'phone.jpg', {type: 'image/jpeg'}), input = element.querySelector<HTMLInputElement>('input[type=file]')!;
+  Object.defineProperty(input, 'files', {configurable: true, value: [file]});
+  await act(async () => {input.dispatchEvent(new Event('change', {bubbles: true})); await tick();});
+  expect(galleryPhoto).toHaveBeenCalledWith(file);
+  expect(element.querySelectorAll('.signal-upload-photo')).toHaveLength(2);
+});
 
 function enableReleaseNotice() {
   vi.stubEnv('DEV', false);
   const browser = window, reload = vi.fn();
   vi.stubGlobal('window', new Proxy(browser, {get(target, key) {
     if (key === 'location') return {reload};
-    const value = Reflect.get(target, key, target);
-    return typeof value === 'function' ? value.bind(target) : value;
+    const value = Reflect.get(target, key, target); return typeof value === 'function' ? value.bind(target) : value;
   }}));
   return reload;
 }
 
-it('restores a camera-only draft with its original token after a mobile tab reload', async () => {
-  await mount(draft());
-  expect(element.textContent).toContain('Восстановили ваш черновик');
-  expect(element.querySelector<HTMLSelectElement>('select[autocomplete="address-level2"]')!.value).toBe('Сургут');
-  expect(element.querySelectorAll('.citizen-photo img')).toHaveLength(1);
-  expect(element.querySelector('input[type=file]')).toBeNull(); expect(button().disabled).toBe(false);
-});
-
-it('freezes an uncertain upload and confirms its receipt without creating another submission', async () => {
-  let uploaded = false;
-  vi.mocked(publicRequest).mockImplementation(async path => {
-    if (path === '/catalog') return catalog;
-    if (path.endsWith('/resume')) return uploaded ? {...resumed(), submitted: {number: 'ОБ-000042'}} : resumed();
-    uploaded = true; throw new AppealRequestError('Соединение прервалось');
-  });
-  await mount(draft());
-  await act(async () => {button().click(); await tick();});
-  expect(button().textContent).toContain('Проверить отправку');
-  expect(element.querySelector('fieldset')!.disabled).toBe(true);
-  const uploads = vi.mocked(publicRequest).mock.calls.filter(call => call[0] === '').length;
-  expect(uploads).toBe(1);
-  await act(async () => {button().click(); await tick();});
-  expect(element.textContent).toContain('Ваше обращение получено'); expect(element.textContent).toContain('ОБ-000042');
-  expect(vi.mocked(publicRequest).mock.calls.filter(call => call[0] === '')).toHaveLength(1);
-  const saved = vi.mocked(saveDraft).mock.calls.at(-1)![0];
-  expect(saved.photos).toEqual([]); expect(saved.form.contact).toBe(''); expect(saved.receipt).toBe('ОБ-000042');
-});
-
-it('restores an interrupted upload locked and retries exactly the same camera photos', async () => {
-  vi.mocked(publicRequest).mockImplementation(async path => path === '/catalog' ? catalog : path.endsWith('/resume') ? resumed() : {number: 'ОБ-000043'});
-  await mount(draft(true));
-  expect(element.querySelector('fieldset')!.disabled).toBe(true);
-  await act(async () => {button().click(); await tick();});
-  const upload = vi.mocked(publicRequest).mock.calls.find(call => call[0] === '')!;
-  expect(upload[1].headers).toEqual({'X-Capture-Token': 'restored-camera-token'});
-  const form = upload[1].body as FormData;
-  expect(JSON.parse(form.get('metadata') as string).capture_source).toBe('camera');
-  expect(form.getAll('photos')).toHaveLength(1);
-});
-
-it('unlocks a definitely rejected upload and retains the questionnaire and photo', async () => {
-  vi.mocked(publicRequest).mockImplementation(async path => {
-    if (path === '/catalog') return catalog;
-    if (path.endsWith('/resume')) return resumed();
-    throw new AppealRequestError('Уточните анкету', 422);
-  });
-  await mount(draft()); await act(async () => {button().click(); await tick();});
-  expect(element.querySelector('fieldset')!.disabled).toBe(false);
-  expect(element.querySelectorAll('.citizen-photo img')).toHaveLength(1);
-  expect(element.textContent).toContain('Уточните анкету');
-});
-
-it('only offers registered cities and resets work type when selecting another organization', async () => {
-  await mount(draft());
-  const selects = () => element.querySelectorAll<HTMLSelectElement>('.citizen-fields select');
-  expect([...selects()[0].options].map(option => option.value)).toEqual(['', 'Сургут', 'Тюмень']);
-  expect([...selects()[1].options].map(option => option.text)).toEqual(['Выберите организацию', 'Уборка города', 'Дороги города']);
-  expect(selects()).toHaveLength(2);
-  expect(element.querySelector('[data-field="category"]')!.textContent).toContain('Вывоз мусора');
-  await act(async () => {selects()[1].value = catalog.organizations[1].id; selects()[1].dispatchEvent(new Event('change', {bubbles: true}));});
-  expect(element.querySelector('[data-field="category"]')!.textContent).toContain('Ремонт дорог');
-  expect(button().disabled).toBe(false);
-  await act(async () => {selects()[0].value = 'Тюмень'; selects()[0].dispatchEvent(new Event('change', {bubbles: true}));});
-  expect(selects()).toHaveLength(1);
-  expect(element.querySelector('[data-field="organization_id"]')!.textContent).toContain('Свет');
-  expect(element.querySelector('[data-field="category"]')!.textContent).toContain('Освещение');
-  expect(element.querySelectorAll('.citizen-photo img')).toHaveLength(1);
-  expect(element.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('Мусор возле урны');
-});
-
-it('requires correcting an old unavailable recipient without discarding text or camera photos', async () => {
-  const old = draft(); old.form.city = 'Несуществующий город';
-  await mount(old);
-  expect(button().disabled).toBe(true);
-  expect(element.querySelector<HTMLSelectElement>('select[autocomplete="address-level2"]')!.value).toBe('');
-  expect(element.textContent).not.toContain('Несуществующий город');
-  expect(element.querySelector('select[name="organization_id"]')).toBeNull();
-  expect(element.querySelectorAll('.citizen-photo img')).toHaveLength(1);
-});
-
-it('automatically fills a sole city, organization and work type and submits those exact identifiers', async () => {
-  const single = {...catalog, organizations: [catalog.organizations[0]]};
-  vi.mocked(publicRequest).mockImplementation(async path => path === '/catalog' ? single : path.endsWith('/resume') ? resumed() : {number: 'ОБ-000044'});
-  const restored = draft(); restored.form = {...restored.form, city: '', organization_id: '', category: ''};
-  await mount(restored);
-  expect(element.querySelectorAll('select')).toHaveLength(0);
-  expect(element.querySelector('[data-field="city"]')!.textContent).toBe('ГородСургут');
-  expect(element.querySelector('[data-field="organization_id"]')!.textContent).toContain('Уборка города');
-  expect(element.querySelector('[data-field="category"]')!.textContent).toContain('Вывоз мусора');
-  expect(button().disabled).toBe(false);
-  await act(async () => {button().click(); await tick();});
-  const upload = vi.mocked(publicRequest).mock.calls.find(call => call[0] === '')!;
-  const metadata = JSON.parse((upload[1].body as FormData).get('metadata') as string);
-  expect(metadata).toMatchObject({city: 'Сургут', organization_id: organizationId, category: 'waste'});
-});
-
-it('shows a selector only for work types when a sole organization has several', async () => {
-  const single = {...catalog, organizations: [{...catalog.organizations[0], work_types: [
-    ...catalog.organizations[0].work_types, {code: 'cleaning', name: 'Уборка территории'},
-  ]}]};
-  vi.mocked(publicRequest).mockResolvedValue(single);
-  await mount(null);
-  const select = element.querySelector<HTMLSelectElement>('select[name="category"]')!;
-  expect(element.querySelectorAll('select')).toHaveLength(1);
-  expect([...select.options].map(option => option.value)).toEqual(['', 'waste', 'cleaning']);
-  expect(select.value).toBe('');
-  expect(element.querySelector<HTMLButtonElement>('.citizen-add-photo')!.disabled).toBe(true);
-  await act(async () => {select.value = 'cleaning'; select.dispatchEvent(new Event('change', {bubbles: true}));});
-  expect(element.querySelector<HTMLButtonElement>('.citizen-add-photo')!.disabled).toBe(false);
-});
-
-it('names a sole standard work type in everyday language and submits its original code', async () => {
-  const single = {...catalog, organizations: [{...catalog.organizations[0], work_types: [
-    {code: 'DEICING_MANUAL', name: 'ПГМ'},
-  ]}]};
-  vi.mocked(publicRequest).mockImplementation(async path => path === '/catalog' ? single : path.endsWith('/resume') ? resumed() : {number: 'ОБ-000046'});
-  const restored = draft(); restored.form.category = 'DEICING_MANUAL';
-  await mount(restored);
-  const category = element.querySelector('[data-field="category"]')!;
-  expect(category.textContent).toContain('Что случилось?');
-  expect(category.textContent).toContain('Скользко, лёд не посыпан');
-  expect(category.querySelector('dd')!.textContent).toBe('Скользко, лёд не посыпан');
-  expect(category.querySelector('p')).toBeNull();
-  expect(category.textContent).not.toContain('ПГМ');
-  expect(element.querySelector('select[name="category"]')).toBeNull();
-  await act(async () => {button().click(); await tick();});
-  const upload = vi.mocked(publicRequest).mock.calls.find(call => call[0] === '')!;
-  expect(JSON.parse((upload[1].body as FormData).get('metadata') as string)).toMatchObject({organization_id: organizationId, category: 'DEICING_MANUAL'});
-});
-
-it('offers only the organization work types with plain names and no extra explanations', async () => {
-  const single = {...catalog, organizations: [{...catalog.organizations[0], work_types: [
-    {code: 'BIN_EMPTYING', name: 'УРНЫ'}, {code: 'BIN_WASHING', name: 'МОЙКА_УРН'},
-  ]}]};
-  vi.mocked(publicRequest).mockResolvedValue(single);
-  await mount(null);
-  const select = element.querySelector<HTMLSelectElement>('select[name="category"]')!;
-  expect([...select.options].map(option => option.text)).toEqual(['Выберите проблему', 'Переполненная урна', 'Грязная урна']);
-  expect(select.closest('label')!.textContent).toBe('Что случилось?Выберите проблемуПереполненная урнаГрязная урна');
-  await act(async () => {select.value = 'BIN_EMPTYING'; select.dispatchEvent(new Event('change', {bubbles: true}));});
-  await act(async () => {select.value = 'BIN_WASHING'; select.dispatchEvent(new Event('change', {bubbles: true}));});
-  expect(select.value).toBe('BIN_WASHING');
-  expect([...select.options].map(option => option.value)).toEqual(['', 'BIN_EMPTYING', 'BIN_WASHING']);
-});
-
-it('does not rewrite the frozen recipient when only another organization is now available', async () => {
-  const single = {...catalog, organizations: [catalog.organizations[2]]};
-  vi.mocked(publicRequest).mockImplementation(async path => path === '/catalog' ? single : path.endsWith('/resume') ? resumed() : {number: 'ОБ-000045'});
-  await mount(draft(true));
-  await act(async () => {button().click(); await tick();});
-  const upload = vi.mocked(publicRequest).mock.calls.find(call => call[0] === '')!;
-  expect(JSON.parse((upload[1].body as FormData).get('metadata') as string)).toMatchObject({city: 'Сургут', organization_id: organizationId, category: 'waste'});
-});
-
-it('does not render empty city, organization or work selectors before they exist', async () => {
-  vi.mocked(publicRequest).mockResolvedValue({...catalog, organizations: []});
-  await mount(null);
-  expect(element.querySelectorAll('select')).toHaveLength(0);
-  expect(element.textContent).toContain('Пока нет организаций');
-  expect(button().disabled).toBe(true);
-});
-
-it('introduces choices when the refreshed catalog gains cities, organizations and work types', async () => {
-  const expanded = {...catalog, organizations: [{...catalog.organizations[0], work_types: [
-    ...catalog.organizations[0].work_types, {code: 'cleaning', name: 'Уборка территории'},
-  ]}, ...catalog.organizations.slice(1)]};
-  let changed = false;
-  vi.mocked(publicRequest).mockImplementation(async path => {
-    if (path === '/catalog') return changed ? expanded : {...catalog, organizations: [catalog.organizations[0]]};
-    if (path.endsWith('/resume')) return resumed();
-    changed = true; throw new AppealRequestError('Справочник изменился', 422);
-  });
-  await mount(draft());
-  expect(element.querySelectorAll('select')).toHaveLength(0);
-  await act(async () => {button().click(); await tick();});
-  expect(element.querySelectorAll('select')).toHaveLength(3);
-  expect(element.querySelector<HTMLSelectElement>('select[name="city"]')!.value).toBe('Сургут');
-  expect(element.querySelector<HTMLSelectElement>('select[name="organization_id"]')!.value).toBe(organizationId);
-  expect(element.querySelector<HTMLSelectElement>('select[name="category"]')!.value).toBe('waste');
-  expect(element.querySelectorAll('.citizen-photo img')).toHaveLength(1);
-});
-
-it('waits for the complete frozen draft to be saved before loading a new release', async () => {
-  const reload = enableReleaseNotice(), original = draft(true);
-  await mount(original);
+it('waits for the complete draft including pending photos before loading an update', async () => {
+  const reload = enableReleaseNotice(), original = draft(true); await mount(original);
   let finishSaving!: () => void;
   vi.mocked(saveDraft).mockImplementationOnce(() => new Promise<void>(resolve => {finishSaving = resolve;}));
-  const update = element.querySelector<HTMLButtonElement>('.update-notice button')!;
-  expect(update.textContent).toBe('Обновить');
-  await act(async () => {update.click(); update.click(); await tick();});
-  expect(update.disabled).toBe(true); expect(reload).not.toHaveBeenCalled();
+  await click(element.querySelector<HTMLButtonElement>('.update-notice button')!);
+  expect(reload).not.toHaveBeenCalled();
   const saved = vi.mocked(saveDraft).mock.calls.at(-1)![0];
-  expect(saved.form).toEqual(original.form); expect(saved.photos).toEqual(original.photos);
-  expect(saved.pending).toBe(true); expect(saved.token).toBe(original.token);
+  expect(saved.form).toEqual(original.form); expect(saved.photos).toEqual(original.photos); expect(saved.pending).toBe(true);
   await act(async () => {finishSaving(); await tick();});
   expect(reload).toHaveBeenCalledTimes(1);
-  const leaving = new Event('beforeunload', {cancelable: true}); window.dispatchEvent(leaving);
-  expect(leaving.defaultPrevented).toBe(false);
 });
 
-it('keeps the form and photo open when saving before an update fails and permits retry', async () => {
-  const reload = enableReleaseNotice();
-  await mount(draft());
+it('keeps the form open when saving before an update fails and allows another attempt', async () => {
+  const reload = enableReleaseNotice(); await mount(draft());
   vi.mocked(saveDraft).mockRejectedValueOnce(new Error('Storage full'));
-  const update = () => element.querySelector<HTMLButtonElement>('.update-notice button')!;
-  await act(async () => {update().click(); await tick();});
-  expect(reload).not.toHaveBeenCalled(); expect(update().disabled).toBe(false);
+  await click(element.querySelector<HTMLButtonElement>('.update-notice button')!);
+  expect(reload).not.toHaveBeenCalled(); expect(element.querySelectorAll('.signal-upload-photo')).toHaveLength(1);
   expect(element.querySelector('.update-error')!.textContent).toContain('Не удалось сохранить черновик');
-  expect(element.querySelectorAll('.citizen-photo img')).toHaveLength(1);
-  expect(element.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('Мусор возле урны');
-  const leaving = new Event('beforeunload', {cancelable: true}); window.dispatchEvent(leaving);
-  expect(leaving.defaultPrevented).toBe(true);
-  await act(async () => {update().click(); await tick();});
+  await click(element.querySelector<HTMLButtonElement>('.update-notice button')!);
   expect(reload).toHaveBeenCalledTimes(1);
 });

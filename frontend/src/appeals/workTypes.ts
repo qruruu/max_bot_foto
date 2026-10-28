@@ -4,7 +4,6 @@ const WORK_TYPES = new Map<string, string>([
   ['SNOW_MANUAL', 'Не убран снег на дорожке или у входа'],
   ['BIN_EMPTYING', 'Переполненная урна'],
   ['LAWN_LITTER', 'Мусор на газоне'],
-  ['DRAIN_CLEANING', 'Засорён сток для дождевой воды'],
   ['METAL_CUTTING', 'Нужно срезать торчащую арматуру или трубу'],
   ['PLAYGROUND_MAINTENANCE', 'Не убрана площадка или сломано оборудование'],
   ['UNPAVED_LITTER', 'Мусор на участке без асфальта и плитки'],

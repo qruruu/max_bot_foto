@@ -9,7 +9,8 @@ import useSidebar from '../useSidebar';
 import SidebarNavigation from '../SidebarNavigation';
 import Settings from '../Settings';
 import DistrictMap from '../DistrictMap';
-import OwnerAppeals from '../appeals/OwnerAppeals';
+import InspectionAppeals from './Appeals';
+import { useAppealNotifications } from '../appeals/notifications';
 import { PhotoNotificationsProvider } from '../PhotoNotifications';
 import { OperatorChatBadge, OperatorChatsProvider } from '../OperatorChatsProvider';
 import InspectionChats from './Chats';
@@ -28,7 +29,7 @@ import './inspection.css';
 
 const tabs=[{id:'photos',label:'Фотографии',Icon:Camera},{id:'reports',label:'Отчёты',Icon:ChartNoAxesCombined},
   {id:'photo-map',label:'Карта фотографий',Icon:MapPin},{id:'districts',label:'Микрорайоны',Icon:Map},
-  {id:'appeals',label:'Обращения граждан',Icon:MessageSquare},{id:'messages',label:'Чаты',Icon:MessageSquare}];
+  {id:'appeals',label:'Обращения',Icon:MessageSquare},{id:'messages',label:'Чаты',Icon:MessageSquare}];
 const menuOrder=['/inspectors','/','/photos','/photo-map','/districts','/appeals','/messages','/users'];
 const menuKeys:Record<string,string>={reports:'/',photos:'/photos','photo-map':'/photo-map',districts:'/districts',appeals:'/appeals',messages:'/messages',accounts:'/users'};
 const emptyMeta:InspectionMeta={districts:[],work_types:[],today:new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Yekaterinburg',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),timezone:'Asia/Yekaterinburg',yandex_maps_api_key:''};
@@ -49,6 +50,8 @@ export default function InspectorApp() {
   const page=Math.max(1,Number(params.get('page'))||1),orgInfo=organizations.find(o=>o.id===org);
   const filters=new URLSearchParams();for(const key of inspectionFilterKeys){const value=params.get(key);if(value)filters.set(key,value);}
   const filterQuery=filters.toString(),base='/inspection/organizations/'+org;
+  const appealOrganization = org || organizations[0]?.id || '';
+  const appeals = useAppealNotifications(!!user && organizations.length > 0, user?.id, '/inspection/appeals/notifications');
   useEffect(()=>{if(params.has('work_type'))setParams(previous=>{const next=new URLSearchParams(previous);next.delete('work_type');return next;},{replace:true});},[params,setParams]);
   useLayoutEffect(()=>{if(!viewingPhoto&&photoPosition.current){const previous=photoPosition.current;photoPosition.current=null;window.scrollTo(0,previous.scrollY);const log=document.querySelector<HTMLElement>('.operator-message-list'),table=document.querySelector<HTMLElement>('.inspection-photos .table-scroll');if(log&&previous.chatScrollTop!==undefined)log.scrollTop=previous.chatScrollTop;if(table&&previous.tableScrollLeft!==undefined)table.scrollLeft=previous.tableScrollLeft;if(previous.focus?.isConnected)previous.focus.focus({preventScroll:true});}},[viewingPhoto]);
   function signedIn(account: User) {if(account.role==='INSPECTOR')setUser(account as Inspector);else window.location.replace(signInDestination(account));}
@@ -102,7 +105,7 @@ export default function InspectorApp() {
     return '/inspection?'+next;
   }
   const links=[{to:'/inspectors',label:'Организации',Icon:Building2,href:'/inspection',active:!org&&!independent},
-    ...tabs.filter(t=>org||t.id==='messages').map(t=>({to:menuKeys[t.id],label:t.label,Icon:t.Icon,href:sectionLink(t.id),active:tab===t.id,badge:t.id==='messages'?<OperatorChatBadge/>:undefined})),
+    ...tabs.filter(t=>org||t.id==='messages').map(t=>({to:menuKeys[t.id],label:t.label,Icon:t.Icon,href:sectionLink(t.id),active:tab===t.id,badge:t.id==='messages'?<OperatorChatBadge/>:t.id==='appeals' && appeals.count ? <span className="count-pill appeal-count">{appeals.count}</span>:undefined})),
     ...(user.can_create_accounts?[{to:'/users',label:'Аккаунты',Icon:Users,href:sectionLink('accounts'),active:tab==='accounts'}]:[])];
   const appMeta:Meta={...meta,permission_catalog:[],statuses:['ACCEPTED'],chats:[],operators:[],organization:orgInfo||null};
   const notificationOrg=org||organizations[0]?.id;
@@ -129,6 +132,7 @@ export default function InspectorApp() {
           }}>{organizations.map(o=><option value={o.id} key={o.id}>{o.name}</option>)}</select></label>}
         </div>
         {notice&&<div className="organization-notice" role="status">{notice}<button className="text-button" aria-label="Закрыть уведомление" onClick={()=>setNotice('')}>×</button></div>}
+        {appeals.notice > 0 && <div className="organization-notice" role="status">Новых обращений: {appeals.notice}. <Link to={sectionLink('appeals', {org: appeals.organizationId || appealOrganization})} onClick={appeals.dismiss}>Открыть обращения</Link><button onClick={appeals.dismiss} aria-label="Закрыть уведомление об обращениях">×</button></div>}
         <div hidden={viewingPhoto}>
         {tab!=='settings'&&(!org||!['districts','appeals'].includes(tab))&&<header className="page-header"><div><span className="eyebrow">{tab==='photos'&&org?'АРХИВ ФОТОГРАФИЙ':tab==='reports'?'ЕЖЕДНЕВНЫЙ ОТЧЁТ':'КАБИНЕТ ПРОВЕРЯЮЩЕГО'}</span><h1>{title}</h1>
           <p>{tab==='photos'&&org?'Фотографии выполненных работ после закрытия дня в Метке.':tab==='reports'?'Выполненные работы в цифрах и фотографиях.':tab==='photo-map'?'География снимков за выбранный период.':tab==='messages'?'Личные переписки с администраторами организаций и коллегами.':tab==='accounts'?'Сотрудники вашей администрации.':'Выберите организацию или отсканируйте QR для получения доступа.'}</p></div>
@@ -143,13 +147,13 @@ export default function InspectorApp() {
         !org?<><div className="organization-grid">{organizations.map(o=><article key={o.id} className="panel organization-card"><Building2 size={25}/><h2>{o.name}</h2><p>{o.city}</p><button className="primary" onClick={()=>setParams({org:o.id,tab:'photos'})}>Открыть<ChevronRight size={17}/></button></article>)}</div>
           {!organizations.length&&<p className="empty">Нет доступных организаций. Отсканируйте новый QR организации.</p>}</>:
         tab==='districts'?<><button className="inspection-district-refresh" aria-label="Обновить микрорайоны" onClick={()=>setRevision(v=>v+1)}><RefreshCw size={17}/></button><DistrictMap key={org+':'+revision} endpoint={base+'/districts'} readOnly/></>:
-        tab==='appeals'?<OwnerAppeals organization endpoint={base+'/appeals'} readOnly refreshKey={revision}/>:
+        tab==='appeals'?<InspectionAppeals key={org} organizationId={org} inspectorId={user.id} refreshKey={revision}/>:
         <>
           {tab==='photos'&&<PhotoNumberSearch owner={false} endpoint={base+'/photos'} open={openPhoto} description="Поиск среди фотографий закрытых дней этой организации, независимо от даты и фильтров."/>}
           {['photos','reports','photo-map'].includes(tab)&&<InspectionFilters meta={meta} filters={Object.fromEntries(filters)} base={base} change={change}/>}
           {dataLoading&&<p className="loading">Загружаем данные…</p>}
           {tab==='photos'&&<>
-            <section className="panel photo-panel inspection-photos"><div className="section-title"><h2>Все фотографии <span className="count-pill">{photos.total}</span></h2><span>Закрытые дни</span></div>
+            <section className="panel photo-panel inspection-photos"><div className="section-title"><h2>Все фотографии <span className="count-pill appeal-count">{photos.total}</span></h2><span>Закрытые дни</span></div>
               {photos.items.length>0&&<InspectionPhotoTable photos={photos.items} openPhoto={openPhoto} workTypes={meta.work_types}/>}
               {!photos.items.length&&!dataLoading&&<p className="empty">За выбранный период нет фотографий закрытых дней.</p>}
               {photos.total>0&&<div className="pagination"><span>Страница {photos.page} из {Math.max(1,Math.ceil(photos.total/photos.page_size))}</span><button disabled={photos.page<=1} onClick={()=>update('page',String(photos.page-1))}><ChevronLeft size={16}/>Назад</button><button disabled={photos.page*photos.page_size>=photos.total} onClick={()=>update('page',String(photos.page+1))}>Далее<ChevronRight size={16}/></button></div>}

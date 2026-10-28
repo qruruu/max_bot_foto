@@ -24,6 +24,18 @@ it('uploads the original image bytes with session credentials and CSRF protectio
   expect(request.credentials).toBe('same-origin');
   expect(request.headers).toEqual({'Content-Type': 'image/png', 'X-CSRF-Token': 'test+token'});
 });
+
+it('lets the browser set multipart boundaries while retaining workspace CSRF for appeal evidence', async () => {
+  vi.stubGlobal('window', {location: {pathname: '/org/11111111-1111-4111-8111-111111111111/appeals'}});
+  vi.stubGlobal('document', {cookie: 'workspace_csrf=workspace-token'});
+  const fetch = vi.fn().mockResolvedValue({ok: true, json: async () => ({ok: true})}); vi.stubGlobal('fetch', fetch);
+  const body = new FormData(); body.append('metadata', '{"comment":"Готово"}'); body.append('photos', new Blob(['photo'], {type: 'image/jpeg'}));
+  await api('/appeals/1/result', 'POST', body);
+  const [url, request] = fetch.mock.calls[0];
+  expect(url).toBe('/org/11111111-1111-4111-8111-111111111111/api/appeals/1/result');
+  expect(request.body).toBe(body); expect(request.headers).not.toHaveProperty('Content-Type');
+  expect(request.headers['X-CSRF-Token']).toBe('workspace-token'); expect(request.credentials).toBe('same-origin');
+});
 describe('report filters and calendar',()=>{
   it('preserves the unassigned district sentinel and removes empty filters',()=>{expect(query({district_id:'0',chat_id:'',status:'NEEDS_REVIEW'})).toBe('district_id=0&status=NEEDS_REVIEW');});
   it('crosses month and year boundaries consistently',()=>{expect(shiftDate('2026-01-01',-1)).toBe('2025-12-31');expect(shiftDate('2024-03-01',-1)).toBe('2024-02-29');});

@@ -6,12 +6,42 @@ from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
+from pillow_heif import register_heif_opener
+
+register_heif_opener()
 
 MAX_PHOTO_BYTES = 6 * 1024 * 1024
 MAX_PHOTOS = 3
 MIN_LONG_SIDE = 1280
 MIN_SHORT_SIDE = 720
 MAX_PIXELS = 16_000_000
+
+
+def prepare_upload(content):
+    """Normalize gallery/result images and strip EXIF, GPS and original filenames."""
+    if len(content) > MAX_PHOTO_BYTES:
+        raise HTTPException(413, "Одна фотография должна занимать не больше 6 МБ")
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(content)) as source:
+                if source.format not in {"JPEG", "PNG", "WEBP", "HEIF", "HEIC"}:
+                    raise HTTPException(422, "Загрузите фотографию JPG, PNG, WebP или HEIC")
+                if source.width * source.height > 50_000_000 or min(source.size) < 200:
+                    raise HTTPException(422, "Размер фотографии: от 200 пикселей по каждой стороне до 50 мегапикселей")
+                source.load()
+                image = ImageOps.exif_transpose(source).convert("RGB")
+                image.thumbnail((2560, 2560), Image.Resampling.LANCZOS)
+                # Copy pixels into a clean image: do not carry metadata through conversion.
+                clean = Image.new("RGB", image.size, "white")
+                clean.paste(image)
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError,
+            Image.DecompressionBombWarning) as exc:
+        raise HTTPException(422, "Не удалось прочитать фотографию. Выберите другой файл.") from exc
+    content = jpeg(clean, 88)
+    width, height = clean.size
+    clean.thumbnail((800, 800), Image.Resampling.LANCZOS)
+    return {"original": content, "stamped": content, "preview": jpeg(clean, 82), "width": width, "height": height}
 
 
 def stamp_lines(capture, timezone):

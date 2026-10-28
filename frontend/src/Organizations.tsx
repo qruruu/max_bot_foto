@@ -53,6 +53,7 @@ export default function Organizations() {
   });
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Organization | 'new' | null>(null);
+  const [confirmPause, setConfirmPause] = useState(false);
   const [name, setName] = useState(''), [paused, setPaused] = useState(false);
   const [city, setCity] = useState('');
   const [disks, setDisks] = useState<DiskAccounts>({default_configured:false, items:[]});
@@ -78,13 +79,19 @@ export default function Organizations() {
   useEffect(() => {if (user) void load().catch(e => setError(e.message));}, [user]);
   const ready = items.filter(item => ['ACTIVE', 'PAUSED'].includes(item.status));
   function open(item: Organization | 'new') {
-    setError(''); setEditing(item); setName(item === 'new' ? '' : item.name);
+    setError(''); setConfirmPause(false); setEditing(item); setName(item === 'new' ? '' : item.name);
     setCity(item === 'new' ? '' : item.city || '');
     setPaused(item !== 'new' && item.status === 'PAUSED');
     setDiskId(item === 'new' ? '' : item.disk_account_id || '');
   }
-  async function save(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError(''); setNotice('');
+  async function save(event: FormEvent, confirmed = false) {
+    event.preventDefault();
+    if (busy) return;
+    if (!confirmed && editing && editing !== 'new' && editing.status === 'ACTIVE'
+      && (paused || (editing.disk_account_id || '') !== diskId && editing.stats?.photos === 0)) {
+      setConfirmPause(true); return;
+    }
+    setConfirmPause(false); setBusy(true); setError(''); setNotice('');
     let autoPaused = false;
     try {
       if (editing !== 'new' && editing && editing.status === 'ACTIVE' && (editing.disk_account_id || '') !== diskId && editing.stats?.photos === 0) {
@@ -171,6 +178,11 @@ export default function Organizations() {
       {editing !== 'new' && (editing.stats?.photos || 0) > 0 && <p className="hint">Для смены аккаунта с уже сохранёнными фото нужен перенос оригиналов. Текущий аккаунт можно переподключить.</p>}
       <button className="primary" disabled={busy}>{busy ? 'Подготавливаем…' : editing === 'new' ? 'Создать организацию' : 'Сохранить'}</button>
     </form></div>}
+    {confirmPause && editing && editing !== 'new' && <div className="modal-backdrop"><section className="modal organization-modal" role="alertdialog" aria-modal="true" aria-labelledby="organization-pause-title" onKeyDown={event => {if (event.key === 'Escape') setConfirmPause(false);}}>
+      <h2 id="organization-pause-title">Приостановить организацию?</h2><p><strong>{editing.name}</strong></p>
+      <p>{paused ? 'Операторы временно не смогут входить в кабинет, обработка фотографий остановится. Организация исчезнет из списка приёма обращений в «Сигнале».' : 'Для смены диска организация будет временно приостановлена. После сохранения настроек её работа возобновится.'}</p>
+      <p>Данные сохранятся. Владелец сможет возобновить работу в настройках.</p><div className="organization-actions"><button autoFocus type="button" onClick={() => setConfirmPause(false)}>Вернуться к настройкам</button><button type="button" className="primary" onClick={event => void save(event, true)}>Подтвердить приостановку</button></div>
+    </section></div>}
     {connectingDisk && <ConnectDisk onClose={() => setConnectingDisk(false)} onConnected={account => void connectedDisk(account)}/>}
     {binding && <div className="modal-backdrop"><form className="modal organization-modal" onSubmit={assign}>
       <div className="section-title"><h2>Закрепить чат</h2><button type="button" aria-label="Закрыть" disabled={busy} onClick={() => setBinding(false)}><X size={18}/></button></div>

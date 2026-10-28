@@ -1,20 +1,18 @@
-"""Anonymous camera intake routed to registered organizations and their administrators."""
+"""Organization appeal inbox, receipt recovery and authenticated access boundaries."""
 
 import secrets
 from datetime import timedelta
 from hashlib import sha256
 from typing import Annotated, Literal
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from fastapi.concurrency import run_in_threadpool
-from pydantic import AwareDatetime, Field, ValidationError, model_validator
+from pydantic import AwareDatetime, Field, model_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
-from starlette.datastructures import UploadFile
 
-from app.appeal_catalog import public_organizations, validate_recipient
-from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS, prepare_photo
+from app.appeal_catalog import public_organizations
+from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS
 from app.auth import CurrentUser, is_platform_owner
 from app.config import base_settings
 from app.domain import audit, now
@@ -31,7 +29,7 @@ CATEGORIES = {
     "roads": "Дороги и тротуары", "lighting": "Освещение", "playgrounds": "Детские и спортивные площадки",
     "building": "Дом и подъезд", "other": "Другая проблема",
 }
-AppealStatus = Literal["NEW", "IN_REVIEW", "RESOLVED", "SPAM"]
+AppealStatus = Literal["NEW", "IN_REVIEW", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "REJECTED", "CANCELLED", "RESOLVED", "SPAM"]
 
 
 class Capture(StrictModel):
@@ -48,19 +46,6 @@ class Capture(StrictModel):
         return self
 
 
-class AppealInput(StrictModel):
-    capture_source: Literal["camera"]
-    organization_id: UUID
-    city: str = Field(min_length=2, max_length=150)
-    address: str = Field(min_length=5, max_length=300)
-    place: str = Field(min_length=2, max_length=300)
-    category: str = Field(min_length=1, max_length=60)
-    description: str = Field(min_length=10, max_length=4000)
-    contact: str = Field(default="", max_length=200)
-    website: str = Field(default="", max_length=0)
-    captures: list[Capture] = Field(min_length=1, max_length=MAX_PHOTOS)
-
-
 class OwnerEdit(StrictModel):
     status: AppealStatus
     owner_note: str = Field(max_length=4000)
@@ -69,7 +54,7 @@ class OwnerEdit(StrictModel):
 
 def require_appeal_access(user: CurrentUser):
     organization = current_organization()
-    if (organization and user.role != "ADMIN_OPERATOR") or (not organization and not is_platform_owner(user)):
+    if (organization and user.role not in {"ADMIN_OPERATOR", "OPERATOR"}) or (not organization and not is_platform_owner(user)):
         raise HTTPException(403, "Обращения доступны администраторам выбранной организации")
     return user
 
@@ -77,13 +62,19 @@ def require_appeal_access(user: CurrentUser):
 AppealReader = Annotated[object, Depends(require_appeal_access)]
 
 
-def appeal_conditions():
+def appeal_conditions(user=None):
     organization = current_organization()
-    return [CitizenAppeal.organization_id == organization.id] if organization else []
+    conditions = [CitizenAppeal.organization_id == organization.id] if organization else []
+    if user and user.role == "OPERATOR":
+        from app.models import AppealTask
+        latest = select(func.max(AppealTask.id)).where(AppealTask.appeal_id == CitizenAppeal.id).correlate(CitizenAppeal).scalar_subquery()
+        conditions.append(CitizenAppeal.id.in_(select(AppealTask.appeal_id).where(
+            AppealTask.id == latest, AppealTask.operator_id == user.id)))
+    return conditions
 
 
-def find_appeal(db, id, *, lock=False):
-    query = select(CitizenAppeal).where(CitizenAppeal.id == id, *appeal_conditions())
+def find_appeal(db, id, *, lock=False, user=None):
+    query = select(CitizenAppeal).where(CitizenAppeal.id == id, *appeal_conditions(user))
     appeal = db.scalar(query.with_for_update() if lock else query)
     if not appeal:
         raise HTTPException(404, "Обращение не найдено")
@@ -96,8 +87,8 @@ def private_url(path=""):
 
 def check_public_request(request):
     origins = {base_settings().app_origin.rstrip("/"), base_settings().public_appeals_origin.rstrip("/")}
-    if request.headers.get("origin", "") not in origins - {""} or request.headers.get("x-appeal-request") != "camera":
-        raise HTTPException(403, "Откройте страницу обращений и разрешите доступ к камере")
+    if request.headers.get("origin", "") not in origins - {""} or request.headers.get("x-appeal-request") not in {"camera", "form"}:
+        raise HTTPException(403, "Откройте страницу обращений")
 
 
 def public_available(db):
@@ -149,13 +140,13 @@ def create_capture_session(request: Request):
 
 def capture_session(token, request):
     if not token or len(token) > 100:
-        raise HTTPException(422, "Сначала сделайте снимок через встроенную камеру")
+        raise HTTPException(422, "Откройте форму обращения и начните отправку")
     with control_session() as db:
         public_available(db)
         rate_limit(db, request, "submit", 20, 60)
         session = db.get(AppealCaptureSession, sha256(token.encode()).hexdigest())
         if session is None or session.expires_at < now() - (timedelta(days=1) if session.appeal_id else timedelta()):
-            raise HTTPException(409, "Время съёмки истекло. Откройте камеру и сделайте снимки ещё раз.")
+            raise HTTPException(409, "Время отправки истекло. Повторите отправку; анкета и фотографии сохранены.")
         return session
 
 
@@ -165,49 +156,17 @@ def resume_capture_session(request: Request):
     check_public_request(request)
     token = request.headers.get("x-capture-token", "")
     if not token or len(token) > 100:
-        raise HTTPException(422, "Сессия съёмки не найдена")
+        raise HTTPException(422, "Сессия отправки не найдена")
     with control_session() as db:
         public_available(db)
         rate_limit(db, request, "resume", 120, 60)
         session = db.get(AppealCaptureSession, sha256(token.encode()).hexdigest(), with_for_update=True)
         instant = now()
         if session is None or session.expires_at < instant - timedelta(days=1):
-            raise HTTPException(409, "Сессия съёмки истекла. Сделайте снимки заново; анкета сохранена.")
+            raise HTTPException(409, "Сессия отправки истекла. Повторите отправку; анкета и фотографии сохранены.")
         return {"token": token, "server_time": instant.isoformat(), "expires_at": session.expires_at.isoformat(),
                 "timezone": base_settings().app_timezone, "expired": session.expires_at <= instant,
                 "submitted": receipt(session.appeal_id) if session.appeal_id else None}
-
-
-def check_capture_times(body, session):
-    instant = now()
-    for capture in body.captures:
-        if not session.issued_at - timedelta(seconds=2) <= capture.captured_at <= min(
-            session.expires_at, instant + timedelta(seconds=5)
-        ):
-            raise HTTPException(422, "Снимки должны быть сделаны в текущем обращении. Откройте камеру ещё раз.")
-
-
-def save_submission(token, body, photos):
-    with control_session() as db:
-        session = db.scalar(select(AppealCaptureSession).where(
-            AppealCaptureSession.token_hash == sha256(token.encode()).hexdigest()).with_for_update())
-        if not session or (session.expires_at < now() and not session.appeal_id):
-            raise HTTPException(409, "Время съёмки истекло. Сделайте снимки ещё раз.")
-        if session.appeal_id:
-            return receipt(session.appeal_id)
-        check_capture_times(body, session)
-        organization, work = validate_recipient(db, body)
-        appeal = CitizenAppeal(**body.model_dump(mode="json", exclude={"captures", "capture_source", "website"}),
-                              organization_name=organization.name, work_type_name=work["name"],
-                              photo_count=len(photos), status="NEW", owner_note="", version=1)
-        db.add(appeal)
-        db.flush()
-        for position, (capture, prepared) in enumerate(zip(body.captures, photos, strict=True)):
-            db.add(AppealPhoto(id=str(uuid4()), appeal_id=appeal.id, position=position,
-                               **capture.model_dump(), **prepared))
-        session.appeal_id = appeal.id
-        db.commit()
-        return receipt(appeal.id)
 
 
 def receipt(id):
@@ -216,29 +175,9 @@ def receipt(id):
 
 @public_router.post("", status_code=201)
 async def submit_appeal(request: Request):
-    check_public_request(request)
-    token = request.headers.get("x-capture-token", "")
-    session = await run_in_threadpool(capture_session, token, request)
-    if session.appeal_id:
-        return receipt(session.appeal_id)
-    async with request.form(max_files=MAX_PHOTOS, max_fields=1, max_part_size=32 * 1024) as form:
-        metadata, files = form.get("metadata"), form.getlist("photos")
-        if not isinstance(metadata, str) or not 1 <= len(files) <= MAX_PHOTOS or set(form) != {"metadata", "photos"}:
-            raise HTTPException(422, "Заполните анкету и сделайте хотя бы один снимок через камеру")
-        try:
-            body = AppealInput.model_validate_json(metadata)
-        except ValidationError as exc:
-            raise HTTPException(422, "Проверьте анкету, координаты и время съёмки. Фото и свежая геопозиция обязательны.") from exc
-        if len(files) != len(body.captures):
-            raise HTTPException(422, "У каждого снимка должны быть собственные данные съёмки")
-        check_capture_times(body, session)
-        photos = []
-        for file, capture in zip(files, body.captures, strict=True):
-            if not isinstance(file, UploadFile):
-                raise HTTPException(422, "Сделайте снимки через встроенную камеру")
-            content = await file.read(MAX_PHOTO_BYTES + 1)
-            photos.append(await run_in_threadpool(prepare_photo, content, capture, base_settings().app_timezone))
-    return await run_in_threadpool(save_submission, token, body, photos)
+    # Old tabs can recover an existing receipt, but cannot bypass address/map validation.
+    from app.appeal_workflow import gallery_submission
+    return await gallery_submission(request)
 
 
 def appeal_dict(appeal):
@@ -246,7 +185,8 @@ def appeal_dict(appeal):
             **{key: getattr(appeal, key) for key in ("city", "address", "place", "category", "description",
                 "organization_id", "organization_name", "work_type_name",
                 "organization_hint", "contact", "photo_count", "status", "owner_note", "version",
-                "created_at", "updated_at")}}
+                "created_at", "updated_at", "latitude", "longitude", "is_public", "public_response", "resolved_at",
+                "submitted_by_inspector_id", "submitted_by_inspector_name", "archived_at")}}
 
 
 def photo_dict(photo):
@@ -258,25 +198,29 @@ def photo_dict(photo):
 
 @owner_router.get("")
 @organization_router.get("")
-def list_appeals(user: AppealReader, status: AppealStatus | None = None, page: int = Query(default=1, ge=1)):
+def list_appeals(user: AppealReader, status: AppealStatus | None = None, page: int = Query(default=1, ge=1), archived: bool = False):
     with control_session() as db:
-        conditions = appeal_conditions() + ([CitizenAppeal.status == status] if status else [])
+        conditions = appeal_conditions(user) + ([CitizenAppeal.status == status] if status else [])
+        conditions.append(CitizenAppeal.archived_at.is_not(None) if archived else CitizenAppeal.archived_at.is_(None))
         total = db.scalar(select(func.count()).select_from(CitizenAppeal).where(*conditions))
         rows = db.execute(select(CitizenAppeal, AppealPhoto.id).outerjoin(AppealPhoto,
             (AppealPhoto.appeal_id == CitizenAppeal.id) & (AppealPhoto.position == 0)).where(*conditions)
             .order_by(CitizenAppeal.created_at.desc(), CitizenAppeal.id.desc()).offset((page - 1) * 20).limit(20))
-        return {"items": [{**appeal_dict(appeal), "preview_url":
+        return {"items": [{**private_appeal_dict(appeal, user), "preview_url":
             private_url(f"/{appeal.id}/photos/{photo_id}?variant=preview")} for appeal, photo_id in rows],
             "total": total, "page": page, "page_size": 20, "categories": CATEGORIES,
-            "public_url": base_settings().public_appeals_origin.rstrip("/") or "/appeals"}
+            "public_url": base_settings().public_appeals_origin.rstrip("/") or "/appeals",
+            "can_manage": user.role == "ADMIN_OPERATOR", "can_execute": user.role == "OPERATOR"}
 
 
 @organization_router.get("/notifications")
 def appeal_notifications(user: AppealReader):
     with control_session() as db:
-        conditions = appeal_conditions()
+        conditions = appeal_conditions(user)
+        conditions.append(CitizenAppeal.archived_at.is_(None))
+        statuses = ("ASSIGNED", "IN_PROGRESS") if user.role == "OPERATOR" else ("NEW", "COMPLETED", "REJECTED", "CANCELLED")
         count = db.scalar(select(func.count()).select_from(CitizenAppeal).where(
-            *conditions, CitizenAppeal.status == "NEW"))
+            *conditions, CitizenAppeal.status.in_(statuses)))
         latest = db.scalar(select(func.max(CitizenAppeal.id)).where(*conditions)) or 0
         return {"new_count": count, "latest_id": latest}
 
@@ -285,20 +229,35 @@ def appeal_notifications(user: AppealReader):
 @organization_router.get("/{appeal_id}")
 def appeal_detail(appeal_id: int, user: AppealReader):
     with control_session() as db:
-        appeal = find_appeal(db, appeal_id)
-        return {**appeal_dict(appeal), "photos": [photo_dict(photo) for photo in db.scalars(
+        from app.appeal_workflow import workflow_detail
+        appeal = find_appeal(db, appeal_id, user=user)
+        return {**private_appeal_dict(appeal, user), **workflow_detail(db, appeal, private_url, private=True,
+                    operator_id=user.id if user.role == "OPERATOR" else None),
+                "can_manage": user.role == "ADMIN_OPERATOR", "can_execute": user.role == "OPERATOR",
+                "photos": [photo_dict(photo) for photo in db.scalars(
             select(AppealPhoto).where(AppealPhoto.appeal_id == appeal.id).order_by(AppealPhoto.position))]}
 
 
 @owner_router.patch("/{appeal_id}")
 @organization_router.patch("/{appeal_id}")
 def edit_appeal(appeal_id: int, body: OwnerEdit, user: AppealReader):
+    if user.role != "ADMIN_OPERATOR":
+        raise HTTPException(403, "Изменять обращение может администратор")
     with control_session() as db:
         appeal = find_appeal(db, appeal_id, lock=True)
+        if (appeal.is_public or appeal.submitted_by_inspector_id) and body.status not in {"NEW", "IN_REVIEW", "SPAM"} and body.status != appeal.status:
+            raise HTTPException(422, "Назначьте исполнителя или используйте закрытие с публичным ответом")
+        if appeal.archived_at:
+            raise HTTPException(409, "Сначала верните обращение из архива")
         if appeal.version != body.expected_version:
             raise HTTPException(409, "Обращение изменилось. Обновите карточку перед сохранением.")
         before = {"status": appeal.status, "owner_note": appeal.owner_note}
         appeal.status, appeal.owner_note = body.status, body.owner_note
+        from app.appeal_events import record_event
+        if before["status"] != appeal.status:
+            record_event(db, appeal, "STATUS", user)
+        if before["owner_note"] != appeal.owner_note:
+            record_event(db, appeal, "NOTE", user, comment=appeal.owner_note, visibility="ADMIN")
         appeal.version += 1
         appeal.updated_at = now()
         organization = current_organization()
@@ -315,10 +274,18 @@ def edit_appeal(appeal_id: int, body: OwnerEdit, user: AppealReader):
 def appeal_photo(appeal_id: int, photo_id: UUID, user: AppealReader,
                  variant: Literal["stamped", "preview", "original"] = "stamped"):
     with control_session() as db:
-        find_appeal(db, appeal_id)
+        find_appeal(db, appeal_id, user=user)
         photo = db.get(AppealPhoto, str(photo_id))
         if not photo or photo.appeal_id != appeal_id:
             raise HTTPException(404, "Фотография не найдена")
         return Response(getattr(photo, variant), media_type="image/jpeg", headers={
             "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
             "Content-Disposition": f'inline; filename="appeal-{appeal_id}-{photo.position + 1}-{variant}.jpg"'})
+
+
+def private_appeal_dict(appeal, user):
+    result = appeal_dict(appeal)
+    if user.role == "OPERATOR":
+        for key in ("contact", "organization_hint", "owner_note"):
+            result.pop(key, None)
+    return result

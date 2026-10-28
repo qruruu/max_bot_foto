@@ -3,6 +3,7 @@
 from fastapi import FastAPI, HTTPException
 from starlette.responses import JSONResponse
 
+from app import appeal_workflow  # noqa: F401 - registers map intake and public wall
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS
 from app.appeals import public_router
 

@@ -1,4 +1,5 @@
 import json
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +13,7 @@ from test_organizations import companies as companies
 
 from app.appeals_public import app as public_app
 from app.db import engine
-from app.models import AppealPhoto, CitizenAppeal, District, Organization, User, WorkType
+from app.models import AppealAddress, AppealPhoto, CitizenAppeal, District, Organization, User, WorkType
 from app.organization_context import organization_scope
 from app.organization_registry import control_session
 
@@ -28,9 +29,15 @@ def recipients(companies):
                                 filename_label="Работа", model_index=0, sort_order=1))
             polygon = MultiPolygon([Polygon([(72.57 + index, 61.1), (72.59 + index, 61.1),
                                               (72.59 + index, 61.12), (72.57 + index, 61.1)])])
-            tenant.add(District(name="Участок " + str(index), active=True, geometry=from_shape(polygon, srid=4326)))
+            district = District(name="Участок " + str(index), active=True, geometry=from_shape(polygon, srid=4326))
+            tenant.add(district)
             tenant.add(District(name="Скрытый участок", active=False, geometry=from_shape(polygon, srid=4326)))
+            tenant.flush()
+            district_id = district.id
             tenant.commit()
+        with control_session() as control:
+            control.add(AppealAddress(id=str(uuid4()), organization_id=scope.id, label="Улица Ленина, 10", district_id=district_id))
+            control.commit()
     return owner, scopes, clients
 
 
@@ -76,7 +83,7 @@ def test_catalog_publishes_only_city_work_types_and_active_territories(recipient
         assert rows[scopes[0].id]["city"] == "Сургут" and rows[scopes[1].id]["city"] == "Тюмень"
         assert rows[scopes[0].id]["color"] != rows[scopes[1].id]["color"]
         for index, scope in enumerate(scopes):
-            assert set(rows[scope.id]) == {"id", "name", "city", "color", "work_types", "territories"}
+            assert set(rows[scope.id]) == {"id", "name", "city", "color", "work_types", "territories", "addresses"}
             assert len(rows[scope.id]["territories"]) == 1
             assert rows[scope.id]["territories"][0]["name"] == "Участок " + str(index)
             assert rows[scope.id]["territories"][0]["geometry"]["type"] == "MultiPolygon"
@@ -96,11 +103,11 @@ def test_admin_notifications_inbox_photos_and_updates_are_isolated_per_company(r
     owner, scopes, clients = recipients
     with TestClient(public_app) as citizen:
         session = start(citizen)
-        response = send(citizen, session, {**body(session), "organization_id": scopes[0].id})
+        response = send(citizen, session, body(session, scopes[0].id))
         assert response.status_code == 201, response.text
     for client, scope in zip(clients, scopes, strict=True):
-        assert client.get(scope.prefix + "/api/appeals").status_code == 403
-        assert client.get(scope.prefix + "/api/appeals/notifications").status_code == 403
+        assert client.get(scope.prefix + "/api/appeals").json()["total"] == 0
+        assert client.get(scope.prefix + "/api/appeals/notifications").json()["new_count"] == 0
         with organization_scope(scope), Session(engine()) as tenant:
             tenant.scalar(select(User).where(User.login == "same-login")).role = "ADMIN_OPERATOR"
             tenant.commit()
@@ -132,7 +139,7 @@ def test_paused_organization_and_foreign_work_catalog_cannot_receive_new_appeals
     owner, scopes, _ = recipients
     with TestClient(public_app) as citizen:
         session = start(citizen)
-        metadata = {**body(session), "organization_id": scopes[0].id, "category": "roads"}
+        metadata = {**body(session, scopes[0].id), "category": "roads"}
         assert send(citizen, session, metadata).status_code == 422
         owner.patch(f"/api/platform/organizations/{scopes[0].id}", json={"name": "Alpha", "status": "PAUSED"})
         assert send(citizen, session, {**metadata, "category": "waste"}).status_code == 422

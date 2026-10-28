@@ -33,6 +33,7 @@
 .app .sidebar nav a { min-height: 42px; font-size: 12px; justify-content: flex-start; }
 .app .sidebar nav a > svg { width: 20px; height: 20px; flex-shrink: 0; }
 .app .sidebar .nav-item-label { min-width: 0; }
+.app .sidebar nav a .count-pill.appeal-count { background: #dc3545; color: #fff; box-shadow: 0 0 0 3px #dc35451f; margin-left: auto; }
 .app.sidebar-expanded .sidebar .nav-label,
 .app.sidebar-expanded .sidebar .account-info { display: block; }
 .app.sidebar-expanded .sidebar .account-link { flex: 1; justify-content: flex-start; }

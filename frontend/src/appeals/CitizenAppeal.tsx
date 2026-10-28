@@ -1,45 +1,42 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChangeEvent, FormEvent } from 'react';
-import { ArrowRight, Camera, Check, CheckCircle2, Leaf, LoaderCircle, MapPin, Trash2, WifiOff } from 'lucide-react';
-import CitizenCamera from './LiveCamera';
-import PhotoPreview from './PhotoPreview';
-import { MAX_PHOTOS, serverNow } from './camera';
-import type { CameraPhoto, CaptureSession } from './camera';
+import type { FormEvent } from 'react';
+import { ArrowLeft, ArrowRight, CheckCircle2, ImagePlus, List, MapPin, Plus, Radio, ShieldCheck, Trash2, WifiOff } from 'lucide-react';
 import { AppealRequestError, publicRequest } from './requests';
 import { clearDraft, EMPTY_FORM, hasDraftContent, loadDraft, saveDraft } from './drafts';
-import type { AppealDraft, ResumeSession } from './drafts';
-import useOverlayHistory from './useOverlayHistory';
+import type { AppealDraft, ResumeSession, StoredPhoto } from './drafts';
 import { availableRecipient, recipientFor, validRecipient } from './catalog';
 import type { AppealCatalog } from './catalog';
 import RecipientChoice from './RecipientChoice';
 import { citizenWorkOption } from './workTypes';
+import { galleryPhoto } from './gallery';
+import Wall from './Wall';
 import UpdateNotice from '../UpdateNotice';
 import './citizen.css';
+import './signal.css';
 
-const TerritoryMap = lazy(() => import('./TerritoryMap'));
+const ProblemMap = lazy(() => import('./ProblemMap'));
+type LocalPhoto = StoredPhoto & {url: string};
 export default function CitizenAppeal() {
   const [catalog, setCatalog] = useState<AppealCatalog | null>(null), [catalogError, setCatalogError] = useState('');
-  const [catalogRevision, setCatalogRevision] = useState(0);
-  const [form, setForm] = useState(EMPTY_FORM), [photos, setPhotos] = useState<CameraPhoto[]>([]);
-  const [session, setSession] = useState<CaptureSession | null>(null), [cameraOpen, setCameraOpen] = useState(false);
+  const [catalogRevision, setCatalogRevision] = useState(0), [wallRevision, setWallRevision] = useState(0);
+  const [tab, setTab] = useState<'wall' | 'create'>('wall'), [step, setStep] = useState(1);
+  const [form, setForm] = useState(EMPTY_FORM), [photos, setPhotos] = useState<LocalPhoto[]>([]);
   const [busy, setBusy] = useState(false), [preparing, setPreparing] = useState(false), [error, setError] = useState('');
   const [receipt, setReceipt] = useState('');
-  const [preview, setPreview] = useState<CameraPhoto | null>(null);
-  useOverlayHistory(cameraOpen || !!preview, () => {setCameraOpen(false); setPreview(null);});
   const [loaded, setLoaded] = useState(false), [restored, setRestored] = useState(false), [pending, setPending] = useState(false);
-  const [storageError, setStorageError] = useState(false), [offline, setOffline] = useState(!navigator.onLine);
-  const [reloading, setReloading] = useState(false);
-  const allowReload = useRef(false);
-  const locked = busy || preparing || pending || reloading;
-  const photoRef = useRef(photos), sessionRef = useRef(session), tokenRef = useRef<string | null>(null), receiptRef = useRef('');
-  const requestActive = useRef(false), mounted = useRef(true), writes = useRef<Promise<void>>(Promise.resolve());
+  const [storageError, setStorageError] = useState(false), [offline, setOffline] = useState(!navigator.onLine), [reloading, setReloading] = useState(false);
+  const token = useRef<string | null>(null), requestActive = useRef(false), mounted = useRef(true), allowReload = useRef(false);
+  const writes = useRef<Promise<void>>(Promise.resolve()), receiptRef = useRef(''), photoRef = useRef(photos);
   const snapshot = useRef<AppealDraft>({form, photos: [], token: null, pending: false, savedAt: Date.now()});
+  const input = useRef<HTMLInputElement>(null);
+  const main = useRef<HTMLElement>(null);
+  const locked = busy || preparing || pending || reloading;
   const cities = useMemo(() => [...new Set(catalog?.organizations.map(item => item.city))].sort((a, b) => a.localeCompare(b, 'ru')), [catalog]);
   const cityOrganizations = useMemo(() => catalog?.organizations.filter(item => item.city === form.city) || [], [catalog, form.city]);
-  const recipient = recipientFor(form, catalog);
-  photoRef.current = photos; sessionRef.current = session;
-  snapshot.current = {form, photos: photos.map(({id, blob, preview, capture}) => ({id, blob, preview, capture})),
-    token: tokenRef.current, pending, savedAt: Date.now()};
+  const recipient = recipientFor(form, catalog), address = recipient?.addresses?.find(item => item.id === form.address_id);
+  const located = !!address && form.latitude !== null && form.longitude !== null;
+  photoRef.current = photos;
+  snapshot.current = {form, photos: photos.map(({id, blob, preview, capture}) => ({id, blob, preview, capture})), token: token.current, pending, savedAt: Date.now()};
 
   function persist(draft = snapshot.current, required = false) {
     const operation = writes.current.catch(() => {}).then(async () => {
@@ -51,200 +48,163 @@ export default function CitizenAppeal() {
     return required ? operation : writes.current;
   }
   async function prepareUpdate() {
-    if (requestActive.current || cameraOpen || preview) throw new Error('Завершите текущее действие перед обновлением.');
+    if (requestActive.current) throw new Error('Дождитесь окончания текущего действия.');
     requestActive.current = true; setReloading(true);
     try {
-      const draft = receiptRef.current ? {form: EMPTY_FORM, photos: [], token: null, pending: false,
-        receipt: receiptRef.current, savedAt: Date.now()} : snapshot.current;
-      await persist(draft, true);
+      await persist(receiptRef.current ? {form, photos: [], token: null, pending: false, receipt: receiptRef.current, savedAt: Date.now()} : snapshot.current, true);
       allowReload.current = true;
-    } catch {
-      requestActive.current = false; setReloading(false);
-      throw new Error('Не удалось сохранить черновик. Отправьте обращение перед обновлением или попробуйте ещё раз.');
-    }
+    } catch {requestActive.current = false; setReloading(false); throw new Error('Не удалось сохранить черновик. Не закрывайте страницу и попробуйте обновить ещё раз.');}
   }
   function complete(number: string) {
     receiptRef.current = number;
-    void persist({form: EMPTY_FORM, photos: [], token: null, pending: false, receipt: number, savedAt: Date.now()});
+    void persist({form: {...EMPTY_FORM, city: form.city}, photos: [], token: null, pending: false, receipt: number, savedAt: Date.now()});
     if (!mounted.current) return;
-    setReceipt(number); setPending(false); setError(''); setForm(EMPTY_FORM); setSession(null); tokenRef.current = null;
+    setReceipt(number); setPending(false); setError(''); token.current = null;
     photoRef.current.forEach(photo => URL.revokeObjectURL(photo.url)); setPhotos([]);
+    setForm({...EMPTY_FORM, city: form.city}); setTab('wall'); setStep(1); setWallRevision(value => value + 1);
   }
   useEffect(() => {
-    let active = true;
-    setCatalogError('');
+    let active = true; setCatalogError('');
     publicRequest<AppealCatalog>('/catalog', {method: 'GET'}).then(value => {if (active) setCatalog(value);})
       .catch(failure => {if (active) setCatalogError(failure.message);});
     return () => {active = false;};
   }, [catalogRevision]);
   useEffect(() => {
-    mounted.current = true;
-    let active = true;
+    mounted.current = true; let active = true;
     loadDraft().then(draft => {
       if (!active || !draft) return;
+      const hasContent = draft.photos.length || draft.form.description || draft.pending;
+      if (hasContent) setForm({...EMPTY_FORM, ...draft.form});
       if (draft.receipt) {receiptRef.current = draft.receipt; setReceipt(draft.receipt); return;}
-      setForm({...EMPTY_FORM, ...draft.form}); setPhotos(draft.photos.map(photo => ({...photo, url: URL.createObjectURL(photo.preview)})));
-      tokenRef.current = draft.token; setPending(draft.pending); setRestored(true);
+      if (!hasContent) return;
+      setPhotos(draft.photos.map(photo => ({...photo, url: URL.createObjectURL(photo.preview)})));
+      token.current = draft.token; setPending(draft.pending); setRestored(true);
+      if (draft.photos.length || draft.form.description || draft.pending) {setTab('create'); setStep(2);}
     }).catch(() => {if (active) setStorageError(true);}).finally(() => {if (active) setLoaded(true);});
     return () => {active = false; mounted.current = false; photoRef.current.forEach(photo => URL.revokeObjectURL(photo.url));};
   }, []);
   useEffect(() => {
-    if (!loaded || receipt) return;
+    if (!loaded || receiptRef.current) return;
     const timer = window.setTimeout(() => void persist(), 350);
     const hidden = () => {if (document.hidden) void persist();};
-    document.addEventListener('visibilitychange', hidden);
-    window.addEventListener('pagehide', hidden);
+    document.addEventListener('visibilitychange', hidden); window.addEventListener('pagehide', hidden);
     return () => {window.clearTimeout(timer); document.removeEventListener('visibilitychange', hidden); window.removeEventListener('pagehide', hidden);};
-  }, [loaded, form, photos, session, pending, receipt]);
+  }, [loaded, form, photos, pending]);
   useEffect(() => {
     const online = () => setOffline(!navigator.onLine);
     window.addEventListener('online', online); window.addEventListener('offline', online);
     return () => {window.removeEventListener('online', online); window.removeEventListener('offline', online);};
   }, []);
   useEffect(() => {
-    if (loaded && catalog && !locked && !receipt) setForm(current => availableRecipient(current, catalog));
-  }, [loaded, catalog, locked, receipt, form.city, form.organization_id, form.category]);
+    if (loaded && catalog && !locked) setForm(current => availableRecipient(current, catalog));
+  }, [loaded, catalog, locked, form.city, form.organization_id, form.category, form.address_id]);
   useEffect(() => {
-    const handle = (event: BeforeUnloadEvent) => {if (!allowReload.current && !receiptRef.current && (photoRef.current.length || form.description)) {event.preventDefault(); event.returnValue = '';}};
-    window.addEventListener('beforeunload', handle); return () => window.removeEventListener('beforeunload', handle);
-  }, [form.description, receipt]);
+    main.current?.scrollIntoView?.({block: 'start'});
+  }, [step, tab]);
+  useEffect(() => {
+    const leaving = (event: BeforeUnloadEvent) => {if (!allowReload.current && !receiptRef.current && (photoRef.current.length || form.description)) {event.preventDefault(); event.returnValue = '';}};
+    window.addEventListener('beforeunload', leaving); return () => window.removeEventListener('beforeunload', leaving);
+  }, [form.description]);
 
-  function removePhoto(id: string) {
-    setPhotos(current => {const removed = current.find(photo => photo.id === id); if (removed) URL.revokeObjectURL(removed.url); return current.filter(photo => photo.id !== id);});
-  }
-  async function resumeSession(): Promise<ResumeSession | null> {
-    if (!tokenRef.current) return null;
-    const resumed = await publicRequest<ResumeSession>('/capture-sessions/resume', {method: 'POST', headers: {'X-Capture-Token': tokenRef.current}});
-    if (resumed.submitted) {complete(resumed.submitted.number); return resumed;}
-    const current = {...resumed, receivedAt: performance.now()}; sessionRef.current = current; setSession(current);
-    return resumed;
-  }
-  async function openCamera() {
-    if (requestActive.current || pending) return;
-    requestActive.current = true;
-    setPreparing(true); setError('');
+  async function addPhotos(files: FileList | null) {
+    if (!files || requestActive.current || locked) return;
+    requestActive.current = true; setPreparing(true); setError('');
+    const added: LocalPhoto[] = [];
     try {
-      let current = sessionRef.current;
-      if (tokenRef.current) {
-        try {
-          const resumed = await resumeSession();
-          if (resumed?.submitted) return;
-          current = sessionRef.current;
-        } catch (failure) {
-          if (!(failure instanceof AppealRequestError) || failure.status !== 409) throw failure;
-          tokenRef.current = null; sessionRef.current = null; setSession(null);
-        }
+      if (files.length + photos.length > 3) throw new Error('Можно приложить до трёх фотографий');
+      for (const file of [...files]) {
+        const photo = await galleryPhoto(file); added.push({...photo, url: URL.createObjectURL(photo.preview)});
       }
-      if (!current || serverNow(current) >= Date.parse(current.expires_at) - 30_000) {
-        const created = await publicRequest<Omit<CaptureSession, 'receivedAt'>>('/capture-sessions', {method: 'POST'});
-        if (photos.length) {
-          photos.forEach(photo => URL.revokeObjectURL(photo.url)); setPhotos([]);
-          setError('Время предыдущей съёмки истекло. Снимки нужно сделать заново; анкета сохранена.');
-        }
-        current = {...created, receivedAt: performance.now()}; setSession(current); sessionRef.current = current; tokenRef.current = current.token;
-      }
-      setCameraOpen(true);
-    } catch (error) {setError((error as Error).message);}
-    finally {requestActive.current = false; if (mounted.current) setPreparing(false);}
+      if (mounted.current) setPhotos(current => [...current, ...added]);
+      else added.forEach(photo => URL.revokeObjectURL(photo.url));
+    } catch (failure) {added.forEach(photo => URL.revokeObjectURL(photo.url)); setError((failure as Error).message);}
+    finally {requestActive.current = false; setPreparing(false); if (input.current) input.current.value = '';}
   }
   async function submit(event: FormEvent) {
-    event.preventDefault(); setError('');
-    if (requestActive.current) return;
-    if (!photos.length || !tokenRef.current) {setError('Сделайте хотя бы один снимок через камеру.'); return;}
-    requestActive.current = true;
-    setBusy(true);
-    let attempted = false;
+    event.preventDefault(); if (requestActive.current) return;
+    if (!photos.length || (!pending && (!located || !validRecipient(form, catalog)))) {setError('Выберите адрес и точку на карте, опишите проблему и приложите фото.'); return;}
+    requestActive.current = true; setBusy(true); setError(''); let attempted = false;
     try {
-      const resumed = await resumeSession();
-      if (resumed?.submitted) return;
-      if (resumed?.expired) {setPending(false); throw new AppealRequestError('Время съёмки истекло. Сделайте новые снимки; анкета сохранена.', 409);}
-      if (!pending && !validRecipient(form, catalog)) throw new AppealRequestError('Выберите разрешённый город, организацию и её вид работ из списка.', 422);
+      if (token.current) {
+        try {
+          const resumed = await publicRequest<ResumeSession>('/capture-sessions/resume', {method: 'POST', headers: {'X-Capture-Token': token.current}});
+          if (resumed.submitted) {complete(resumed.submitted.number); return;}
+          if (resumed.expired) token.current = null;
+        } catch (failure) {
+          if (failure instanceof AppealRequestError && failure.status === 409) token.current = null;
+          else throw failure;
+        }
+      }
+      if (!token.current) {
+        const session = await publicRequest<{token: string}>('/sessions', {method: 'POST'}); token.current = session.token;
+      }
+      const legacy = pending && photos.every(photo => photo.capture) && !form.address_id;
       const data = new FormData();
-      data.append('metadata', JSON.stringify({...form, capture_source: 'camera', captures: photos.map(photo => photo.capture)}));
-      photos.forEach((photo, index) => data.append('photos', photo.blob, `camera-${index + 1}.jpg`));
-      setPending(true);
-      await persist({...snapshot.current, token: tokenRef.current, pending: true});
-      attempted = true;
-      const result = await publicRequest<{number: string}>('', {method: 'POST', headers: {'X-Capture-Token': tokenRef.current!}, body: data}, 120_000);
+      const {address_id, latitude, longitude, ...oldForm} = form;
+      data.append('metadata', JSON.stringify(legacy ? {...oldForm, capture_source: 'camera', captures: photos.map(photo => photo.capture)}
+        : {...form, capture_source: 'gallery', public_consent: true}));
+      photos.forEach((photo, index) => data.append('photos', photo.blob, `photo-${index + 1}.${photo.blob.type.includes('hei') ? 'heic' : 'jpg'}`));
+      setPending(true); await persist({...snapshot.current, token: token.current, pending: true}); attempted = true;
+      const result = await publicRequest<{number: string}>(legacy ? '' : '/submissions', {method: 'POST', headers: {'X-Capture-Token': token.current}, body: data}, 120_000);
       complete(result.number);
     } catch (failure) {
       if (failure instanceof AppealRequestError && !failure.uncertain) setPending(false);
       else if (attempted) setPending(true);
-      if (failure instanceof AppealRequestError && failure.status === 422) setCatalogRevision(value => value + 1);
+      if (failure instanceof AppealRequestError && failure.status === 422) {setCatalogRevision(value => value + 1); setStep(1);}
       setError((failure as Error).message);
     } finally {requestActive.current = false; if (mounted.current) setBusy(false);}
   }
-  const field = (key: keyof typeof EMPTY_FORM) => ({value: form[key], onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setForm(current => ({...current, [key]: event.target.value}))});
-  function chooseOrganization(id: string) {
-    const selected = cityOrganizations.find(item => item.id === id);
-    if (selected && !locked) setForm(current => ({...current, organization_id: id,
-      category: current.organization_id === id ? current.category : ''}));
-  }
-  if (!loaded) return <div className="citizen-app citizen-restoring" role="status">Открываем форму…</div>;
-
-  return <div className="citizen-app"><div inert={cameraOpen || !!preview}>
-    <header className="citizen-header"><a href="/appeals" className="citizen-brand"><span><Leaf size={23}/></span>Сигнал</a><span className="citizen-header-caption">Обращения жителей</span></header>
-    {receipt ? <main className="citizen-success"><span className="citizen-success-mark"><CheckCircle2 size={42}/></span>
-      <span className="citizen-kicker">СПАСИБО ЗА УЧАСТИЕ</span><h1>Ваше обращение получено</h1>
-      <p>Описание и фотографии переданы администраторам выбранной организации.</p>
-      <div className="citizen-receipt"><small>Номер обращения</small><strong>{receipt}</strong><span>Сохраните его для уточнений</span></div>
-      <button className="citizen-primary" onClick={() => {receiptRef.current = ''; setReceipt(''); setRestored(false);}}>Сообщить о другой проблеме<ArrowRight size={18}/></button>
-    </main> : <main className="citizen-main">
-      <div className="citizen-intro"><span className="citizen-kicker">ПОМОЖЕМ ГОРОДУ ВМЕСТЕ</span><h1>Заметили проблему?<br/><span>Покажите её нам.</span></h1>
-        <p>Расскажите о нарушении на территории обслуживающей организации и сделайте фото на месте.</p>
-        <div className="citizen-steps"><span><i>1</i>Место и описание</span><span><i>2</i>Фото с камеры</span><span><i>3</i>Отправка</span></div>
-        <aside className="citizen-aside"><MapPin size={22}/><div><strong>Координаты определятся сами</strong><p>Вручную отмечать место на карте не нужно. При съёмке разрешите доступ к камере и геолокации.</p></div></aside>
-      </div>
-      <form className="citizen-form" onSubmit={event => void submit(event)}>
-        {offline && <p className="citizen-notice" role="status"><WifiOff size={18}/>Нет связи с интернетом. Продолжайте заполнять анкету — отправить её можно после подключения.</p>}
-        {restored && <p className="citizen-notice" role="status">{photos.length ? 'Восстановили ваш черновик вместе со снимками.' : 'Восстановили ваш черновик.'}</p>}
-        {storageError && <p className="citizen-notice" role="status">Браузер не разрешает сохранить черновик на устройстве. До отправки не закрывайте эту вкладку.</p>}
-        {pending && <p className="citizen-notice" role="status">Проверяем, получено ли обращение. Анкета зафиксирована, чтобы повторная попытка не создала дубль. Нажмите «Проверить отправку».</p>}
-        {catalogError && <div className="citizen-notice" role="status"><p>{catalogError}</p><button type="button" disabled={locked} onClick={() => setCatalogRevision(value => value + 1)}>Обновить список организаций</button></div>}
-        {!catalog && !catalogError && <p className="citizen-help" role="status">Загружаем города и организации…</p>}
-        {catalog && !catalog.organizations.length && <p className="citizen-notice" role="status">Пока нет организаций, готовых принимать обращения. Попробуйте позже.</p>}
-        <fieldset disabled={locked}><div className="citizen-section-heading"><span>01</span><div><h2>Где и что произошло</h2><p>Обращение получат администраторы выбранной организации.</p></div></div>
-          <div className="citizen-fields"><RecipientChoice label="Город" name="city" autoComplete="address-level2" options={cities.map(city => ({value: city, label: city}))}
-            value={form.city} disabled={locked} onChange={city => setForm(current => ({...current, city, organization_id: '', category: ''}))}/>
-          </div>
-          {cityOrganizations.some(item => item.territories.length) && <Suspense fallback={<p className="citizen-help">Открываем территории…</p>}><TerritoryMap key={form.city} organizations={cityOrganizations} selected={form.organization_id}
-            apiKey={catalog?.yandex_maps_api_key || ''} disabled={locked} onChoose={chooseOrganization}/></Suspense>}
-          <div className="citizen-fields">
-            <RecipientChoice label="Организация" name="organization_id" options={cityOrganizations.map(item => ({value: item.id, label: item.name}))}
-              value={form.organization_id} disabled={locked} onChange={chooseOrganization}/>
-            <RecipientChoice label="Что случилось?" name="category" placeholder="Выберите проблему" options={recipient?.work_types.map(citizenWorkOption) || []}
-              description={validRecipient(form, catalog) && form.category === 'PLAYGROUND_MAINTENANCE'
-                ? 'Детские, спортивные и тренажёрные площадки: мусор, неубранный снег, сломанные качели или другое оборудование. Освещение сюда не входит.' : undefined}
-              value={form.category} disabled={locked} onChange={category => setForm(current => ({...current, category}))}/>
-            <label className="citizen-wide">Улица и дом<input required minLength={5} maxLength={300} autoComplete="street-address" placeholder="Улица, номер дома или ближайший адрес" {...field('address')}/></label>
-            <label className="citizen-wide">Где именно<input required minLength={2} maxLength={300} placeholder="Например, тротуар у второго подъезда" {...field('place')}/></label>
-            <label className="citizen-wide">Описание<textarea required minLength={10} maxLength={4000} rows={4} placeholder="Что не так и что нужно исправить?" {...field('description')}/></label>
-          </div>
-        </fieldset>
-        <fieldset disabled={locked}><div className="citizen-section-heading"><span>02</span><div><h2>Фотографии с места</h2><p>Нужен хотя бы один новый снимок. Можно сделать до трёх.</p></div></div>
-          <div className="citizen-photo-grid">{photos.map((photo, index) => <article className="citizen-photo" key={photo.id}><button type="button" className="citizen-photo-preview" onClick={() => setPreview(photo)} aria-label={`Посмотреть снимок ${index + 1}`}><img src={photo.url} alt={`Снимок проблемы ${index + 1}`}/></button>
-            <button type="button" onClick={() => removePhoto(photo.id)} aria-label={`Удалить снимок ${index + 1}`}><Trash2 size={17}/></button><span><Check size={14}/>Снято сейчас</span></article>)}
-            {photos.length < MAX_PHOTOS && <button type="button" className="citizen-add-photo" disabled={!validRecipient(form, catalog)} onClick={() => void openCamera()}><Camera size={28}/><strong>{preparing ? 'Включаем…' : photos.length ? 'Ещё снимок' : 'Открыть камеру'}</strong><span>Дата и координаты — автоматически</span></button>}
-          </div><p className="citizen-help">Снимите общий план, чтобы было понятно место, и при необходимости — проблему крупнее.</p>
-        </fieldset>
-        <fieldset disabled={locked}><div className="citizen-section-heading"><span>03</span><div><h2>Как с вами связаться</h2><p>Необязательно. Только если потребуется уточнение.</p></div></div>
-          <label>Телефон или электронная почта<input maxLength={200} placeholder="Контакт для обратной связи" {...field('contact')}/></label>
-          <label className="citizen-honeypot" aria-hidden="true">Сайт<input tabIndex={-1} autoComplete="off" {...field('website')}/></label>
-        </fieldset>
-        {error && <p className="citizen-error" role="alert">{error}</p>}
-        <div className="citizen-submit"><p>Обращение и фотографии получат администраторы выбранной организации. Они также доступны владельцу сервиса и не публикуются на сайте. Черновик хранится в этом браузере до суток и очищается после отправки.</p>
-          <button className="citizen-primary" disabled={busy || preparing || reloading || !photos.length || (!pending && !validRecipient(form, catalog))}>{busy ? <><LoaderCircle className="citizen-spinner" size={18}/>Проверяем и отправляем…</>
-            : <>{pending ? 'Проверить отправку' : 'Отправить обращение'}<ArrowRight size={18}/></>}</button></div>
-      </form>
-    </main>}
-    <footer className="citizen-footer">Забота о городе начинается с внимания.</footer></div>
-    <UpdateNotice citizen beforeUpdate={prepareUpdate} disabled={busy || preparing} hidden={cameraOpen || !!preview}/>
-    {preview && <PhotoPreview photo={preview} onClose={() => setPreview(null)} onRetake={() => {removePhoto(preview.id); setPreview(null); void openCamera();}}/>}
-    {cameraOpen && session && <CitizenCamera session={session} onResume={async () => {
-      const resumed = await resumeSession();
-      if (resumed?.submitted) return null;
-      if (resumed?.expired) throw new AppealRequestError('Время съёмки истекло. Закройте камеру и сделайте новые снимки; анкета сохранена.', 409);
-      return sessionRef.current;
-    }} onClose={() => setCameraOpen(false)} onCapture={photo => {setPhotos(current => [...current, photo]); setCameraOpen(false);}}/>}
-  </div>;
+  function newAppeal() {if (locked) return; receiptRef.current = ''; setReceipt(''); setTab('create'); setStep(1);}
+  if (!loaded) return <div className="citizen-app citizen-restoring" role="status">Открываем «Сигнал»…</div>;
+  return <div className="citizen-app signal-app"><div className="signal-shell">
+    <header className="signal-header"><a className="signal-brand" href="#" onClick={event => {event.preventDefault(); setTab('wall');}}><span><Radio size={22}/></span>Сигнал</a>
+      {cities.length > 1 ? <label className="signal-city"><MapPin size={15}/><span className="signal-sr-only">Город</span><select name="city" value={form.city} disabled={locked} onChange={event => {setForm(current => ({...current, city: event.target.value, organization_id: '', category: '', address_id: '', address: '', latitude: null, longitude: null})); setStep(1);}}><option value="">Выберите город</option>{cities.map(city => <option key={city}>{city}</option>)}</select></label>
+        : form.city && <span className="signal-city"><MapPin size={15}/>{form.city}</span>}</header>
+    <main className="signal-main" ref={main}>
+      {offline && <p className="signal-notice" role="status"><WifiOff size={18}/>Нет интернета. Черновик сохранится на телефоне.</p>}
+      {catalogError && <div className="citizen-error" role="alert">{catalogError}<button onClick={() => setCatalogRevision(value => value + 1)}>Повторить загрузку</button></div>}
+      {storageError && <p className="signal-notice">Не закрывайте вкладку до отправки: браузер не разрешил сохранить черновик.</p>}
+      {receipt && <div className="signal-receipt" role="status"><CheckCircle2/><div><strong>Обращение {receipt} отправлено</strong><p>Оно появилось на стене города. Ответ организации появится в этой же карточке.</p></div></div>}
+      {tab === 'wall' ? <Wall city={form.city} organizations={cityOrganizations} apiKey={catalog?.yandex_maps_api_key || ''} revision={wallRevision}/> : <>
+        <div className="signal-compose-title"><span className="signal-eyebrow">НОВОЕ ОБРАЩЕНИЕ · ШАГ {step} ИЗ 2</span><h1>{step === 1 ? 'Выберите место' : 'Расскажите о проблеме'}</h1></div>
+        <form className="citizen-form signal-form" onSubmit={event => void submit(event)}>
+          {restored && <p className="signal-notice">Восстановили ваш черновик вместе с фотографиями.</p>}
+          {pending && <p className="signal-notice" role="status">Проверяем, получено ли обращение. Повторная попытка не создаст дубль.</p>}
+          {step === 1 ? <fieldset disabled={locked}>
+            <RecipientChoice label="Организация" name="organization_id" options={cityOrganizations.map(item => ({value: item.id, label: item.name}))} value={form.organization_id} disabled={locked}
+              onChange={id => setForm(current => ({...current, organization_id: id, category: '', address_id: '', address: '', latitude: null, longitude: null}))}/>
+            {recipient && <><RecipientChoice label="Улица и адрес" name="address_id" placeholder="Выберите адрес" options={(recipient.addresses || []).map(item => ({value: item.id, label: item.label}))}
+              value={form.address_id} disabled={locked} onChange={id => {const chosen = recipient.addresses?.find(item => item.id === id); setForm(current => ({...current, address_id: id, address: chosen?.label || '', latitude: null, longitude: null}));}}/>
+              <p className="signal-address-rule"><ShieldCheck size={17}/>{recipient.addresses?.length ? 'Для этой организации можно выбрать только адрес из списка обслуживаемых ею адресов.' : 'Организация пока не добавила обслуживаемые адреса. Отправка обращения будет доступна после их добавления.'}</p></>}
+            {recipient && address && <Suspense fallback={<p>Загружаем карту…</p>}><ProblemMap key={recipient.id + address.id} organization={recipient} organizations={cityOrganizations} districtId={address.district_id} apiKey={catalog?.yandex_maps_api_key || ''}
+              point={located ? [form.longitude!, form.latitude!] : null} disabled={locked} onPoint={point => setForm(current => ({...current, longitude: point[0], latitude: point[1]}))}/></Suspense>}
+            {!catalog?.organizations.length && !catalogError && <p className="signal-notice">{catalog ? 'Пока нет организаций, готовых принимать обращения.' : 'Загружаем города и организации…'}</p>}
+            <button type="button" className="citizen-primary signal-next" disabled={!located || locked} onClick={() => setStep(2)}>Далее<ArrowRight size={18}/></button>
+          </fieldset> : <>
+            <button type="button" className="signal-back" disabled={locked} onClick={() => setStep(1)}><ArrowLeft size={17}/>{form.address || 'Выбрать адрес и место'}</button>
+            {!located && !pending && <p className="citizen-error">Сначала выберите обслуживаемый адрес и отметьте место на карте.</p>}
+            <fieldset disabled={locked || (!located && !pending)}>
+              <RecipientChoice label="Что случилось?" name="category" placeholder="Выберите проблему" options={recipient?.work_types.filter(work => work.code !== 'DRAIN_CLEANING').map(citizenWorkOption) || []} value={form.category} disabled={locked}
+                onChange={category => setForm(current => ({...current, category}))}/>
+              <label>Описание<textarea required maxLength={4000} rows={4} placeholder="Что произошло и что нужно исправить?" value={form.description} onChange={event => setForm(current => ({...current, description: event.target.value}))}/></label>
+              <label>Уточнение места <small>необязательно</small><input maxLength={300} placeholder="Например, рядом со вторым подъездом" value={form.place} onChange={event => setForm(current => ({...current, place: event.target.value}))}/></label>
+              <div className="signal-section-title"><h2>Фотографии</h2><span>{photos.length} / 3</span></div>
+              <div className="signal-upload-grid">{photos.map((photo, index) => <div className="signal-upload-photo" key={photo.id}><a href={photo.url} target="_blank" rel="noreferrer"><img src={photo.url} alt={`Фото ${index + 1}`}/></a>
+                <button type="button" aria-label={`Удалить фото ${index + 1}`} onClick={() => {URL.revokeObjectURL(photo.url); setPhotos(current => current.filter(item => item.id !== photo.id));}}><Trash2 size={17}/></button></div>)}
+                {photos.length < 3 && <button type="button" className="signal-add-photo" onClick={() => input.current?.click()}><ImagePlus size={26}/><span>{preparing ? 'Подготавливаем…' : 'Добавить фото'}</span></button>}</div>
+              <input className="signal-file" ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple onChange={event => void addPhotos(event.target.files)} aria-label="Фотографии с телефона"/>
+              <label>Телефон или электронная почта <small>необязательно</small><input maxLength={200} placeholder="Для уточнения обращения" value={form.contact} onChange={event => setForm(current => ({...current, contact: event.target.value}))}/></label>
+              <p className="signal-contact-rule"><ShieldCheck size={16}/>Контакты видны только администратору организации, на стене их не будет.</p>
+              <p className="signal-contact-rule">Описание и фотографии появятся на стене города. Не добавляйте в них личные данные.</p>
+              <label className="citizen-honeypot" aria-hidden="true">Сайт<input tabIndex={-1} autoComplete="off" value={form.website} onChange={event => setForm(current => ({...current, website: event.target.value}))}/></label>
+            </fieldset>
+            <div className="citizen-submit"><button className="citizen-primary" disabled={busy || preparing || reloading || !photos.length || (!pending && (!located || !validRecipient(form, catalog)))}>{busy ? 'Отправляем…' : pending ? 'Проверить отправку' : 'Отправить обращение'}<ArrowRight size={18}/></button></div>
+          </>}
+          {error && <p className="citizen-error" role="alert">{error}</p>}
+        </form>
+      </>}
+    </main>
+    <nav className="signal-bottom-nav" aria-label="Навигация Сигнала"><button aria-current={tab === 'wall' ? 'page' : undefined} onClick={() => setTab('wall')}><List size={23}/><span>Стена города</span></button>
+      <button aria-current={tab === 'create' ? 'page' : undefined} onClick={newAppeal} disabled={locked}><Plus size={23}/><span>Сообщить о проблеме</span></button></nav>
+  </div><UpdateNotice citizen beforeUpdate={prepareUpdate} disabled={busy || preparing}/></div>;
 }

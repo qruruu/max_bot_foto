@@ -29,8 +29,9 @@ export async function api<T>(path: string, method = 'GET', body?: unknown, signa
   const csrfName = path.startsWith('/inspection/') ? 'inspection_csrf' : path === '/auth/choose-organization' ? 'login_choice_csrf' : platformOwner ? 'platform_csrf' : prefix ? 'workspace_csrf' : 'csrf';
   const csrf = document.cookie.split('; ').find(x => x.startsWith(csrfName + '='))?.slice(csrfName.length + 1) || '';
   const upload = body instanceof Blob;
+  const multipart = body instanceof FormData;
   const response = await fetch(apiUrl(path), { method, credentials: 'same-origin', signal,
-    headers: { 'Content-Type': upload ? body.type || 'application/octet-stream' : 'application/json', 'X-CSRF-Token': decodeURIComponent(csrf) }, body: body === undefined ? undefined : upload ? body : JSON.stringify(body) });
+    headers: { ...(!multipart ? {'Content-Type': upload ? body.type || 'application/octet-stream' : 'application/json'} : {}), 'X-CSRF-Token': decodeURIComponent(csrf) }, body: body === undefined ? undefined : upload || multipart ? body : JSON.stringify(body) });
   if (!response.ok) {
     const data = await response.json().catch(() => ({ detail: 'Сервис временно недоступен' }));
     if (response.status === 401 && path !== '/auth/me' && path !== '/auth/login') window.dispatchEvent(new Event('session-expired'));

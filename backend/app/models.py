@@ -51,10 +51,79 @@ class CitizenAppeal(Timestamps, Base):
     status: Mapped[str] = mapped_column(String(20), default="NEW", index=True)
     owner_note: Mapped[str] = mapped_column(Text, default="")
     version: Mapped[int] = mapped_column(Integer, default=1)
+    address_id: Mapped[str | None] = mapped_column(String(36))
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    public_response: Mapped[str] = mapped_column(Text, default="", server_default="")
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    submitted_by_inspector_id: Mapped[int | None] = mapped_column(ForeignKey("inspectors.id"))
+    submitted_by_inspector_name: Mapped[str] = mapped_column(String(150), default="", server_default="")
+    inspector_submission_id: Mapped[str | None] = mapped_column(String(36))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     __table_args__ = (
-        CheckConstraint("status IN ('NEW', 'IN_REVIEW', 'RESOLVED', 'SPAM')"),
+        CheckConstraint("status IN ('NEW', 'IN_REVIEW', 'ASSIGNED', 'IN_PROGRESS', 'COMPLETED', 'REJECTED', 'CANCELLED', 'RESOLVED', 'SPAM')"),
         CheckConstraint("photo_count BETWEEN 1 AND 3"),
+        CheckConstraint("submitted_by_inspector_id IS NULL OR is_public = false", name="ck_inspector_appeal_private"),
+        UniqueConstraint("submitted_by_inspector_id", "inspector_submission_id", name="uq_inspector_appeal_submission"),
     )
+
+
+class AppealAddress(Timestamps, Base):
+    __tablename__ = "appeal_addresses"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    label: Mapped[str] = mapped_column(String(300))
+    district_id: Mapped[int] = mapped_column(Integer)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    __table_args__ = (UniqueConstraint("organization_id", "label"),)
+
+
+class AppealTask(Timestamps, Base):
+    __tablename__ = "appeal_tasks"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    appeal_id: Mapped[int] = mapped_column(ForeignKey("citizen_appeals.id"), index=True)
+    operator_id: Mapped[int] = mapped_column(Integer)
+    operator_name: Mapped[str] = mapped_column(String(150))
+    instruction: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="ASSIGNED")
+    result_comment: Mapped[str] = mapped_column(Text, default="")
+    __table_args__ = (CheckConstraint("status IN ('ASSIGNED', 'IN_PROGRESS', 'COMPLETED', 'REJECTED', 'CANCELLED')"),)
+
+
+class AppealEvent(Base):
+    __tablename__ = "appeal_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    appeal_id: Mapped[int] = mapped_column(ForeignKey("citizen_appeals.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(30))
+    actor_type: Mapped[str] = mapped_column(String(30))
+    actor_id: Mapped[str] = mapped_column(String(36), default="")
+    actor_name: Mapped[str] = mapped_column(String(150))
+    actor_role: Mapped[str] = mapped_column(String(30), default="")
+    status: Mapped[str | None] = mapped_column(String(20))
+    comment: Mapped[str] = mapped_column(Text, default="")
+    visibility: Mapped[str] = mapped_column(String(20), default="STAFF")
+    operator_id: Mapped[int | None] = mapped_column(Integer)
+    client_id: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        CheckConstraint("visibility IN ('STAFF', 'ADMIN', 'TASK')"),
+        UniqueConstraint("appeal_id", "actor_type", "actor_id", "client_id", name="uq_appeal_event_client"),
+        Index("ix_appeal_events_order", "appeal_id", "id"),
+    )
+
+
+class AppealAttachment(Base):
+    __tablename__ = "appeal_attachments"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    appeal_id: Mapped[int] = mapped_column(ForeignKey("citizen_appeals.id"), index=True)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("appeal_tasks.id"), index=True)
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    preview: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    published: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class AppealPhoto(Base):

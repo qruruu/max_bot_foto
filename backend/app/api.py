@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only
 
 from app import (
+    appeal_workflow,  # noqa: F401 - registers the public wall and private task routes
     inspection_chats,  # noqa: F401 - registers the inspection conversation routes
     inspection_profile,  # noqa: F401 - registers inspector personal settings
 )

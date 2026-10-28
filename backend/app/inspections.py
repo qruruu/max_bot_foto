@@ -10,12 +10,14 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from openpyxl import Workbook
 from pydantic import Field
 from sqlalchemy import Date, cast, delete, func, select, text, update
 from sqlalchemy.orm import Session
 
+from app.appeal_events import CommentInput, add_comment, event_page
 from app.auth import AdminUser, Db, digest, hasher
 from app.config import base_settings
 from app.day_verification import confirmed_condition
@@ -514,11 +516,85 @@ def export(organization_id: UUID, db: Db, user: InspectorUser, filters: Annotate
                         headers={"Cache-Control": "private, no-store", "Content-Disposition": 'attachment; filename="inspection.xlsx"'})
 
 
+@router.get("/appeals/notifications")
+def all_appeal_notifications(db: Db, user: InspectorUser):
+    allowed = select(InspectionGrant.organization_id).join(Organization, Organization.id == InspectionGrant.organization_id).where(
+        InspectionGrant.inspector_id == user.id, Organization.status == "ACTIVE")
+    condition = CitizenAppeal.organization_id.in_(allowed) & CitizenAppeal.archived_at.is_(None)
+    latest = db.scalar(select(CitizenAppeal).where(condition, CitizenAppeal.status == "NEW")
+                       .order_by(CitizenAppeal.id.desc()).limit(1))
+    return {"new_count": db.scalar(select(func.count()).select_from(CitizenAppeal).where(condition, CitizenAppeal.status == "NEW")),
+            "latest_id": db.scalar(select(func.max(CitizenAppeal.id)).where(condition)) or 0,
+            "organization_id": latest.organization_id if latest else None}
+
+
+@router.get("/organizations/{organization_id}/appeals/catalog")
+def appeal_catalog(organization_id: UUID, db: Db, user: InspectorUser):
+    from app.appeal_catalog import organization_appeal_catalog
+    org = authorized_organization(db, user, organization_id)
+    return {"organization": {**organization_appeal_catalog(db, org), "color": "#2563eb"},
+            "yandex_maps_api_key": base_settings().yandex_maps_api_key}
+
+
+def inspector_submission(db, user, organization_id, client_id):
+    appeal = db.scalar(select(CitizenAppeal).where(CitizenAppeal.submitted_by_inspector_id == user.id,
+                                                  CitizenAppeal.inspector_submission_id == str(client_id)))
+    if appeal and appeal.organization_id != str(organization_id):
+        raise HTTPException(409, "Этот номер отправки уже использован для другой организации")
+    return appeal
+
+
+def inspector_appeal_receipt(appeal):
+    return {"id": appeal.id, "number": f"ОБ-{appeal.id:06d}", "is_public": False}
+
+
+@router.get("/organizations/{organization_id}/appeals/submissions/{client_id}")
+def resume_appeal_submission(organization_id: UUID, client_id: UUID, db: Db, user: InspectorUser):
+    authorized_organization(db, user, organization_id)
+    appeal = inspector_submission(db, user, organization_id, client_id)
+    if not appeal:
+        raise HTTPException(404, "Отправка ещё не подтверждена")
+    return inspector_appeal_receipt(appeal)
+
+
+def save_inspector_appeal(organization_id, inspector_id, body, photos):
+    from app.appeal_workflow import create_appeal
+    with control_session() as db:
+        # One inspector/client UUID creates one appeal, including simultaneous retries.
+        actor = db.get(Inspector, inspector_id, with_for_update=True)
+        agency = db.get(InspectionAgency, actor.agency_id) if actor else None
+        if not actor or not actor.active or not agency or not agency.active:
+            raise HTTPException(403, "Аккаунт проверяющего недоступен")
+        if not db.get(InspectionGrant, (actor.id, str(organization_id)), with_for_update=True):
+            raise HTTPException(404, "Нет доступа к организации")
+        authorized_organization(db, actor, organization_id)
+        existing = inspector_submission(db, actor, organization_id, body.client_id)
+        if existing:
+            return inspector_appeal_receipt(existing)
+        if str(body.organization_id) != str(organization_id):
+            raise HTTPException(422, "Выберите текущую организацию")
+        appeal = create_appeal(db, body, photos, is_public=False, inspector=actor)
+        audit(db, None, "INSPECTOR_APPEAL_CREATED", "citizen_appeal", appeal.id, None,
+              {"inspector_id": actor.id, "inspector_name": actor.name, "organization_id": appeal.organization_id})
+        db.commit()
+        return inspector_appeal_receipt(appeal)
+
+
+@router.post("/organizations/{organization_id}/appeals", status_code=201)
+async def create_inspector_appeal(organization_id: UUID, request: Request, db: Db, user: InspectorUser):
+    from app.appeal_workflow import InspectorAppealInput, multipart
+    authorized_organization(db, user, organization_id)
+    body, photos = await multipart(request, InspectorAppealInput)
+    return await run_in_threadpool(save_inspector_appeal, organization_id, user.id, body, photos)
+
+
 @router.get("/organizations/{organization_id}/appeals")
 def appeals(organization_id: UUID, db: Db, user: InspectorUser, page: int = Query(default=1, ge=1),
-            status: Literal["NEW", "IN_REVIEW", "RESOLVED", "SPAM"] | None = None):
+            status: Literal["NEW", "IN_REVIEW", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "REJECTED", "CANCELLED", "RESOLVED", "SPAM"] | None = None,
+            archived: bool = False):
     authorized_organization(db, user, organization_id)
     condition = CitizenAppeal.organization_id == str(organization_id)
+    condition = condition & (CitizenAppeal.archived_at.is_not(None) if archived else CitizenAppeal.archived_at.is_(None))
     if status:
         condition = condition & (CitizenAppeal.status == status)
     return {"total": db.scalar(select(func.count()).select_from(CitizenAppeal).where(condition)), "page": page, "page_size": 20,
@@ -527,16 +603,59 @@ def appeals(organization_id: UUID, db: Db, user: InspectorUser, page: int = Quer
 
 
 def restricted_appeal(db, appeal):
+    from app.appeal_workflow import workflow_detail
     first = db.scalar(select(AppealPhoto.id).where(AppealPhoto.appeal_id == appeal.id).order_by(AppealPhoto.position).limit(1))
     return {key: getattr(appeal, key) for key in ("id", "organization_id", "organization_name", "city", "address", "place",
-            "description", "work_type_name", "category", "status", "created_at")} | {
-        "number": f"ОБР-{appeal.id:06d}", "photo_count": appeal.photo_count,
+            "description", "work_type_name", "category", "status", "created_at", "updated_at", "latitude", "longitude",
+            "public_response", "resolved_at", "is_public", "submitted_by_inspector_id", "submitted_by_inspector_name", "archived_at")} | workflow_detail(db, appeal,
+                lambda path: f"/api/inspection/organizations/{appeal.organization_id}/appeals" + path, private=False) | {
+        "number": f"ОБ-{appeal.id:06d}", "photo_count": appeal.photo_count,
         "preview_url": f"/api/inspection/organizations/{appeal.organization_id}/appeals/{appeal.id}/photos/{first}?variant=preview" if first else None,
         "photos": [{"id": p.id, "url": f"/api/inspection/organizations/{appeal.organization_id}/appeals/{appeal.id}/photos/{p.id}",
                     "preview_url": f"/api/inspection/organizations/{appeal.organization_id}/appeals/{appeal.id}/photos/{p.id}?variant=preview",
                     "original_url": f"/api/inspection/organizations/{appeal.organization_id}/appeals/{appeal.id}/photos/{p.id}?variant=original",
                     **{key: getattr(p, key) for key in ("captured_at", "latitude", "longitude", "accuracy")}}
                    for p in db.scalars(select(AppealPhoto).where(AppealPhoto.appeal_id == appeal.id).order_by(AppealPhoto.position))]}
+
+
+@router.get("/organizations/{organization_id}/appeals/notifications")
+def appeal_notifications(organization_id: UUID, db: Db, user: InspectorUser):
+    authorized_organization(db, user, organization_id)
+    condition = (CitizenAppeal.organization_id == str(organization_id)) & CitizenAppeal.archived_at.is_(None)
+    return {"new_count": db.scalar(select(func.count()).select_from(CitizenAppeal).where(
+                condition, CitizenAppeal.status == "NEW")),
+            "latest_id": db.scalar(select(func.max(CitizenAppeal.id)).where(condition)) or 0}
+
+
+@router.get("/organizations/{organization_id}/appeals/{appeal_id}/events")
+def appeal_events(organization_id: UUID, appeal_id: int, db: Db, user: InspectorUser,
+                  before: int = Query(default=0, ge=0), after: int = Query(default=0, ge=0)):
+    authorized_organization(db, user, organization_id)
+    appeal = db.get(CitizenAppeal, appeal_id)
+    if not appeal or appeal.organization_id != str(organization_id):
+        raise HTTPException(404, "Обращение не найдено")
+    return event_page(db, appeal, inspector=True, before=before, after=after)
+
+
+@router.post("/organizations/{organization_id}/appeals/{appeal_id}/comments", status_code=201)
+def appeal_comment(organization_id: UUID, appeal_id: int, body: CommentInput, db: Db, user: InspectorUser):
+    authorized_organization(db, user, organization_id)
+    appeal = db.get(CitizenAppeal, appeal_id, with_for_update=True)
+    if not appeal or appeal.organization_id != str(organization_id):
+        raise HTTPException(404, "Обращение не найдено")
+    return add_comment(db, appeal, body, user, inspector=True)
+
+
+@router.get("/organizations/{organization_id}/appeals/{appeal_id}/attachments/{photo_id}")
+def appeal_attachment(organization_id: UUID, appeal_id: int, photo_id: UUID, db: Db, user: InspectorUser,
+                      variant: Literal["content", "preview"] = "content"):
+    from app.appeal_workflow import image_response
+    from app.models import AppealAttachment
+    authorized_organization(db, user, organization_id)
+    appeal, photo = db.get(CitizenAppeal, appeal_id), db.get(AppealAttachment, str(photo_id))
+    if not appeal or appeal.organization_id != str(organization_id) or not photo or photo.appeal_id != appeal.id:
+        raise HTTPException(404)
+    return image_response(getattr(photo, variant))
 
 
 @router.get("/organizations/{organization_id}/appeals/{appeal_id}")
