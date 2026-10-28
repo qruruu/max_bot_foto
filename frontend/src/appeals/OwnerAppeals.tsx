@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ArrowDownToLine, ArrowLeft, ArrowUpRight, Camera, ChevronLeft, ChevronRight, Inbox, LockKeyhole, MessageCircle, Plus, RefreshCw } from 'lucide-react';
+import { ArrowDownToLine, ArrowLeft, ArrowUpRight, Camera, ChevronLeft, ChevronRight, Inbox, LockKeyhole, MessageCircle, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { api } from '../api';
 import AppealActions from './AppealActions';
 import type { WorkflowAppeal } from './AppealActions';
@@ -28,15 +28,24 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
   const [nextStatus, setNextStatus] = useState<Status>('NEW'), [note, setNote] = useState('');
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [revision, setRevision] = useState(0);
   const [archived, setArchived] = useState(false);
+  const [search, setSearch] = useState(''), [query, setQuery] = useState('');
   const active = useRef(true);
   useEffect(() => {active.current = true; return () => {active.current = false;};}, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {setQuery(search.trim()); setPage(1);}, 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
   useEffect(() => {
     const controller = new AbortController(); setError(''); setData(null); let refreshing = false;
     async function refresh(initial = false) {
       if (refreshing || document.hidden && !initial) return;
       refreshing = true;
       try {
-        const result = await api<Page>(`${endpoint}?page=${page}${status ? '&status=' + status : ''}${archived ? '&archived=true' : ''}`, 'GET', undefined, controller.signal);
+        const params = new URLSearchParams({page: String(page)});
+        if (status) params.set('status', status);
+        if (archived) params.set('archived', 'true');
+        if (query) params.set('q', query);
+        const result = await api<Page>(`${endpoint}?${params}`, 'GET', undefined, controller.signal);
         if (controller.signal.aborted) return;
         const lastPage = Math.max(1, Math.ceil(result.total / result.page_size));
         if (page > lastPage) setPage(lastPage);
@@ -48,10 +57,10 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
     const changed = () => {void refresh();}, timer = window.setInterval(changed, 10_000);
     for (const event of ['focus', 'online', 'appeal-discussion-changed']) window.addEventListener(event, changed);
     return () => {controller.abort(); window.clearInterval(timer); for (const event of ['focus', 'online', 'appeal-discussion-changed']) window.removeEventListener(event, changed);};
-  }, [page, status, archived, revision, endpoint, refreshKey]);
-  useEffect(() => {setSelected(null); setPage(1);}, [endpoint]);
+  }, [page, status, archived, query, revision, endpoint, refreshKey]);
+  useEffect(() => {setSelected(null); setPage(1); setSearch(''); setQuery('');}, [endpoint]);
   useEffect(() => {
-    const refresh = () => {setSelected(null); setStatus(''); setPage(1); setRevision(value => value + 1);};
+    const refresh = () => {setSelected(null); setStatus(''); setSearch(''); setQuery(''); setPage(1); setRevision(value => value + 1);};
     window.addEventListener('refresh-appeals', refresh);
     return () => window.removeEventListener('refresh-appeals', refresh);
   }, []);
@@ -112,7 +121,11 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
       <div className="appeal-folder-tabs" role="tablist" aria-label="Раздел обращений">{[false, true].map(value => <button key={String(value)} role="tab" aria-selected={archived === value} onClick={() => {setArchived(value); setPage(1); setStatus('');}}>{value ? 'Архив' : 'Рабочий список'}</button>)}</div>
       <div className="owner-appeal-toolbar"><label>Состояние<select value={status} onChange={event => {setStatus(event.target.value); setPage(1);}}><option value="">Все обращения</option>
         {Object.entries(statuses).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><span className="hint">{data ? `${data.total} обращений` : 'Загружаем…'}</span></div>
-      {!data ? !error && <p className="loading">Загружаем обращения…</p> : !data.items.length ? <div className="panel empty"><Inbox size={32}/><h3>Обращений пока нет</h3><p>Новые анкеты жителей появятся здесь.</p></div> : <div className="owner-appeal-list">{data.items.map(item => <button className="panel owner-appeal-card owner-appeal-card-open" key={item.id} onClick={() => setSelected(item.id)}>
+      <form className="owner-appeal-search" role="search" onSubmit={event => {event.preventDefault(); setQuery(search.trim()); setPage(1);}}>
+        <Search size={19} aria-hidden="true"/><input type="search" aria-label="Поиск обращений" maxLength={200} value={search} onChange={event => setSearch(event.target.value)} placeholder="Поиск по тексту, адресу, номеру или дате"/>
+        {search && <button type="button" aria-label="Очистить поиск" onClick={() => {setSearch(''); setQuery(''); setPage(1);}}><X size={18}/></button>}
+      </form>
+      {!data ? !error && <p className="loading">Загружаем обращения…</p> : !data.items.length ? <div className="panel empty"><Inbox size={32}/><h3>{query ? 'Ничего не найдено' : 'Обращений пока нет'}</h3><p>{query ? 'Попробуйте другие слова, адрес, номер или дату.' : 'Новые анкеты жителей появятся здесь.'}</p></div> : <div className="owner-appeal-list">{data.items.map(item => <button className="panel owner-appeal-card owner-appeal-card-open" key={item.id} onClick={() => setSelected(item.id)}>
         <img src={item.preview_url} alt="" loading="lazy"/><div><div className="owner-appeal-card-top"><strong>{item.number}</strong><AppealBadges status={item.status} messages={item.unanswered_comments}/></div>
           {item.submitted_by_inspector_name && <span className="owner-appeal-source"><LockKeyhole size={13}/>От проверяющего · Только в «Метке»</span>}
           <h3>{item.work_type_name || data.categories?.[item.category] || item.category}</h3>{(!organization || readOnly) && <p>{item.organization_name || 'Без назначенной организации'}</p>}<p>{item.city}, {item.address}</p><p className="owner-appeal-excerpt">{item.description}</p>

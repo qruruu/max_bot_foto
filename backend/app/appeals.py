@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import insert
 from app.appeal_catalog import public_organizations
 from app.appeal_events import unanswered_comments
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS
+from app.appeal_search import appeal_search
 from app.auth import CurrentUser, is_platform_owner
 from app.config import base_settings
 from app.domain import audit, now
@@ -199,10 +200,12 @@ def photo_dict(photo):
 
 @owner_router.get("")
 @organization_router.get("")
-def list_appeals(user: AppealReader, status: AppealStatus | None = None, page: int = Query(default=1, ge=1), archived: bool = False):
+def list_appeals(user: AppealReader, status: AppealStatus | None = None, page: int = Query(default=1, ge=1), archived: bool = False,
+                 q: str = Query(default="", max_length=200)):
     with control_session() as db:
         conditions = appeal_conditions(user) + ([CitizenAppeal.status == status] if status else [])
         conditions.append(CitizenAppeal.archived_at.is_not(None) if archived else CitizenAppeal.archived_at.is_(None))
+        conditions.extend(appeal_search(q))
         total = db.scalar(select(func.count()).select_from(CitizenAppeal).where(*conditions))
         rows = db.execute(select(CitizenAppeal, AppealPhoto.id).outerjoin(AppealPhoto,
             (AppealPhoto.appeal_id == CitizenAppeal.id) & (AppealPhoto.position == 0)).where(*conditions)

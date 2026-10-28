@@ -10,13 +10,14 @@ from fastapi.concurrency import run_in_threadpool
 from geoalchemy2.shape import from_shape
 from pydantic import Field, ValidationError, field_validator
 from shapely.geometry import Point
-from sqlalchemy import String, case, cast, func, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile
 
 from app.appeal_catalog import organization_catalog, territory_choice_id, validate_recipient
 from app.appeal_events import CommentInput, add_comment, event_page, record_event
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS, prepare_upload
+from app.appeal_search import appeal_search
 from app.appeals import (
     AppealReader,
     capture_session,
@@ -30,7 +31,6 @@ from app.appeals import (
     rate_limit,
     receipt,
 )
-from app.config import base_settings
 from app.db import database_engine
 from app.domain import audit, now
 from app.models import (
@@ -349,18 +349,7 @@ def wall(request: Request, city: str = Query(min_length=2, max_length=150), orga
         public_available(db)
         rate_limit(db, request, "wall", 120, 1)
         conditions = public_conditions(city, organization_id)
-        if q.strip():
-            # Search only fields that are visible on the wall. Private notes, contacts and
-            # unpublished responses must not even influence which public cards match.
-            local_time = func.timezone(base_settings().app_timezone, CitizenAppeal.created_at)
-            searchable = func.concat_ws(" ", CitizenAppeal.description, CitizenAppeal.address, CitizenAppeal.place,
-                CitizenAppeal.city, CitizenAppeal.organization_name, CitizenAppeal.work_type_name,
-                func.concat("ОБ-", func.lpad(cast(CitizenAppeal.id, String), 6, "0")),
-                func.to_char(local_time, "DD.MM.YYYY HH24:MI"), func.to_char(local_time, "YYYY-MM-DD"),
-                case((CitizenAppeal.status.in_(("RESOLVED", "DECLINED")), CitizenAppeal.public_response), else_=""))
-            for term in q.split():
-                escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-                conditions.append(searchable.ilike("%" + escaped + "%", escape="\\"))
+        conditions.extend(appeal_search(q))
         order = [CitizenAppeal.id.desc()] if sort == "newest" else [CitizenAppeal.id] if sort == "oldest" else [CitizenAppeal.organization_name, CitizenAppeal.id.desc()]
         return {"total": db.scalar(select(func.count()).select_from(CitizenAppeal).where(*conditions)),
                 "page": page, "page_size": 20, "items": [wall_dict(db, row) for row in db.scalars(

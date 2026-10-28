@@ -50,3 +50,33 @@ it('keeps message notifications after opening and clears them after a reply with
   await act(async () => {window.dispatchEvent(new Event('focus')); await tick();});
   expect(element.textContent).toContain('Новые сообщения: 1'); expect(answer.value).toBe('Черновик ответа');
 });
+
+it.each([
+  ['administrator', '/appeals', false], ['operator', '/appeals', false],
+  ['inspector', '/inspection/organizations/one/appeals', true], ['owner', '/platform/appeals', false],
+] as const)('searches appeal text and dates for the %s and preserves archive and status filters', async (_role, endpoint, readOnly) => {
+  await act(async () => {root.render(<OwnerAppeals organization endpoint={endpoint} readOnly={readOnly}/>); await tick();});
+  const input = element.querySelector<HTMLInputElement>('input[type=search]')!;
+  const submit = async (query: string) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, query);
+      input.dispatchEvent(new Event('input', {bubbles: true}));
+    });
+    await act(async () => {element.querySelector('form[role=search]')!.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true})); await tick();});
+  };
+  const lastSearch = () => vi.mocked(api).mock.calls.filter(([path]) => path.startsWith(endpoint + '?')).at(-1)![0];
+  for (const query of ['Мусор у входа', '21 10 2026', 'ОБ-000042']) {
+    await submit(query);
+    expect(new URLSearchParams(lastSearch().split('?')[1]).get('q')).toBe(query);
+    expect(new URLSearchParams(lastSearch().split('?')[1]).get('page')).toBe('1');
+  }
+  await act(async () => {element.querySelectorAll<HTMLButtonElement>('[role=tab]')[1].click(); await tick();});
+  await act(async () => {
+    const status = element.querySelector<HTMLSelectElement>('.owner-appeal-toolbar select')!;
+    status.value = 'SPAM'; status.dispatchEvent(new Event('change', {bubbles: true})); await tick();
+  });
+  expect(Object.fromEntries(new URLSearchParams(lastSearch().split('?')[1]))).toMatchObject({q: 'ОБ-000042', archived: 'true', status: 'SPAM', page: '1'});
+  await act(async () => {element.querySelector<HTMLButtonElement>('[aria-label="Очистить поиск"]')!.click(); await tick();});
+  const params = new URLSearchParams(lastSearch().split('?')[1]);
+  expect(params.has('q')).toBe(false); expect(params.get('status')).toBe('SPAM'); expect(params.get('archived')).toBe('true');
+});

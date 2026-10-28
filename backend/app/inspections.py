@@ -18,6 +18,7 @@ from sqlalchemy import Date, cast, delete, func, select, text, update
 from sqlalchemy.orm import Session
 
 from app.appeal_events import CommentInput, add_comment, event_page, record_event, unanswered_comments
+from app.appeal_search import appeal_search
 from app.auth import AdminUser, Db, digest, hasher
 from app.config import base_settings
 from app.day_verification import confirmed_condition
@@ -596,12 +597,14 @@ async def create_inspector_appeal(organization_id: UUID, request: Request, db: D
 @router.get("/organizations/{organization_id}/appeals")
 def appeals(organization_id: UUID, db: Db, user: InspectorUser, page: int = Query(default=1, ge=1),
             status: Literal["NEW", "IN_REVIEW", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "REJECTED", "CANCELLED", "RESOLVED", "DECLINED", "SPAM"] | None = None,
-            archived: bool = False):
+            archived: bool = False, q: str = Query(default="", max_length=200)):
     authorized_organization(db, user, organization_id)
     condition = CitizenAppeal.organization_id == str(organization_id)
     condition = condition & (CitizenAppeal.archived_at.is_not(None) if archived else CitizenAppeal.archived_at.is_(None))
     if status:
         condition = condition & (CitizenAppeal.status == status)
+    for match in appeal_search(q):
+        condition = condition & match
     rows = list(db.scalars(select(CitizenAppeal).where(condition)
                           .order_by(CitizenAppeal.id.desc()).offset((page - 1) * 20).limit(20)))
     messages = unanswered_comments(db, [appeal.id for appeal in rows], user, inspector=True)
