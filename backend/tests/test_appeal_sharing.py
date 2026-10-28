@@ -1,25 +1,16 @@
 from io import BytesIO
-from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
-from app.appeal_sharing import card_font, card_lines, preview_card, share_links
+from app.appeal_sharing import card_font, card_lines, preview_card
 from app.appeals_public import app
 from app.config import settings
 from app.domain import now
 from app.models import AppealPhoto, CitizenAppeal, Organization
 from app.organization_registry import bootstrap
-
-
-def test_share_links_contain_only_the_url_without_a_prepared_message():
-    url = "https://signal.example/a/123"
-    links = dict(share_links(url))
-    assert parse_qs(urlsplit(links["MAX"]).query) == {"text": [url]}
-    assert parse_qs(urlsplit(links["Telegram"]).query) == {"url": [url]}
-    assert parse_qs(urlsplit(links["ВКонтакте"]).query) == {"url": [url]}
 
 
 def test_preview_handles_long_addresses_and_is_a_complete_social_card():
@@ -70,7 +61,8 @@ def test_public_link_has_server_rendered_metadata_photo_and_no_private_fields(sh
         assert f'https://signal.example/a/{shared.id}/card.jpg' in page.text
         assert "private-" not in page.text and "untrusted-host" not in page.text
         assert '<script>alert' not in page.text and '&lt;script&gt;alert' in page.text
-        assert "Поделиться в MAX" in page.text and "Ответ организации" not in page.text
+        assert "Копировать ссылку" in page.text and "Ответ организации" not in page.text
+        assert "max.ru/:share" not in page.text and "vk.com/share.php" not in page.text
         card = citizen.get(f"/a/{shared.id}/card.jpg")
         assert card.status_code == 200 and card.headers["content-type"] == "image/jpeg"
         assert "no-store" in card.headers["cache-control"]

@@ -1,0 +1,14 @@
+[Unit]
+Description=Metka owner dashboard host metrics
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /root/max_bot_foto/ops/monitor/max_foto_monitor.py
+TimeoutStartSec=120
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

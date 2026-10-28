@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import AppealShare, { appealShareLinks } from './AppealShare';
+import AppealShare, { appealShareLinks, SignalShare } from './AppealShare';
 
 let root: Root, element: HTMLDivElement;
 beforeEach(() => {
@@ -26,7 +26,7 @@ it('copies the short link without opening or sending any message', async () => {
   const writeText = vi.fn().mockResolvedValue(undefined);
   vi.spyOn(navigator, 'clipboard', 'get').mockReturnValue({writeText} as unknown as Clipboard);
   await act(async () => root.render(<AppealShare id={12} url="https://signal.example/a/12"/>));
-  expect(element.querySelectorAll('a[target="_blank"]')).toHaveLength(3);
+  expect(element.querySelectorAll('a[target="_blank"]')).toHaveLength(0);
   await act(async () => element.querySelector<HTMLButtonElement>('button')!.click());
   expect(writeText).toHaveBeenCalledWith('https://signal.example/a/12');
   expect(element.textContent).toContain('Ссылка скопирована');
@@ -37,4 +37,16 @@ it('shows a selectable link when the clipboard is unavailable', async () => {
   await act(async () => element.querySelector<HTMLButtonElement>('button')!.click());
   const input = element.querySelector<HTMLInputElement>('input')!;
   expect(input.value).toBe('https://signal.example/a/12'); expect(input.readOnly).toBe(true);
+});
+
+it('shares the Signal form from Metka and attributes only the link source', async () => {
+  await act(async () => root.render(<SignalShare url="https://signal.example/"/>));
+  const links = [...element.querySelectorAll<HTMLAnchorElement>('a[target="_blank"]')];
+  expect(links).toHaveLength(3);
+  for (const [i, source] of ['max','telegram','vk'].entries()) {
+    const share = new URL(links[i].href);
+    const value = share.searchParams.get(i === 0 ? 'text' : 'url')!;
+    expect(value).toBe('https://signal.example/?from=' + source);
+    expect([...share.searchParams.keys()]).toEqual([i === 0 ? 'text' : 'url']);
+  }
 });

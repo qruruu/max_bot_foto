@@ -5,6 +5,7 @@ import { api } from '../api';
 import AppealActions from './AppealActions';
 import type { WorkflowAppeal } from './AppealActions';
 import AppealDiscussion from './AppealDiscussion';
+import { SignalShare } from './AppealShare';
 import { appealStatuses } from './Wall';
 import './owner-appeals.css';
 
@@ -117,7 +118,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
       </div>}
     </> : <>
       {data && !readOnly && data.can_manage !== false && !data.can_execute && <div className="panel owner-appeal-public"><div><strong>Страница для жителей</strong><p className="hint">Передайте ссылку или разместите её в объявлениях.</p></div>
-        <a className="button" href={data.public_url} target="_blank" rel="noreferrer">Открыть форму<ArrowUpRight size={16}/></a></div>}
+        <div className="owner-signal-share"><a className="button" href={data.public_url} target="_blank" rel="noreferrer">Открыть форму<ArrowUpRight size={16}/></a><SignalShare url={data.public_url}/></div></div>}
       <div className="appeal-folder-tabs" role="tablist" aria-label="Раздел обращений">{[false, true].map(value => <button key={String(value)} role="tab" aria-selected={archived === value} onClick={() => {setArchived(value); setPage(1); setStatus('');}}>{value ? 'Архив' : 'Рабочий список'}</button>)}</div>
       <div className="owner-appeal-toolbar"><label>Состояние<select value={status} onChange={event => {setStatus(event.target.value); setPage(1);}}><option value="">Все обращения</option>
         {Object.entries(statuses).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><span className="hint">{data ? `${data.total} обращений` : 'Загружаем…'}</span></div>

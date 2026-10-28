@@ -33,13 +33,6 @@ def appeal_url(appeal_id):
     return f"{public_origin()}/a/{appeal_id}"
 
 
-def share_links(url):
-    # A link only: never add a prewritten message, contacts or private task data.
-    return [("MAX", "https://max.ru/:share?" + urlencode({"text": url})),
-            ("Telegram", "https://t.me/share/url?" + urlencode({"url": url})),
-            ("ВКонтакте", "https://vk.com/share.php?" + urlencode({"url": url}))]
-
-
 def photo_gallery(photos, label):
     if not photos:
         return ""
@@ -57,8 +50,6 @@ def public_html(item):
     image = f'{url}/card.jpg?v={item["updated_at"].timestamp():.0f}'
     created = item["created_at"].astimezone(ZoneInfo(base_settings().app_timezone)).strftime("%d.%m.%Y в %H:%M")
     e = escape
-    buttons = "".join(f'<a href="{e(href, quote=True)}" target="_blank" rel="noopener noreferrer nofollow" '
-                      f'aria-label="Поделиться в {name}">{name}</a>' for name, href in share_links(url))
     response = ""
     if item["response"]:
         result = item["response"]
@@ -78,16 +69,15 @@ def public_html(item):
 <meta property="og:image:width" content="1200"/><meta property="og:image:height" content="630"/>
 <meta property="og:image:type" content="image/jpeg"/><meta property="og:image:alt" content="Обращение {e(item['number'])}: {e(item['address'], quote=True)}"/>
 <meta name="twitter:card" content="summary_large_image"/>
-<link rel="stylesheet" href="/appeal-detail.css"/><script src="/appeal-detail.js" defer></script></head>
-<body><div class="signal-detail-shell"><header class="signal-detail-header"><a class="signal-detail-brand" href="{e(wall_url, quote=True)}"><span aria-hidden="true">◉</span>Сигнал</a><span>{e(item["city"])}</span></header>
+<link rel="stylesheet" href="/appeal-detail.css"/><script src="/usage.js" defer></script><script src="/appeal-detail.js" defer></script></head>
+<body data-usage-page="appeals"><div class="signal-detail-shell"><header class="signal-detail-header"><a class="signal-detail-brand" href="{e(wall_url, quote=True)}"><span aria-hidden="true">◉</span>Сигнал</a><span>{e(item["city"])}</span></header>
 <main><a class="signal-detail-back" href="{e(wall_url, quote=True)}">← Все обращения города</a>
 <article class="signal-detail-card"><div class="signal-detail-meta"><span>{e(item["number"])}</span><span class="signal-detail-status status-{item['status']}">{status}</span></div>
 <h1>{e(item["address"])}</h1>{f'<p class="signal-detail-place">{e(item["place"])}</p>' if item["place"] else ''}
 <p class="signal-detail-organization">{e(item["organization_name"])}</p><p class="signal-detail-date">{created}</p>
 <p class="signal-detail-text">{e(item["description"])}</p>{photo_gallery(item["photos"], "Фотография обращения")}{response}
-<section class="signal-detail-share" aria-label="Поделиться обращением"><h2>Поделиться обращением</h2>
-<p>Отправьте ссылку соседям — здесь можно посмотреть статус и ответ организации.</p>
-<div class="signal-detail-share-actions">{buttons}<button type="button" id="copy-link" data-url="{e(url, quote=True)}">Копировать ссылку</button></div>
+<section class="signal-detail-share" aria-label="Ссылка на обращение"><h2>Ссылка на обращение</h2>
+<div class="signal-detail-share-actions"><button type="button" id="copy-link" data-url="{e(url, quote=True)}">Копировать ссылку</button></div>
 <p id="copy-status" role="status" aria-live="polite"></p><label id="copy-manual" hidden>Скопируйте ссылку<input readonly value="{e(url, quote=True)}" aria-label="Ссылка на обращение"/></label></section></article>
 <p class="signal-detail-footnote">Статус актуален на момент открытия. <a href="{e(url, quote=True)}">Обновить обращение</a></p>
 </main><footer>Сигнал · обращения жителей и ответы организаций</footer></div></body></html>'''

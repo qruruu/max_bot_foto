@@ -38,6 +38,8 @@ def record_session_activity(db):
             )
         )
         db.commit()
+        from app.platform_tracking import record_operator_activity
+        record_operator_activity(activity)
     except SQLAlchemyError as exc:
         db.rollback()
         log.warning("session_activity_error=%s", type(exc).__name__)

@@ -56,10 +56,13 @@ def current_inspector(request: Request, db: Db):
         if not secrets.compare_digest(session.csrf_hash, digest(request.headers.get("x-csrf-token", ""))):
             raise HTTPException(403, "Недействительный CSRF-токен")
     request.state.inspection_session = session
+    from app.platform_security import actor_context
+    actor_context(request, account, inspector=True)
     if session.last_seen_at is None or session.last_seen_at < now() - timedelta(minutes=1):
         db.info["session_activity"] = {"inspection": True, "token_hash": session.token_hash, "at": now(),
                                        "user_agent": request.headers.get("user-agent", "")[:512] or None,
                                        "ip_address": client_address(request)}
+        db.info["session_activity"]["analytics_actor"] = {"key": f"inspector:{account.id}", "kind": "inspector"}
     account._agency = agency
     return account
 
@@ -88,6 +91,10 @@ def try_inspector_login(body, request, response, db):
                              ip_address=client_address(request),
                              expires_at=instant + timedelta(hours=base_settings().session_hours)))
     db.commit()
+    from app.platform_security import actor_context
+    actor_context(request, account, inspector=True)
+    from app.platform_tracking import record_operator_activity
+    record_operator_activity({'at': instant, 'analytics_actor': {'key': f'inspector:{account.id}', 'kind': 'inspector'}})
     for name in ("platform_session", "platform_csrf", "workspace_session", "workspace_csrf",
                  "login_choice", "login_choice_csrf"):
         response.delete_cookie(name, path="/")

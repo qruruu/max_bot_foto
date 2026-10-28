@@ -3,9 +3,13 @@ import App from './App';
 import { api } from './api';
 import Organizations from './Organizations';
 import { workspacePrefix } from './workspace';
+import { useLocation } from 'react-router-dom';
+import { metkaPage, useUsage } from './useUsage';
 const InspectorApp = lazy(() => import('./inspection/InspectorApp'));
 
 export default function Application() {
+  const location = useLocation();
+  useUsage('metka', metkaPage(location.pathname), location.key);
   const inspection = /^\/inspection(?:\/|$)/.test(window.location.pathname);
   const [enabled, setEnabled] = useState<boolean | null>(workspacePrefix() || inspection ? false : null);
   const [error, setError] = useState('');

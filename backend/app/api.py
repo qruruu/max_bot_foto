@@ -101,6 +101,10 @@ from app.photo_ordering import apply_sort_permission, photo_order, photo_positio
 from app.photo_promotion import production_duplicate
 from app.photo_promotion import router as photo_promotion_router
 from app.photo_scope import active_cohort, active_cohort_condition
+from app.platform_dashboard import router as platform_dashboard_router
+from app.platform_security import SecurityMiddleware
+from app.platform_tracking import RequestMetricsMiddleware
+from app.platform_tracking import public_router as metrics_public_router
 from app.receiver import connection_status, received
 from app.reports import export_excel, filtered, photo_dict, photo_list_position, summarize
 from app.schemas import (
@@ -134,6 +138,8 @@ app.include_router(inspection_admin_router)
 app.include_router(appeals_owner_router)
 app.include_router(appeals_organization_router)
 app.include_router(appeals_public_router)
+app.include_router(metrics_public_router)
+app.include_router(platform_dashboard_router)
 app.include_router(appeal_sharing_router)
 app.include_router(signin_router)
 app.include_router(operator_chats_router)
@@ -147,8 +153,10 @@ app.include_router(daily_reports_router)
 app.include_router(organizations_router)
 app.include_router(disk_accounts_router)
 app.include_router(photo_promotion_router)
+app.add_middleware(SecurityMiddleware, product="metka")
 app.add_middleware(OrganizationsMiddleware)
 app.add_middleware(AppealBodyLimit)
+app.add_middleware(RequestMetricsMiddleware, product="metka")
 Filters = Annotated[PhotoFilters, Query()]
 
 
