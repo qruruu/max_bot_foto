@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { appealStatuses } from './Wall';
+import { galleryPhoto } from './gallery';
 
 export type ResultPhoto = {id: string; url: string; preview_url: string};
 export type AppealTask = {id: number; operator_id: number; operator_name: string; instruction?: string;
@@ -16,6 +17,7 @@ export default function AppealActions({appeal, endpoint, readOnly, changed}: {
   const [instruction, setInstruction] = useState(''), [result, setResult] = useState(appeal.status), [comment, setComment] = useState('');
   const [files, setFiles] = useState<File[]>([]), [answer, setAnswer] = useState(''), [selectedPhotos, setSelectedPhotos] = useState<string[]>([]);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [preparing, setPreparing] = useState(false), sending = useRef(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const manage = !readOnly && appeal.can_manage !== false && !appeal.can_execute;
   const execute = !readOnly && appeal.can_execute;
@@ -27,11 +29,23 @@ export default function AppealActions({appeal, endpoint, readOnly, changed}: {
     return () => abort.abort();
   }, [appeal.id, appeal.status, endpoint, manage]);
   async function send(path: string, body?: unknown) {
-    if (busy) return;
+    if (sending.current) return;
+    sending.current = true;
     setBusy(true); setError('');
-    try {await api(endpoint + '/' + appeal.id + path, 'POST', body); window.dispatchEvent(new Event('appeals-changed')); changed();}
+    try {
+      if (body instanceof FormData && body.has('photos')) {
+        setPreparing(true);
+        const photos = body.getAll('photos'); body.delete('photos');
+        for (const [index, file] of photos.entries()) {
+          const {blob} = await galleryPhoto(file as File);
+          body.append('photos', blob, blob.type === 'image/jpeg' ? `result-${index + 1}.jpg` : (file as File).name);
+        }
+        setPreparing(false);
+      }
+      await api(endpoint + '/' + appeal.id + path, 'POST', body); window.dispatchEvent(new Event('appeals-changed')); changed();
+    }
     catch (reason) {setError((reason as Error).message);}
-    finally {setBusy(false);}
+    finally {sending.current = false; setPreparing(false); setBusy(false);}
   }
   function upload(metadata: object) {
     const form = new FormData(); form.append('metadata', JSON.stringify({...metadata, expected_version: appeal.version}));
@@ -49,7 +63,7 @@ export default function AppealActions({appeal, endpoint, readOnly, changed}: {
       {['ASSIGNED', 'IN_PROGRESS'].includes(result) ? <button className="primary" disabled={busy || result === appeal.status} onClick={() => void send('/task-status', {status: result, expected_version: appeal.version})}>Сохранить статус задачи</button> : <>
         <label>Комментарий<textarea disabled={busy} value={comment} maxLength={4000} onChange={event => setComment(event.target.value)} placeholder="Что сделано или почему задача отменена"/></label>
         <PhotoInput disabled={busy} files={files} onChange={setFiles}/>
-        <button className="primary" disabled={busy || !comment.trim() || !files.length || files.length > 3} onClick={() => void send('/result', upload({status: result, comment}))}>Передать результат администратору</button>
+        <button className="primary" disabled={busy || !comment.trim() || !files.length || files.length > 3} onClick={() => void send('/result', upload({status: result, comment}))}>{preparing ? 'Подготавливаем фото…' : busy ? 'Отправляем…' : 'Передать результат администратору'}</button>
       </>}
     </section>}
     {manage && !['RESOLVED', 'SPAM'].includes(appeal.status) && <>
@@ -76,12 +90,12 @@ export default function AppealActions({appeal, endpoint, readOnly, changed}: {
     {confirmClose && <div className="modal-backdrop"><section className="modal appeal-confirm" role="alertdialog" aria-modal="true" aria-labelledby="appeal-close-title" onKeyDown={event => {if (event.key === 'Escape' && !busy) setConfirmClose(false);}}>
       <h2 id="appeal-close-title">Закрыть обращение?</h2><p>{appeal.is_public === false ? 'Ответ и фотографии будут сохранены в «Метке».' : 'Ответ и выбранные фотографии будут опубликованы на стене «Сигнала».'}</p>
       <blockquote className="owner-appeal-text">{answer}</blockquote><p>Фотографий результата: {selectedPhotos.length + files.length}</p>
-      <div className="owner-appeal-header-actions"><button autoFocus disabled={busy} onClick={() => setConfirmClose(false)}>Продолжить редактирование</button><button className="primary" disabled={busy} onClick={() => void send('/close', upload({comment: answer, operator_photo_ids: selectedPhotos}))}>{busy ? 'Закрываем…' : 'Подтвердить закрытие'}</button></div>
+      <div className="owner-appeal-header-actions"><button autoFocus disabled={busy} onClick={() => setConfirmClose(false)}>Продолжить редактирование</button><button className="primary" disabled={busy} onClick={() => void send('/close', upload({comment: answer, operator_photo_ids: selectedPhotos}))}>{preparing ? 'Подготавливаем фото…' : busy ? 'Закрываем…' : 'Подтвердить закрытие'}</button></div>
     </section></div>}
   </div>;
 }
 
 function PhotoInput({disabled, files, onChange}: {disabled: boolean; files: File[]; onChange: (files: File[]) => void}) {
-  return <label>Свои фотографии результата <small>до 3 файлов по 6 МБ</small><input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple disabled={disabled}
+  return <label>Свои фотографии результата <small>до 3 файлов по 25 МБ</small><input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif" multiple disabled={disabled}
     onChange={event => onChange([...(event.target.files || [])])}/>{files.length > 0 && <span className="hint">Выбрано: {files.length}</span>}</label>;
 }

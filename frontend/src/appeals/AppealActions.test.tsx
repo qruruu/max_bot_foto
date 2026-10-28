@@ -6,8 +6,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import AppealActions from './AppealActions';
 import type { WorkflowAppeal } from './AppealActions';
 import { api } from '../api';
+import { galleryPhoto } from './gallery';
 
 vi.mock('../api', () => ({api: vi.fn()}));
+vi.mock('./gallery', () => ({galleryPhoto: vi.fn()}));
 let root: Root, element: HTMLDivElement;
 const tick = () => new Promise(resolve => setTimeout(resolve, 0)), changed = vi.fn();
 const appeal: WorkflowAppeal = {id: 42, version: 3, status: 'COMPLETED', is_public: true, can_manage: true,
@@ -15,6 +17,7 @@ const appeal: WorkflowAppeal = {id: 42, version: 3, status: 'COMPLETED', is_publ
     photos: [{id: 'photo', url: '/result', preview_url: '/preview'}]}};
 beforeEach(() => {
   vi.clearAllMocks(); vi.mocked(api).mockResolvedValue([]);
+  vi.mocked(galleryPhoto).mockResolvedValue({id: 'prepared', blob: new Blob(['prepared'], {type: 'image/jpeg'}), preview: new Blob()});
   (globalThis as {IS_REACT_ACT_ENVIRONMENT?: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
   element = document.createElement('div'); document.body.append(element); root = createRoot(element);
 });
@@ -65,4 +68,48 @@ it('lets the operator return an active task to assigned and offers cancellation 
   await act(async () => {select.value = 'ASSIGNED'; select.dispatchEvent(new Event('change', {bubbles: true}));});
   await click(byText('Сохранить статус задачи'));
   expect(api).toHaveBeenCalledWith('/appeals/42/task-status', 'POST', {status: 'ASSIGNED', expected_version: 3});
+});
+
+it.each(['operator', 'admin'])('prepares selected phone photos before submitting the %s result', async role => {
+  await mount(role === 'operator' ? {...appeal, status: 'ASSIGNED', can_manage: false, can_execute: true} : appeal);
+  if (role === 'operator') await act(async () => {
+    const select = element.querySelector('select')!; select.value = 'COMPLETED'; select.dispatchEvent(new Event('change', {bubbles: true}));
+  });
+  const photo = new File(['phone-original'], 'IMG_3557.jpeg', {type: 'image/jpeg'});
+  await act(async () => {
+    const textarea = [...element.querySelectorAll('textarea')].at(-1)!;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Почистили');
+    textarea.dispatchEvent(new Event('input', {bubbles: true}));
+    const input = element.querySelector<HTMLInputElement>('input[type=file]')!;
+    Object.defineProperty(input, 'files', {value: [photo]}); input.dispatchEvent(new Event('change', {bubbles: true}));
+  });
+  expect(element.textContent).toContain('по 25 МБ');
+  if (role === 'admin') {await click(byText('Закрыть и опубликовать')); await click(byText('Подтвердить закрытие'));}
+  else await click(byText('Передать результат'));
+  expect(galleryPhoto).toHaveBeenCalledWith(photo);
+  const call = vi.mocked(api).mock.calls.find(([, method]) => method === 'POST')!;
+  expect(call[0]).toBe(`/appeals/42/${role === 'operator' ? 'result' : 'close'}`);
+  const body = call[2] as FormData, uploaded = body.get('photos') as File;
+  expect(uploaded.type).toBe('image/jpeg'); expect(uploaded.name).toBe('result-1.jpg'); expect(uploaded.size).toBe(8);
+  expect(JSON.parse(body.get('metadata') as string)).toMatchObject({comment: 'Почистили', expected_version: 3});
+  expect(changed).toHaveBeenCalledTimes(1);
+});
+
+it('keeps the comment and selected photo after a preparation error so the operator can retry', async () => {
+  vi.mocked(galleryPhoto).mockRejectedValueOnce(new Error('Одна фотография должна занимать не больше 25 МБ'));
+  await mount({...appeal, status: 'ASSIGNED', can_manage: false, can_execute: true});
+  await act(async () => {
+    const select = element.querySelector('select')!; select.value = 'COMPLETED'; select.dispatchEvent(new Event('change', {bubbles: true}));
+  });
+  await act(async () => {
+    const textarea = element.querySelector('textarea')!;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Почистили'); textarea.dispatchEvent(new Event('input', {bubbles: true}));
+    const input = element.querySelector('input[type=file]')!;
+    Object.defineProperty(input, 'files', {value: [new File(['original'], 'phone.jpeg')]}); input.dispatchEvent(new Event('change', {bubbles: true}));
+  });
+  await click(byText('Передать результат'));
+  expect(element.querySelector('[role=alert]')?.textContent).toContain('25 МБ');
+  expect(element.querySelector('textarea')?.value).toBe('Почистили'); expect(element.textContent).toContain('Выбрано: 1');
+  expect(vi.mocked(api).mock.calls.filter(([, method]) => method === 'POST')).toHaveLength(0);
+  await click(byText('Передать результат')); expect(changed).toHaveBeenCalledTimes(1);
 });

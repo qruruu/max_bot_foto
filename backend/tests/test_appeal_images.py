@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from PIL import Image
 from pydantic import ValidationError
 
-from app.appeal_images import prepare_photo, stamp_lines
+from app.appeal_images import MAX_PHOTO_BYTES, prepare_photo, prepare_upload, stamp_lines
 from app.appeals import Capture
 
 
@@ -15,6 +15,47 @@ def frame(size=(1440, 1920), format="JPEG"):
     output = BytesIO()
     Image.new("RGB", size, "#87998d").save(output, format)
     return output.getvalue()
+
+
+def phone_jpeg():
+    output = BytesIO()
+    Image.new("RGB", (800, 600), "green").save(
+        output, "MPO", save_all=True, append_images=[Image.new("RGB", (800, 600), "red")])
+    return output.getvalue()
+
+
+def test_phone_jpeg_with_auxiliary_frames_keeps_only_primary_image():
+    content = phone_jpeg()
+    with Image.open(BytesIO(content)) as source:
+        assert source.format == "MPO" and source.n_frames == 2
+    prepared = prepare_upload(content)
+    with Image.open(BytesIO(prepared["original"])) as image:
+        assert image.format == "JPEG" and getattr(image, "n_frames", 1) == 1
+        assert image.size == (800, 600) and not image.getexif()
+        red, green, blue = image.getpixel((100, 100))
+        assert green > 100 and red < 10 and blue < 10
+
+
+def test_gallery_accepts_a_real_image_above_the_previous_six_megabyte_limit():
+    output = BytesIO()
+    Image.new("RGB", (1800, 1300), "green").save(output, "PNG", compress_level=0)
+    assert 6 * 1024 * 1024 < len(output.getvalue()) <= MAX_PHOTO_BYTES
+    prepared = prepare_upload(output.getvalue())
+    assert (prepared["width"], prepared["height"]) == (1800, 1300)
+    assert len(prepared["original"]) < 6 * 1024 * 1024
+
+
+def test_gallery_rejects_files_above_twenty_five_megabytes():
+    with pytest.raises(HTTPException) as error:
+        prepare_upload(b"\0" * (25 * 1024 * 1024 + 1))
+    assert error.value.status_code == 413 and "25 МБ" in error.value.detail
+
+
+@pytest.mark.parametrize("content", [b"not an image", frame(format="GIF"), frame(size=(100, 100))])
+def test_gallery_still_checks_image_contents_and_dimensions(content):
+    with pytest.raises(HTTPException) as error:
+        prepare_upload(content)
+    assert error.value.status_code == 422
 
 
 def capture(**kwargs):

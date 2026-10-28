@@ -10,7 +10,7 @@ from PIL import Image
 from shapely.geometry import MultiPolygon, Polygon
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from test_appeal_images import frame
+from test_appeal_images import frame, phone_jpeg
 from test_inspections import grant
 from test_inspections import inspection as inspection
 from test_organizations import companies as companies
@@ -68,6 +68,40 @@ def submit(citizen, body, token=None):
 def multipart(client, path, body, photos=True):
     return client.post(path, data={"metadata": json.dumps(body)},
                        files={"photos": ("result.jpg", frame(), "image/jpeg")} if photos else None)
+
+
+def test_large_citizen_photo_and_phone_jpeg_operator_admin_results(workflow):
+    owner, scopes, operators, operator_ids, addresses, _ = workflow
+    scope = scopes[0]
+    endpoint = scope.prefix + "/api/appeals"
+    large = BytesIO()
+    Image.new("RGB", (1800, 1300), "green").save(large, "PNG", compress_level=0)
+    assert len(large.getvalue()) > 6 * 1024 * 1024
+    with TestClient(public_app) as citizen:
+        submitted = citizen.post("/api/public/appeals/submissions", headers={**HEADERS, "x-capture-token": session(citizen)},
+                                 data={"metadata": json.dumps(metadata(scope, addresses[0]))},
+                                 files={"photos": ("phone.png", large.getvalue(), "image/png")})
+        assert submitted.status_code == 201, submitted.text
+        appeal = owner.get(endpoint).json()["items"][0]
+        path = endpoint + f'/{appeal["id"]}'
+        assigned = owner.post(path + "/assign", json={"operator_id": operator_ids[0], "expected_version": 1})
+        assert assigned.status_code == 200, assigned.text
+        result = operators[0].post(path + "/result", data={"metadata": json.dumps({
+            "status": "COMPLETED", "comment": "Почистили", "expected_version": 2})},
+            files={"photos": ("IMG_3557.jpeg", phone_jpeg(), "image/jpeg")})
+        assert result.status_code == 200, result.text
+        closed = owner.post(path + "/close", data={"metadata": json.dumps({
+            "comment": "Работа выполнена", "expected_version": 3, "operator_photo_ids": []})},
+            files={"photos": ("IMG_3558.jpeg", phone_jpeg(), "image/jpeg")})
+        assert closed.status_code == 200, closed.text
+        wall = citizen.get(f'/api/public/appeals/wall/{appeal["id"]}').json()
+        assert wall["status"] == "RESOLVED"
+        published = citizen.get(wall["response"]["photos"][0]["url"])
+        assert published.status_code == 200
+        with Image.open(BytesIO(published.content)) as image:
+            assert image.format == "JPEG" and getattr(image, "n_frames", 1) == 1
+            red, green, blue = image.getpixel((100, 100))
+            assert green > 100 and red < 10 and blue < 10
 
 
 def test_gallery_requires_allowed_address_map_point_photos_and_consent(workflow):
