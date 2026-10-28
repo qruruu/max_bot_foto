@@ -4,9 +4,9 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from PIL import Image
+from PIL import Image, ImageDraw
 
-from app.appeal_sharing import preview_card, share_links
+from app.appeal_sharing import card_font, card_lines, preview_card, share_links
 from app.appeals_public import app
 from app.config import settings
 from app.domain import now
@@ -28,6 +28,13 @@ def test_preview_handles_long_addresses_and_is_a_complete_social_card():
     with Image.open(BytesIO(image)) as card:
         assert card.format == "JPEG" and card.size == (1200, 630)
         assert card.getpixel((0, 0)) == (246, 248, 245)
+
+
+def test_card_wraps_ordinary_words_whole():
+    draw = ImageDraw.Draw(Image.new("RGB", (1200, 630)))
+    font = card_font(23)
+    lines = card_lines(draw, "Просим убрать территорию", font, draw.textlength("Просим убрать", font=font) + 1, 3)
+    assert lines == ["Просим убрать", "территорию"]
 
 
 @pytest.fixture

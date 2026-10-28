@@ -127,7 +127,15 @@ def card_font(size, bold=False):
 def card_lines(draw, value, font, width, maximum):
     lines, line = [], ""
     for word in " ".join(value.split()).split(" "):
-        for character in word + " ":
+        candidate = (line + " " + word).strip()
+        if draw.textlength(candidate, font=font) <= width:
+            line = candidate
+            continue
+        if line:
+            lines.append(line)
+            line = ""
+        # Only a single word wider than the entire card may break inside a word.
+        for character in word:
             if draw.textlength(line + character, font=font) > width and line:
                 lines.append(line.rstrip())
                 line = ""
