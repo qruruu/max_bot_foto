@@ -25,6 +25,8 @@ it('renders the complaint and public administrator result without personal or pr
   await act(async () => {root.render(<Wall city="Сургут" organizations={organizations} revision={0}/>); await tick();});
   expect(element.textContent).toContain('Переполненная урна'); expect(element.textContent).toContain('Урну очистили');
   expect(element.textContent).not.toContain('private-');
+  expect(element.querySelector('img')).toBeNull();
+  await act(async () => {element.querySelector<HTMLButtonElement>('.appeal-photo-toggle')!.click(); await tick();});
   expect(element.querySelector<HTMLAnchorElement>('a')!.getAttribute('href')).toBe('/public-result');
   const select = element.querySelector<HTMLSelectElement>('select')!;
   await act(async () => {select.value = 'one'; select.dispatchEvent(new Event('change', {bubbles: true})); await tick();});

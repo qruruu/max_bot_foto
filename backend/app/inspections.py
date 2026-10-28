@@ -17,7 +17,7 @@ from pydantic import Field
 from sqlalchemy import Date, cast, delete, func, select, text, update
 from sqlalchemy.orm import Session
 
-from app.appeal_events import CommentInput, add_comment, event_page
+from app.appeal_events import CommentInput, add_comment, event_page, record_event, unanswered_comments
 from app.auth import AdminUser, Db, digest, hasher
 from app.config import base_settings
 from app.day_verification import confirmed_condition
@@ -55,6 +55,11 @@ admin_router = APIRouter(prefix="/api/inspection-admin", tags=["inspection-admin
 class AgencyInput(StrictModel):
     name: str = Field(min_length=1, max_length=150)
     active: bool = True
+
+
+class InspectorAppealStatusInput(StrictModel):
+    status: Literal["COMPLETED", "CANCELLED"]
+    expected_version: int = Field(ge=1)
 
 
 class AccountInput(StrictModel):
@@ -590,26 +595,30 @@ async def create_inspector_appeal(organization_id: UUID, request: Request, db: D
 
 @router.get("/organizations/{organization_id}/appeals")
 def appeals(organization_id: UUID, db: Db, user: InspectorUser, page: int = Query(default=1, ge=1),
-            status: Literal["NEW", "IN_REVIEW", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "REJECTED", "CANCELLED", "RESOLVED", "SPAM"] | None = None,
+            status: Literal["NEW", "IN_REVIEW", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "REJECTED", "CANCELLED", "RESOLVED", "DECLINED", "SPAM"] | None = None,
             archived: bool = False):
     authorized_organization(db, user, organization_id)
     condition = CitizenAppeal.organization_id == str(organization_id)
     condition = condition & (CitizenAppeal.archived_at.is_not(None) if archived else CitizenAppeal.archived_at.is_(None))
     if status:
         condition = condition & (CitizenAppeal.status == status)
+    rows = list(db.scalars(select(CitizenAppeal).where(condition)
+                          .order_by(CitizenAppeal.id.desc()).offset((page - 1) * 20).limit(20)))
+    messages = unanswered_comments(db, [appeal.id for appeal in rows], user, inspector=True)
     return {"total": db.scalar(select(func.count()).select_from(CitizenAppeal).where(condition)), "page": page, "page_size": 20,
-            "items": [restricted_appeal(db, a) for a in db.scalars(select(CitizenAppeal).where(condition)
-                        .order_by(CitizenAppeal.id.desc()).offset((page - 1) * 20).limit(20))]}
+            "items": [{**restricted_appeal(db, a), "unanswered_comments": messages.get(a.id, 0)} for a in rows]}
 
 
 def restricted_appeal(db, appeal):
     from app.appeal_workflow import workflow_detail
     first = db.scalar(select(AppealPhoto.id).where(AppealPhoto.appeal_id == appeal.id).order_by(AppealPhoto.position).limit(1))
     return {key: getattr(appeal, key) for key in ("id", "organization_id", "organization_name", "city", "address", "place",
-            "description", "work_type_name", "category", "status", "created_at", "updated_at", "latitude", "longitude",
+            "description", "work_type_name", "category", "status", "version", "created_at", "updated_at", "latitude", "longitude",
             "public_response", "resolved_at", "is_public", "submitted_by_inspector_id", "submitted_by_inspector_name", "archived_at")} | workflow_detail(db, appeal,
                 lambda path: f"/api/inspection/organizations/{appeal.organization_id}/appeals" + path, private=False) | {
         "number": f"ОБ-{appeal.id:06d}", "photo_count": appeal.photo_count,
+        "can_manage": False, "can_execute": False,
+        "can_set_task_status": not appeal.archived_at and appeal.status not in {"RESOLVED", "DECLINED", "SPAM"},
         "preview_url": f"/api/inspection/organizations/{appeal.organization_id}/appeals/{appeal.id}/photos/{first}?variant=preview" if first else None,
         "photos": [{"id": p.id, "url": f"/api/inspection/organizations/{appeal.organization_id}/appeals/{appeal.id}/photos/{p.id}",
                     "preview_url": f"/api/inspection/organizations/{appeal.organization_id}/appeals/{appeal.id}/photos/{p.id}?variant=preview",
@@ -664,7 +673,32 @@ def appeal_detail(organization_id: UUID, appeal_id: int, db: Db, user: Inspector
     appeal = db.get(CitizenAppeal, appeal_id)
     if not appeal or appeal.organization_id != str(organization_id):
         raise HTTPException(404, "Обращение не найдено")
-    return restricted_appeal(db, appeal)
+    return {**restricted_appeal(db, appeal),
+            "unanswered_comments": unanswered_comments(db, [appeal.id], user, inspector=True).get(appeal.id, 0)}
+
+
+@router.post("/organizations/{organization_id}/appeals/{appeal_id}/task-status")
+def inspector_appeal_status(organization_id: UUID, appeal_id: int, body: InspectorAppealStatusInput, db: Db, user: InspectorUser):
+    from app.appeal_workflow import latest_task, versioned
+    authorized_organization(db, user, organization_id)
+    appeal = db.get(CitizenAppeal, appeal_id, with_for_update=True)
+    if not appeal or appeal.organization_id != str(organization_id):
+        raise HTTPException(404, "Обращение не найдено")
+    versioned(appeal, body.expected_version)
+    if appeal.archived_at or appeal.status in {"RESOLVED", "DECLINED", "SPAM"}:
+        raise HTTPException(409, "Статус закрытого обращения или спама изменить нельзя")
+    if appeal.status != body.status:
+        before = appeal.status
+        task = latest_task(db, appeal.id)
+        if task:
+            task.status = body.status
+        appeal.status, appeal.updated_at = body.status, now()
+        appeal.version += 1
+        record_event(db, appeal, "STATUS", user, inspector=True)
+        audit(db, None, "INSPECTOR_APPEAL_STATUS", "citizen_appeal", appeal.id, {"status": before},
+              {"status": appeal.status, "inspector_id": user.id, "organization_id": appeal.organization_id})
+    db.commit()
+    return {"ok": True, "version": appeal.version}
 
 
 @router.get("/organizations/{organization_id}/appeals/{appeal_id}/photos/{photo_id}")

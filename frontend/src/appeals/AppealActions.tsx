@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { appealStatuses } from './Wall';
 import { galleryPhoto } from './gallery';
+import AppealPhotos from './AppealPhotos';
 
 export type ResultPhoto = {id: string; url: string; preview_url: string};
 export type AppealTask = {id: number; operator_id: number; operator_name: string; instruction?: string;
   status: string; result_comment: string; photos: ResultPhoto[]; created_at: string};
 export type WorkflowAppeal = {id: number; status: string; version: number; can_manage?: boolean; can_execute?: boolean;
-  is_public?: boolean; archived_at?: string | null;
+  is_public?: boolean; archived_at?: string | null; can_set_task_status?: boolean;
   task?: AppealTask | null; task_history?: AppealTask[]; public_response?: string; response_photos?: ResultPhoto[]};
 
 export default function AppealActions({appeal, endpoint, readOnly, changed}: {
@@ -19,10 +20,11 @@ export default function AppealActions({appeal, endpoint, readOnly, changed}: {
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [preparing, setPreparing] = useState(false), sending = useRef(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [decision, setDecision] = useState('RESOLVED');
   const manage = !readOnly && appeal.can_manage !== false && !appeal.can_execute;
   const execute = !readOnly && appeal.can_execute;
   useEffect(() => {
-    if (!manage || ['RESOLVED', 'SPAM'].includes(appeal.status)) return;
+    if (!manage || ['RESOLVED', 'DECLINED', 'SPAM'].includes(appeal.status)) return;
     const abort = new AbortController();
     api<{id: number; name: string}[]>(endpoint + '/' + appeal.id + '/operators', 'GET', undefined, abort.signal)
       .then(setOperators).catch(reason => {if (!abort.signal.aborted) setError(reason.message);});
@@ -56,7 +58,13 @@ export default function AppealActions({appeal, endpoint, readOnly, changed}: {
     {appeal.task && <section className="appeal-task"><h3>Исполнитель: {appeal.task.operator_name}</h3><p className="hint">{appealStatuses[appeal.task.status]}</p>
       {appeal.task.instruction && <><strong>Комментарий к задаче</strong><p className="owner-appeal-text">{appeal.task.instruction}</p><small className="hint">Виден администратору и исполнителю.</small></>}
       {appeal.task.result_comment && <><h4>Результат исполнителя</h4><p className="owner-appeal-text">{appeal.task.result_comment}</p></>}
-      <div className="appeal-evidence">{appeal.task.photos.map(photo => <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Фото результата исполнителя"/></a>)}</div>
+      <AppealPhotos photos={appeal.task.photos} label="Фото результата исполнителя"/>
+    </section>}
+    {appeal.can_set_task_status && !appeal.archived_at && <section className="appeal-task"><h3>Статус задачи</h3>
+      <label>Состояние задачи<select disabled={busy} value={result} onChange={event => setResult(event.target.value)}>
+        {!['COMPLETED', 'CANCELLED'].includes(appeal.status) && <option value={appeal.status} disabled>{appealStatuses[appeal.status]}</option>}
+        <option value="COMPLETED">Выполнена</option><option value="CANCELLED">Отменена</option>
+      </select></label><button className="primary" disabled={busy || result === appeal.status} onClick={() => void send('/task-status', {status: result, expected_version: appeal.version})}>{busy ? 'Сохраняем…' : 'Сохранить статус задачи'}</button>
     </section>}
     {execute && reportable && <section className="appeal-task"><h3>Статус задачи</h3>
       <label>Состояние задачи<select disabled={busy} value={result} onChange={event => setResult(event.target.value)}><option value="ASSIGNED">Назначена</option><option value="IN_PROGRESS">В работе</option><option value="CANCELLED">Отменена</option><option value="COMPLETED">Выполнена</option></select></label>
@@ -66,7 +74,7 @@ export default function AppealActions({appeal, endpoint, readOnly, changed}: {
         <button className="primary" disabled={busy || !comment.trim() || !files.length || files.length > 3} onClick={() => void send('/result', upload({status: result, comment}))}>{preparing ? 'Подготавливаем фото…' : busy ? 'Отправляем…' : 'Передать результат администратору'}</button>
       </>}
     </section>}
-    {manage && !['RESOLVED', 'SPAM'].includes(appeal.status) && <>
+    {manage && !['RESOLVED', 'DECLINED', 'SPAM'].includes(appeal.status) && <>
       <section className="appeal-task"><h3>{appeal.task ? 'Перенаправить задачу' : 'Назначить исполнителя'}</h3>
         <label>Оператор<select value={operator} disabled={busy} onChange={event => setOperator(event.target.value)}><option value="">Выберите исполнителя</option>{operators.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         {!operators.length && <p className="hint">Добавьте действующего оператора в этой организации.</p>}
@@ -74,23 +82,26 @@ export default function AppealActions({appeal, endpoint, readOnly, changed}: {
         <p className="hint">Этот комментарий виден только администратору и оператору.</p>
         <button disabled={busy || !operator} onClick={() => void send('/assign', {operator_id: Number(operator), instruction, expected_version: appeal.version})}>Назначить</button>
       </section>
-      {(!appeal.task || ['COMPLETED', 'REJECTED', 'CANCELLED'].includes(appeal.task.status)) ? <section className="appeal-task"><h3>Закрыть обращение</h3><p className="hint">{appeal.is_public === false ? 'Ответ и фотографии результата останутся внутри «Метки».' : 'Ответ и выбранные фотографии результата появятся на стене города.'}</p>
+      <section className="appeal-task"><h3>Решение по обращению</h3>
+        <label>Решение<select value={decision} disabled={busy} onChange={event => setDecision(event.target.value)}><option value="RESOLVED">Закрыть обращение</option><option value="DECLINED">Отказ</option></select></label>
+        {decision === 'DECLINED' || !appeal.task || ['COMPLETED', 'REJECTED', 'CANCELLED'].includes(appeal.task.status) ? <><p className="hint">{appeal.is_public === false ? 'Ответ останется внутри «Метки». Фотографии необязательны.' : 'Ответ появится на стене города. Фотографии необязательны.'}</p>
         <label>{appeal.is_public === false ? 'Ответ организации' : 'Публичный ответ организации'}<textarea value={answer} disabled={busy} maxLength={4000} onChange={event => setAnswer(event.target.value)} placeholder="Результат рассмотрения обращения"/></label>
         {appeal.task && ['COMPLETED', 'REJECTED', 'CANCELLED'].includes(appeal.task.status) && appeal.task.photos.length > 0 && <div className="appeal-result-selection"><strong>Приложить фото исполнителя</strong>{appeal.task.photos.map(photo => <label key={photo.id}>
           <input type="checkbox" checked={selectedPhotos.includes(photo.id)} disabled={busy} onChange={event => setSelectedPhotos(current => event.target.checked ? [...current, photo.id] : current.filter(id => id !== photo.id))}/><img src={photo.preview_url} alt="Выбрать фотографию результата"/></label>)}</div>}
         <PhotoInput disabled={busy} files={files} onChange={setFiles}/>
-        <button className="primary" disabled={busy || !answer.trim() || !selectedPhotos.length && !files.length || selectedPhotos.length + files.length > 3}
-          onClick={() => setConfirmClose(true)}>{appeal.is_public === false ? 'Закрыть обращение и сохранить ответ' : 'Закрыть и опубликовать ответ'}</button>
-      </section> : <p className="hint">Закрытие и публикация ответа будут доступны после результата исполнителя.</p>}
+        <button className="primary" disabled={busy || !answer.trim() || selectedPhotos.length + files.length > 3}
+          onClick={() => setConfirmClose(true)}>{decision === 'DECLINED' ? appeal.is_public === false ? 'Отказать и сохранить ответ' : 'Отказать и опубликовать ответ' : appeal.is_public === false ? 'Закрыть обращение и сохранить ответ' : 'Закрыть и опубликовать ответ'}</button>
+        </> : <p className="hint">Закрытие и публикация ответа будут доступны после результата исполнителя.</p>}
+      </section>
     </>}
-    {appeal.public_response && appeal.status === 'RESOLVED' && <section className="appeal-task"><h3>{appeal.is_public === false ? 'Ответ организации в «Метке»' : 'Ответ организации на стене'}</h3><p className="owner-appeal-text">{appeal.public_response}</p><div className="appeal-evidence">{appeal.response_photos?.map(photo => <a href={photo.url} key={photo.id} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Результат рассмотрения"/></a>)}</div></section>}
-    {manage && ['RESOLVED', 'SPAM'].includes(appeal.status) && <section className="appeal-task"><button disabled={busy} onClick={() => void send('/archive', {archived: !appeal.archived_at, expected_version: appeal.version})}>{appeal.archived_at ? 'Вернуть из архива' : 'Перенести в архив'}</button><p className="hint">{appeal.status === 'SPAM' ? 'Спам будет убран из рабочего списка. На стене «Сигнала» он не появится.' : appeal.is_public === false ? 'Архив убирает обращение из рабочего списка. Ответ и фотографии сохраняются в «Метке».' : 'Архив убирает обращение из рабочего списка. Ответ жителю сохраняется на стене.'}</p></section>}
+    {appeal.public_response && ['RESOLVED', 'DECLINED'].includes(appeal.status) && <section className="appeal-task"><h3>{appeal.is_public === false ? 'Ответ организации в «Метке»' : 'Ответ организации на стене'}</h3><p className="owner-appeal-text">{appeal.public_response}</p><AppealPhotos photos={appeal.response_photos || []} label="Результат рассмотрения"/></section>}
+    {manage && ['RESOLVED', 'DECLINED', 'SPAM'].includes(appeal.status) && <section className="appeal-task"><button disabled={busy} onClick={() => void send('/archive', {archived: !appeal.archived_at, expected_version: appeal.version})}>{appeal.archived_at ? 'Вернуть из архива' : 'Перенести в архив'}</button><p className="hint">{appeal.status === 'SPAM' ? 'Спам будет убран из рабочего списка. На стене «Сигнала» он не появится.' : appeal.is_public === false ? 'Архив убирает обращение из рабочего списка. Ответ и фотографии сохраняются в «Метке».' : 'Архив убирает обращение из рабочего списка. Ответ жителю сохраняется на стене.'}</p></section>}
     {manage && !!appeal.task_history?.length && <details><summary>История назначений ({appeal.task_history.length})</summary>{appeal.task_history.map(task => <section className="appeal-task" key={task.id}><strong>{task.operator_name} · {appealStatuses[task.status]}</strong><p className="owner-appeal-text">{task.instruction}</p><p className="owner-appeal-text">{task.result_comment}</p></section>)}</details>}
     {error && <p className="error" role="alert">{error}</p>}
     {confirmClose && <div className="modal-backdrop"><section className="modal appeal-confirm" role="alertdialog" aria-modal="true" aria-labelledby="appeal-close-title" onKeyDown={event => {if (event.key === 'Escape' && !busy) setConfirmClose(false);}}>
-      <h2 id="appeal-close-title">Закрыть обращение?</h2><p>{appeal.is_public === false ? 'Ответ и фотографии будут сохранены в «Метке».' : 'Ответ и выбранные фотографии будут опубликованы на стене «Сигнала».'}</p>
+      <h2 id="appeal-close-title">{decision === 'DECLINED' ? 'Отказать по обращению?' : 'Закрыть обращение?'}</h2><p>{appeal.is_public === false ? 'Ответ и фотографии будут сохранены в «Метке».' : 'Ответ и выбранные фотографии будут опубликованы на стене «Сигнала».'}</p>
       <blockquote className="owner-appeal-text">{answer}</blockquote><p>Фотографий результата: {selectedPhotos.length + files.length}</p>
-      <div className="owner-appeal-header-actions"><button autoFocus disabled={busy} onClick={() => setConfirmClose(false)}>Продолжить редактирование</button><button className="primary" disabled={busy} onClick={() => void send('/close', upload({comment: answer, operator_photo_ids: selectedPhotos}))}>{preparing ? 'Подготавливаем фото…' : busy ? 'Закрываем…' : 'Подтвердить закрытие'}</button></div>
+      <div className="owner-appeal-header-actions"><button autoFocus disabled={busy} onClick={() => setConfirmClose(false)}>Продолжить редактирование</button><button className="primary" disabled={busy} onClick={() => void send('/close', upload({status: decision, comment: answer, operator_photo_ids: selectedPhotos}))}>{preparing ? 'Подготавливаем фото…' : busy ? 'Закрываем…' : decision === 'DECLINED' ? 'Подтвердить отказ' : 'Подтвердить закрытие'}</button></div>
     </section></div>}
   </div>;
 }

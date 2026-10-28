@@ -98,6 +98,7 @@ class ResultInput(StrictModel):
 
 
 class CloseInput(StrictModel):
+    status: Literal["RESOLVED", "DECLINED"] = "RESOLVED"
     comment: str = Field(min_length=1, max_length=4000)
     operator_photo_ids: list[UUID] = Field(default_factory=list, max_length=MAX_PHOTOS)
     expected_version: int = Field(ge=1)
@@ -331,7 +332,7 @@ def wall_dict(db, appeal):
                         for photo in db.scalars(select(AppealPhoto).where(AppealPhoto.appeal_id == appeal.id)
                                                 .order_by(AppealPhoto.position))]
     result["response"] = None
-    if appeal.status == "RESOLVED":
+    if appeal.status in {"RESOLVED", "DECLINED"}:
         result["response"] = {"comment": appeal.public_response, "at": appeal.resolved_at,
             "photos": [{"id": photo.id, "url": f"/api/public/appeals/wall/{appeal.id}/results/{photo.id}",
                         "preview_url": f"/api/public/appeals/wall/{appeal.id}/results/{photo.id}?variant=preview"}
@@ -356,7 +357,7 @@ def wall(request: Request, city: str = Query(min_length=2, max_length=150), orga
                 CitizenAppeal.city, CitizenAppeal.organization_name, CitizenAppeal.work_type_name,
                 func.concat("ОБ-", func.lpad(cast(CitizenAppeal.id, String), 6, "0")),
                 func.to_char(local_time, "DD.MM.YYYY HH24:MI"), func.to_char(local_time, "YYYY-MM-DD"),
-                case((CitizenAppeal.status == "RESOLVED", CitizenAppeal.public_response), else_=""))
+                case((CitizenAppeal.status.in_(("RESOLVED", "DECLINED")), CitizenAppeal.public_response), else_=""))
             for term in q.split():
                 escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 conditions.append(searchable.ilike("%" + escaped + "%", escape="\\"))
@@ -402,7 +403,7 @@ def wall_result(appeal_id: int, photo_id: UUID, variant: Literal["content", "pre
         public_available(db)
         appeal = public_appeal(db, appeal_id)
         photo = db.get(AppealAttachment, str(photo_id))
-        if appeal.status != "RESOLVED" or not photo or photo.appeal_id != appeal_id or not photo.published:
+        if appeal.status not in {"RESOLVED", "DECLINED"} or not photo or photo.appeal_id != appeal_id or not photo.published:
             raise HTTPException(404)
         return image_response(getattr(photo, variant))
 
@@ -426,7 +427,7 @@ def assign(appeal_id: int, body: AssignmentInput, user: AppealReader):
     with control_session() as db:
         appeal = find_appeal(db, appeal_id, lock=True, user=user)
         versioned(appeal, body.expected_version)
-        if appeal.status in {"RESOLVED", "SPAM"}:
+        if appeal.status in {"RESOLVED", "DECLINED", "SPAM"}:
             raise HTTPException(409, "Сначала верните обращение на рассмотрение")
         scope = tenant_scope(db, appeal.organization_id)
         with Session(database_engine(scope.database_url)) as tenant:
@@ -512,9 +513,9 @@ def save_close(appeal_id, body, photos, user):
         appeal = find_appeal(db, appeal_id, lock=True, user=user)
         versioned(appeal, body.expected_version)
         task = latest_task(db, appeal.id)
-        if appeal.status in {"RESOLVED", "SPAM"}:
+        if appeal.status in {"RESOLVED", "DECLINED", "SPAM"}:
             raise HTTPException(409, "Обращение уже закрыто или находится в спаме")
-        if task and task.status not in {"COMPLETED", "REJECTED", "CANCELLED"}:
+        if body.status != "DECLINED" and task and task.status not in {"COMPLETED", "REJECTED", "CANCELLED"}:
             raise HTTPException(409, "Сначала дождитесь результата исполнителя")
         if not body.comment.strip():
             raise HTTPException(422, "Напишите публичный ответ жителю")
@@ -523,15 +524,15 @@ def save_close(appeal_id, body, photos, user):
                          AppealAttachment.task_id == task.id))) if task and task.status in {"COMPLETED", "REJECTED", "CANCELLED"} else set()
         if not selected <= allowed or len(selected) + len(photos) > MAX_PHOTOS:
             raise HTTPException(422, "Выберите до трёх фотографий текущего результата исполнителя или своих")
-        if not photos and not selected:
-            raise HTTPException(422, "Приложите фотографии результата или выберите фотографии исполнителя")
         db.execute(update(AppealAttachment).where(AppealAttachment.appeal_id == appeal.id).values(published=False))
         if selected:
             db.execute(update(AppealAttachment).where(AppealAttachment.id.in_(selected)).values(published=True))
         for photo in photos:
             db.add(AppealAttachment(id=str(uuid4()), appeal_id=appeal.id, content=photo["original"],
                 preview=photo["preview"], width=photo["width"], height=photo["height"], published=True))
-        appeal.status, appeal.public_response, appeal.resolved_at = "RESOLVED", body.comment.strip(), now()
+        if body.status == "DECLINED" and task and task.status in {"ASSIGNED", "IN_PROGRESS"}:
+            task.status = "CANCELLED"
+        appeal.status, appeal.public_response, appeal.resolved_at = body.status, body.comment.strip(), now()
         record_event(db, appeal, "CLOSED", user, comment=appeal.public_response)
         changed(db, appeal, user, "APPEAL_CLOSED")
         db.commit()
@@ -555,7 +556,7 @@ def archive_appeal(appeal_id: int, body: ArchiveInput, user: AppealReader):
     with control_session() as db:
         appeal = find_appeal(db, appeal_id, lock=True, user=user)
         versioned(appeal, body.expected_version)
-        if appeal.status not in {"RESOLVED", "SPAM"}:
+        if appeal.status not in {"RESOLVED", "DECLINED", "SPAM"}:
             raise HTTPException(409, "В архив можно перенести закрытое обращение или спам")
         if bool(appeal.archived_at) != body.archived:
             appeal.archived_at = now() if body.archived else None

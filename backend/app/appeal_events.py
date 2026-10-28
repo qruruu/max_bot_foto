@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import HTTPException
 from pydantic import Field, field_validator
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 
 from app.domain import now
 from app.models import AppealEvent
@@ -37,6 +37,22 @@ def record_event(db, appeal, kind, user=None, *, inspector=False, comment="", vi
                         client_id=str(client_id) if client_id else None)
     db.add(event)
     return event
+
+
+def unanswered_comments(db, appeal_ids, user, *, inspector=False):
+    """Other participants' messages since this person's last reply; viewing does not clear them."""
+    if not appeal_ids:
+        return {}
+    actor = actor_fields(user, inspector=inspector)
+    own = (AppealEvent.actor_type == actor["actor_type"]) & (AppealEvent.actor_id == actor["actor_id"])
+    replies = select(AppealEvent.appeal_id, func.max(AppealEvent.id).label("last_reply")).where(
+        AppealEvent.appeal_id.in_(appeal_ids), AppealEvent.kind == "COMMENT", own
+    ).group_by(AppealEvent.appeal_id).subquery()
+    return dict(db.execute(select(AppealEvent.appeal_id, func.count()).outerjoin(
+        replies, replies.c.appeal_id == AppealEvent.appeal_id).where(
+        AppealEvent.appeal_id.in_(appeal_ids), AppealEvent.kind == "COMMENT", AppealEvent.visibility == "STAFF",
+        ~own, AppealEvent.id > func.coalesce(replies.c.last_reply, 0)
+    ).group_by(AppealEvent.appeal_id)).all())
 
 
 def event_page(db, appeal, *, user=None, inspector=False, before=0, after=0):

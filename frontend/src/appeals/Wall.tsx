@@ -4,11 +4,12 @@ import { publicRequest } from './requests';
 import type { PublicOrganization } from './catalog';
 import { citizenWorkOption } from './workTypes';
 import RecipientChoice from './RecipientChoice';
+import AppealPhotos from './AppealPhotos';
 
 const TerritoryMap = lazy(() => import('./TerritoryMap'));
 
 export const appealStatuses: Record<string, string> = {NEW: 'Новое', IN_REVIEW: 'На рассмотрении', ASSIGNED: 'Назначен исполнитель',
-  IN_PROGRESS: 'В работе', COMPLETED: 'На проверке результата', REJECTED: 'Исполнитель отклонил', CANCELLED: 'Задача отменена', RESOLVED: 'Закрыто', SPAM: 'Спам'};
+  IN_PROGRESS: 'В работе', COMPLETED: 'На проверке результата', REJECTED: 'Исполнитель отклонил', CANCELLED: 'Задача отменена', RESOLVED: 'Закрыто', DECLINED: 'Отказ', SPAM: 'Спам'};
 type WallPhoto = {id: string; url: string; preview_url: string};
 type WallAppeal = {id: number; number: string; organization_name: string; address: string; place: string; description: string;
   category: string; work_type_name?: string; status: string; created_at: string; photos: WallPhoto[];
@@ -67,14 +68,10 @@ export default function Wall({city, organizations, revision, apiKey = ''}: {city
         <div className="signal-wall-meta"><span>{item.number} · {date(item.created_at)}</span><span className={'signal-status status-' + item.status}>{appealStatuses[item.status] || item.status}</span></div>
         <h2>{citizenWorkOption({code: item.category, name: item.work_type_name || 'Обращение'}).label}</h2>
         <p className="signal-wall-address">{item.address}{item.place ? ' · ' + item.place : ''}</p><p className="signal-wall-organization">{item.organization_name}</p>
-        <p className="signal-wall-text">{item.description}</p><PhotoStrip photos={item.photos}/>
+        <p className="signal-wall-text">{item.description}</p><AppealPhotos photos={item.photos}/>
         {item.response && <div className="signal-public-response"><strong><CheckCircle2 size={17}/>Ответ организации</strong><p className="signal-wall-text">{item.response.comment}</p>
-          <PhotoStrip photos={item.response.photos}/><small>{date(item.response.at)}</small></div>}
+          <AppealPhotos photos={item.response.photos} label="Фотография ответа организации"/><small>{date(item.response.at)}</small></div>}
       </article>)}
     {data && data.total > data.page_size && <div className="signal-pagination"><button aria-label="Предыдущая страница" disabled={page <= 1} onClick={() => setPage(value => value - 1)}><ChevronLeft/></button><span>{page} / {Math.ceil(data.total / data.page_size)}</span><button aria-label="Следующая страница" disabled={page * data.page_size >= data.total} onClick={() => setPage(value => value + 1)}><ChevronRight/></button></div>}
   </section>;
-}
-
-function PhotoStrip({photos}: {photos: WallPhoto[]}) {
-  return <div className="signal-wall-photos">{photos.map(photo => <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Фотография обращения" loading="lazy"/></a>)}</div>;
 }

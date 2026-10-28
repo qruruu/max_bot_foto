@@ -52,6 +52,7 @@ export default function AppealDiscussion({endpoint, archived}: {endpoint: string
     sending.current = true; setBusy(true); setPending(true); setError('');
     try {
       await api(endpoint + '/comments', 'POST', {comment: text.trim(), client_id: clientId.current});
+      window.dispatchEvent(new Event('appeal-discussion-changed'));
       if (!active.current) return;
       setText(''); setPending(false); clientId.current = crypto.randomUUID();
       merge(await api<EventPage>(endpoint + '/events?after=' + newest.current));

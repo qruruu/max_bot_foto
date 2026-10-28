@@ -12,6 +12,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.appeal_catalog import public_organizations
+from app.appeal_events import unanswered_comments
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS
 from app.auth import CurrentUser, is_platform_owner
 from app.config import base_settings
@@ -29,7 +30,7 @@ CATEGORIES = {
     "roads": "Дороги и тротуары", "lighting": "Освещение", "playgrounds": "Детские и спортивные площадки",
     "building": "Дом и подъезд", "other": "Другая проблема",
 }
-AppealStatus = Literal["NEW", "IN_REVIEW", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "REJECTED", "CANCELLED", "RESOLVED", "SPAM"]
+AppealStatus = Literal["NEW", "IN_REVIEW", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "REJECTED", "CANCELLED", "RESOLVED", "DECLINED", "SPAM"]
 
 
 class Capture(StrictModel):
@@ -205,8 +206,9 @@ def list_appeals(user: AppealReader, status: AppealStatus | None = None, page: i
         total = db.scalar(select(func.count()).select_from(CitizenAppeal).where(*conditions))
         rows = db.execute(select(CitizenAppeal, AppealPhoto.id).outerjoin(AppealPhoto,
             (AppealPhoto.appeal_id == CitizenAppeal.id) & (AppealPhoto.position == 0)).where(*conditions)
-            .order_by(CitizenAppeal.created_at.desc(), CitizenAppeal.id.desc()).offset((page - 1) * 20).limit(20))
-        return {"items": [{**private_appeal_dict(appeal, user), "preview_url":
+            .order_by(CitizenAppeal.created_at.desc(), CitizenAppeal.id.desc()).offset((page - 1) * 20).limit(20)).all()
+        messages = unanswered_comments(db, [appeal.id for appeal, _ in rows], user)
+        return {"items": [{**private_appeal_dict(appeal, user), "unanswered_comments": messages.get(appeal.id, 0), "preview_url":
             private_url(f"/{appeal.id}/photos/{photo_id}?variant=preview")} for appeal, photo_id in rows],
             "total": total, "page": page, "page_size": 20, "categories": CATEGORIES,
             "public_url": base_settings().public_appeals_origin.rstrip("/") or "/appeals",
@@ -231,7 +233,8 @@ def appeal_detail(appeal_id: int, user: AppealReader):
     with control_session() as db:
         from app.appeal_workflow import workflow_detail
         appeal = find_appeal(db, appeal_id, user=user)
-        return {**private_appeal_dict(appeal, user), **workflow_detail(db, appeal, private_url, private=True,
+        return {**private_appeal_dict(appeal, user), "unanswered_comments": unanswered_comments(db, [appeal.id], user).get(appeal.id, 0),
+                **workflow_detail(db, appeal, private_url, private=True,
                     operator_id=user.id if user.role == "OPERATOR" else None),
                 "can_manage": user.role == "ADMIN_OPERATOR", "can_execute": user.role == "OPERATOR",
                 "photos": [photo_dict(photo) for photo in db.scalars(
@@ -245,7 +248,8 @@ def edit_appeal(appeal_id: int, body: OwnerEdit, user: AppealReader):
         raise HTTPException(403, "Изменять обращение может администратор")
     with control_session() as db:
         appeal = find_appeal(db, appeal_id, lock=True)
-        if (appeal.is_public or appeal.submitted_by_inspector_id) and body.status not in {"NEW", "IN_REVIEW", "SPAM"} and body.status != appeal.status:
+        if ((appeal.is_public or appeal.submitted_by_inspector_id) and body.status not in {"NEW", "IN_REVIEW", "SPAM"}
+                or body.status == "DECLINED") and body.status != appeal.status:
             raise HTTPException(422, "Назначьте исполнителя или используйте закрытие с публичным ответом")
         if appeal.archived_at:
             raise HTTPException(409, "Сначала верните обращение из архива")

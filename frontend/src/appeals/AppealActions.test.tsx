@@ -22,7 +22,7 @@ beforeEach(() => {
   element = document.createElement('div'); document.body.append(element); root = createRoot(element);
 });
 afterEach(async () => {await act(async () => root.unmount()); element.remove();});
-async function mount(value = appeal) {await act(async () => {root.render(<AppealActions appeal={value} endpoint="/appeals" readOnly={false} changed={changed}/>); await tick();});}
+async function mount(value = appeal, readOnly = false) {await act(async () => {root.render(<AppealActions appeal={value} endpoint="/appeals" readOnly={readOnly} changed={changed}/>); await tick();});}
 const byText = (text: string) => [...element.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes(text))!;
 const click = async (button: HTMLButtonElement) => {await act(async () => {button.click(); await tick();});};
 
@@ -112,4 +112,34 @@ it('keeps the comment and selected photo after a preparation error so the operat
   expect(element.querySelector('textarea')?.value).toBe('Почистили'); expect(element.textContent).toContain('Выбрано: 1');
   expect(vi.mocked(api).mock.calls.filter(([, method]) => method === 'POST')).toHaveLength(0);
   await click(byText('Передать результат')); expect(changed).toHaveBeenCalledTimes(1);
+});
+
+it('allows a checking inspector to mark completed or cancelled without exposing administrator actions', async () => {
+  await mount({...appeal, status: 'NEW', task: null, can_manage: false, can_execute: false, can_set_task_status: true}, true);
+  const select = element.querySelector('select')!;
+  expect([...select.options].filter(option => !option.disabled).map(option => option.text)).toEqual(['Выполнена', 'Отменена']);
+  await act(async () => {select.value = 'COMPLETED'; select.dispatchEvent(new Event('change', {bubbles: true}));});
+  await click(byText('Сохранить статус задачи'));
+  expect(api).toHaveBeenCalledWith('/appeals/42/task-status', 'POST', {status: 'COMPLETED', expected_version: 3});
+  expect(element.textContent).not.toContain('Назначить исполнителя'); expect(element.textContent).not.toContain('Решение по обращению');
+});
+
+it.each(['RESOLVED', 'DECLINED'])('confirms the administrator decision %s with a required answer and optional photos', async status => {
+  await mount({...appeal, task: status === 'DECLINED' ? {...appeal.task!, status: 'ASSIGNED'} : null});
+  const decision = [...element.querySelectorAll('select')].find(select => [...select.options].some(option => option.value === 'DECLINED'))!;
+  await act(async () => {decision.value = status; decision.dispatchEvent(new Event('change', {bubbles: true}));});
+  const action = () => byText(status === 'DECLINED' ? 'Отказать и опубликовать' : 'Закрыть и опубликовать');
+  expect(action().disabled).toBe(true);
+  await act(async () => {
+    const textarea = [...element.querySelectorAll('textarea')].at(-1)!;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Ответ организации'); textarea.dispatchEvent(new Event('input', {bubbles: true}));
+  });
+  expect(action().disabled).toBe(false); await click(action());
+  expect(element.querySelector('[role=alertdialog]')?.textContent).toContain('Фотографий результата: 0');
+  expect(vi.mocked(api).mock.calls.filter(([, method]) => method === 'POST')).toHaveLength(0);
+  await click(byText(status === 'DECLINED' ? 'Подтвердить отказ' : 'Подтвердить закрытие'));
+  const call = vi.mocked(api).mock.calls.find(([, method]) => method === 'POST')!;
+  expect(call[0]).toBe('/appeals/42/close');
+  expect(JSON.parse((call[2] as FormData).get('metadata') as string)).toMatchObject({status, comment: 'Ответ организации', operator_photo_ids: []});
+  expect((call[2] as FormData).getAll('photos')).toHaveLength(0);
 });
