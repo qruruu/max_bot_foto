@@ -4,7 +4,6 @@ import { ArrowDownToLine, ArrowLeft, ArrowUpRight, Camera, ChevronLeft, ChevronR
 import { api } from '../api';
 import AppealActions from './AppealActions';
 import type { WorkflowAppeal } from './AppealActions';
-import AddressSettings from './AddressSettings';
 import AppealDiscussion from './AppealDiscussion';
 import { appealStatuses } from './Wall';
 import './owner-appeals.css';
@@ -28,7 +27,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
   const [detail, setDetail] = useState<Detail | null>(null), [selected, setSelected] = useState<number | null>(null);
   const [nextStatus, setNextStatus] = useState<Status>('NEW'), [note, setNote] = useState('');
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [revision, setRevision] = useState(0);
-  const [settingsOpen, setSettingsOpen] = useState(false), [archived, setArchived] = useState(false);
+  const [archived, setArchived] = useState(false);
   const active = useRef(true);
   useEffect(() => {active.current = true; return () => {active.current = false;};}, []);
   useEffect(() => {
@@ -100,7 +99,6 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
     </> : <>
       {data && !readOnly && data.can_manage !== false && !data.can_execute && <div className="panel owner-appeal-public"><div><strong>Страница для жителей</strong><p className="hint">Передайте ссылку или разместите её в объявлениях.</p></div>
         <a className="button" href={data.public_url} target="_blank" rel="noreferrer">Открыть форму<ArrowUpRight size={16}/></a></div>}
-      {organization && data?.can_manage && !readOnly && <><button className="button" onClick={() => setSettingsOpen(value => !value)}>{settingsOpen ? 'Скрыть адреса' : 'Настроить адреса для «Сигнала»'}</button>{settingsOpen && <AddressSettings/>}</>}
       <div className="appeal-folder-tabs" role="tablist" aria-label="Раздел обращений">{[false, true].map(value => <button key={String(value)} role="tab" aria-selected={archived === value} onClick={() => {setArchived(value); setPage(1); setStatus('');}}>{value ? 'Архив' : 'Рабочий список'}</button>)}</div>
       <div className="owner-appeal-toolbar"><label>Состояние<select value={status} onChange={event => {setStatus(event.target.value); setPage(1);}}><option value="">Все обращения</option>
         {Object.entries(statuses).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><span className="hint">{data ? `${data.total} обращений` : 'Загружаем…'}</span></div>

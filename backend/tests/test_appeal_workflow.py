@@ -15,6 +15,7 @@ from test_inspections import grant
 from test_inspections import inspection as inspection
 from test_organizations import companies as companies
 
+from app.appeal_catalog import territory_choice_id
 from app.appeals_public import app as public_app
 from app.db import engine
 from app.models import AppealPhoto, CitizenAppeal, District, User, WorkType
@@ -41,9 +42,7 @@ def workflow(inspection):
             district_id = district.id
             operator_ids.append(tenant.scalar(select(User.id).where(User.login == "same-login")))
             tenant.commit()
-        response = owner.post(scope.prefix + "/api/appeals/workflow/addresses", json={"label": "улица Ленина, дом 10", "district_id": district_id})
-        assert response.status_code == 201, response.text
-        addresses.append(response.json())
+        addresses.append({"id": territory_choice_id(scope.id, district_id), "label": "Обслуживаемая территория", "district_id": district_id})
     grant(owner, inspectors[0], scopes[0])
     return owner, scopes, operators, operator_ids, addresses, inspectors
 
@@ -163,7 +162,7 @@ def test_assignment_operator_result_admin_publication_and_spam_privacy(workflow)
             assert citizen.get(url).status_code == 404
 
 
-def test_wall_filters_and_address_removal_are_enforced_by_server(workflow):
+def test_wall_filters_and_territory_deactivation_are_enforced_by_server(workflow):
     owner, scopes, _, _, addresses, _ = workflow
     with TestClient(public_app) as citizen:
         for scope, address in zip(scopes, addresses, strict=True):
@@ -173,7 +172,9 @@ def test_wall_filters_and_address_removal_are_enforced_by_server(workflow):
             assert result.status_code == 200 and result.json()["total"] == 1
             assert result.json()["items"][0]["organization_id"] == scope.id
         assert citizen.get("/api/public/appeals/wall", params={"city": "Сургут", "organization_id": scopes[1].id}).json()["total"] == 0
-        assert owner.delete(scopes[0].prefix + "/api/appeals/workflow/addresses/" + addresses[0]["id"]).status_code == 200
+        with organization_scope(scopes[0]), Session(engine()) as tenant:
+            tenant.get(District, addresses[0]["district_id"]).active = False
+            tenant.commit()
         assert submit(citizen, metadata(scopes[0], addresses[0])).status_code == 422
 
 
@@ -283,3 +284,39 @@ def test_inspector_concurrent_retries_create_one_private_appeal(workflow):
     assert all(result.status_code == 201 for result in results), [result.text for result in results]
     assert results[0].json() == results[1].json()
     assert owner.get(scopes[0].prefix + '/api/appeals').json()['total'] == 1
+
+
+def test_questionnaire_uses_all_active_map_territories_without_an_address_book(workflow):
+    _, scopes, _, _, addresses, inspectors = workflow
+    from app.models import AppealAddress
+    with control_session() as db:
+        assert not list(db.scalars(select(AppealAddress.id)))
+    geometry = from_shape(MultiPolygon([Polygon([(75, 61), (76, 61), (76, 62), (75, 62), (75, 61)])]), srid=4326)
+    with organization_scope(scopes[0]), Session(engine()) as tenant:
+        extra = District(name='11А мкр', active=True, geometry=geometry)
+        tenant.add(extra)
+        tenant.add(District(name='Скрытая территория', active=False, geometry=geometry))
+        tenant.flush()
+        extra_id = extra.id
+        tenant.commit()
+    with TestClient(public_app) as citizen:
+        def catalog():
+            return next(item for item in citizen.get('/api/public/appeals/catalog').json()['organizations'] if item['id'] == scopes[0].id)
+        first = catalog()
+        assert [(item['district_id'], item['label']) for item in first['addresses']] == [(area['id'], area['name']) for area in first['territories']]
+        assert len(first['addresses']) == 2
+        assert catalog()['addresses'] == first['addresses']
+        private = inspectors[0].get(f'/api/inspection/organizations/{scopes[0].id}/appeals/catalog').json()['organization']
+        assert private['addresses'] == first['addresses']
+        choice = next(item for item in first['addresses'] if item['district_id'] == extra_id)
+        body = {**metadata(scopes[0], choice), 'longitude': 75.5, 'latitude': 61.5}
+        assert submit(citizen, body).status_code == 201
+        assert submit(citizen, {**body, 'longitude': 72.6, 'latitude': 61.1}).status_code == 422
+        assert submit(citizen, {**body, 'address_id': addresses[1]['id']}).status_code == 422
+        with organization_scope(scopes[0]), Session(engine()) as tenant:
+            tenant.get(District, extra_id).name = '11Б мкр'
+            tenant.commit()
+        renamed = next(item for item in catalog()['addresses'] if item['district_id'] == extra_id)
+        assert renamed['id'] == choice['id'] and renamed['label'] == '11Б мкр'
+        assert submit(citizen, body).status_code == 422
+        assert submit(citizen, {**body, 'address': renamed['label']}).status_code == 201

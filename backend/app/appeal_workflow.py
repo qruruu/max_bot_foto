@@ -14,7 +14,7 @@ from sqlalchemy import String, case, cast, func, select, update
 from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile
 
-from app.appeal_catalog import organization_catalog, validate_recipient
+from app.appeal_catalog import organization_catalog, territory_choice_id, validate_recipient
 from app.appeal_events import CommentInput, add_comment, event_page, record_event
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS, prepare_upload
 from app.appeals import (
@@ -53,7 +53,7 @@ class AppealFields(StrictModel):
     organization_id: UUID
     city: str = Field(min_length=2, max_length=150)
     address_id: UUID
-    address: str = Field(min_length=2, max_length=300)
+    address: str = Field(min_length=1, max_length=300)
     latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
     longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
     place: str = Field(default="", max_length=300)
@@ -231,18 +231,28 @@ def submission_session(request: Request):
 
 def create_appeal(db, body, photos, *, is_public, inspector=None):
     organization, work = validate_recipient(db, body)
-    address = db.get(AppealAddress, str(body.address_id), with_for_update=True)
-    if not address or not address.active or address.organization_id != organization.id or body.address != address.label:
-        raise HTTPException(422, "Для этой организации можно выбрать только адрес из её списка")
     scope = scope_for(organization)
     with Session(database_engine(scope.database_url)) as tenant:
+        selected = next(((id, name) for id, name in tenant.execute(select(District.id, District.name)
+                         .where(District.active)) if territory_choice_id(organization.id, id) == str(body.address_id)), None)
+        if selected:
+            district_id, label = selected
+        else:
+            # Already saved drafts from the earlier address-book form can still finish.
+            # New forms require no duplicate address records or configuration.
+            legacy = db.get(AppealAddress, str(body.address_id), with_for_update=True)
+            if not legacy or not legacy.active or legacy.organization_id != organization.id:
+                raise HTTPException(422, "Выберите территорию этой организации из списка")
+            district_id, label = legacy.district_id, legacy.label
+        if body.address != label:
+            raise HTTPException(422, "Список территорий изменился. Выберите территорию ещё раз")
         point = from_shape(Point(body.longitude, body.latitude), srid=4326)
-        covered = tenant.scalar(select(District.id).where(District.id == address.district_id, District.active,
+        covered = tenant.scalar(select(District.id).where(District.id == district_id, District.active,
                                                           func.ST_Covers(District.geometry, point)))
         if not covered:
-            raise HTTPException(422, "Отметьте проблему в территории выбранного адреса и организации")
+            raise HTTPException(422, "Отметьте проблему внутри выбранной территории организации")
     appeal = CitizenAppeal(organization_id=organization.id, organization_name=organization.name,
-        work_type_name=work["name"], city=organization.city, address_id=address.id, address=address.label,
+        work_type_name=work["name"], city=organization.city, address_id=str(body.address_id), address=label,
         place=body.place, category=body.category, description=body.description, contact=body.contact,
         latitude=body.latitude, longitude=body.longitude, is_public=is_public,
         photo_count=len(photos), status="NEW", owner_note="", version=1,

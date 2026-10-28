@@ -26,7 +26,7 @@ export default function ProblemMap({organization, organizations, districtId, api
         const coordinates = event.get('coords');
         if (locked.current || !Array.isArray(coordinates) || coordinates.length !== 2 || !coordinates.every(Number.isFinite)) return;
         const area = organization.territories.find(item => item.id === districtId), point = coordinates as [number, number];
-        if (!area || !coversPoint(area.geometry, point)) {setPointError('Выберите место внутри выделенной территории этого адреса.'); return;}
+        if (!area || !coversPoint(area.geometry, point)) {setPointError('Выберите место внутри выделенной территории организации.'); return;}
         setPointError(''); pick.current(point);
       };
       layer.events?.add('click', click);

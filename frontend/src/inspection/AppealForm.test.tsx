@@ -14,13 +14,13 @@ vi.mock('../appeals/ProblemMap', () => ({default: ({onPoint, disabled}: {onPoint
 const organizationId = '11111111-1111-4111-8111-111111111111', addressId = '22222222-2222-4222-8222-222222222222';
 const clientId = '33333333-3333-4333-8333-333333333333', endpoint = '/inspection/organizations/' + organizationId + '/appeals';
 const catalog = {organization: {id: organizationId, name: 'Демо-организация', city: 'Сургут', color: '#2563eb',
-  work_types: [{code: 'BIN_EMPTYING', name: 'УРНЫ'}], addresses: [{id: addressId, label: 'Ленина, 10', district_id: 1}], territories: []}, yandex_maps_api_key: ''};
+  work_types: [{code: 'BIN_EMPTYING', name: 'УРНЫ'}], addresses: [{id: addressId, label: '11А мкр', district_id: 1}], territories: []}, yandex_maps_api_key: ''};
 const receipt = {id: 42, number: 'ОБ-000042', is_public: false};
 const storageKey = 'inspector:7:' + organizationId;
 let root: Root, element: HTMLDivElement;
 const tick = () => new Promise(resolve => setTimeout(resolve, 0)), created = vi.fn();
 function draft(pending = false): AppealDraft {
-  return {form: {...EMPTY_FORM, organization_id: organizationId, city: 'Сургут', address_id: addressId, address: 'Ленина, 10', latitude: 61.1, longitude: 72.6,
+  return {form: {...EMPTY_FORM, organization_id: organizationId, city: 'Сургут', address_id: addressId, address: '11А мкр', latitude: 61.1, longitude: 72.6,
     category: 'BIN_EMPTYING', description: 'Переполненная урна на участке'}, clientId, token: null, pending, savedAt: Date.now(),
     photos: [{id: 'photo', blob: new Blob(['photo'], {type: 'image/jpeg'}), preview: new Blob(['preview'])}]};
 }
@@ -47,7 +47,7 @@ it('requires an allowed address and map point and keeps inspector drafts separat
   expect(element.textContent).toContain('На стене «Сигнала» они не появятся');
   expect(element.textContent).not.toContain('Контакт для уточнений');
   expect(element.querySelectorAll('fieldset')[1].disabled).toBe(true); expect(send().disabled).toBe(true);
-  expect(element.querySelector('[data-field="address_id"]')!.textContent).toContain('Ленина, 10');
+  expect(element.querySelector('[data-field="address_id"]')!.textContent).toContain('11А мкр');
   await click(element.querySelector<HTMLButtonElement>('[data-map]')!);
   expect(element.querySelectorAll('fieldset')[1].disabled).toBe(false);
   expect(vi.mocked(saveDraft).mock.calls.at(-1)![1]).toBe(storageKey);

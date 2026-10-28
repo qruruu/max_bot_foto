@@ -18,13 +18,13 @@ const organizationId = '11111111-1111-4111-8111-111111111111', addressId = '2222
 const catalog = {yandex_maps_api_key: '', organizations: [
   {id: organizationId, name: 'Уборка города', city: 'Сургут', color: '#2563eb',
     work_types: [{code: 'BIN_EMPTYING', name: 'УРНЫ'}, {code: 'DRAIN_CLEANING', name: 'КОЛОДЦЫ'}],
-    addresses: [{id: addressId, label: 'Ленина, 10', district_id: 1}], territories: []},
+    addresses: [{id: addressId, label: '11А мкр', district_id: 1}], territories: []},
 ]};
 const emptyWall = {items: [], total: 0, page: 1, page_size: 20};
 let root: Root, element: HTMLDivElement;
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 function draft(pending = false): AppealDraft {
-  return {form: {...EMPTY_FORM, city: 'Сургут', organization_id: organizationId, address_id: addressId, address: 'Ленина, 10', latitude: 61.1, longitude: 72.6,
+  return {form: {...EMPTY_FORM, city: 'Сургут', organization_id: organizationId, address_id: addressId, address: '11А мкр', latitude: 61.1, longitude: 72.6,
     category: 'BIN_EMPTYING', description: 'Мусор возле урны', contact: 'private-contact'}, token: 'restored-token', pending, savedAt: Date.now(),
     photos: [{id: 'one', blob: new Blob(['photo'], {type: 'image/jpeg'}), preview: new Blob(['preview'], {type: 'image/jpeg'})}]};
 }
@@ -51,9 +51,9 @@ it('opens the city wall and requires a map point before the questionnaire', asyn
   expect(element.querySelector('h1')!.textContent).toBe('Обращения жителей');
   await click(byText('Сообщить о проблеме'));
   expect(element.querySelector('textarea')).toBeNull();
-  expect(element.querySelector('[data-field="address_id"]')!.textContent).toContain('Ленина, 10');
+  expect(element.querySelector('[data-field="address_id"]')!.textContent).toContain('11А мкр');
   expect(element.querySelector('input[autocomplete="street-address"]')).toBeNull();
-  expect(element.textContent).toContain('только адрес из списка обслуживаемых ею адресов');
+  expect(element.textContent).toContain('Выберите территорию этой организации');
   expect(byText('Далее').disabled).toBe(true);
   await click(element.querySelector<HTMLButtonElement>('[data-map]')!);
   await click(byText('Далее'));
@@ -65,10 +65,10 @@ it('opens the city wall and requires a map point before the questionnaire', asyn
   expect(element.querySelector('[data-field="category"]')!.textContent).toContain('Переполненная урна');
 });
 
-it('blocks submission for organizations without configured addresses', async () => {
+it('blocks submission when the organization has no active territories', async () => {
   vi.mocked(publicRequest).mockImplementation(async path => path === '/catalog' ? {...catalog, organizations: [{...catalog.organizations[0], addresses: []}]} : emptyWall);
   await mount(null); await click(byText('Сообщить о проблеме'));
-  expect(element.textContent).toContain('пока не добавила обслуживаемые адреса');
+  expect(element.textContent).toContain('пока нет активных территорий');
   expect(byText('Далее').disabled).toBe(true);
   expect(element.querySelector('[data-map]')).toBeNull();
 });

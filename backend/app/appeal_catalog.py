@@ -3,6 +3,7 @@
 import colorsys
 import json
 import logging
+from uuid import UUID, uuid5
 
 from fastapi import HTTPException
 from sqlalchemy import func, select, text
@@ -10,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db import database_engine
-from app.models import AppealAddress, District, Organization, WorkType
+from app.models import District, Organization, WorkType
 from app.organization_registry import scope_for
 
 log = logging.getLogger(__name__)
@@ -68,12 +69,15 @@ def public_organizations(db):
 
 def organization_appeal_catalog(db, record):
     item = organization_catalog(record)
-    districts = {area["id"] for area in item["territories"]}
-    addresses = [{"id": address.id, "label": address.label, "district_id": address.district_id}
-                 for address in db.scalars(select(AppealAddress).where(
-                     AppealAddress.organization_id == record.id, AppealAddress.active)
-                     .order_by(AppealAddress.label, AppealAddress.id)) if address.district_id in districts]
-    return {**item, "addresses": addresses}
+    # The questionnaire and map use the same active districts from the tenant database.
+    # Keep stable UUIDs for mobile drafts and compatibility with the intake contract.
+    return {**item, "addresses": [{"id": territory_choice_id(record.id, area["id"]),
+                                  "label": area["name"], "district_id": area["id"]}
+                                 for area in item["territories"]]}
+
+
+def territory_choice_id(organization_id, district_id):
+    return str(uuid5(UUID(str(organization_id)), "appeal-territory:" + str(district_id)))
 
 
 def validate_recipient(db, body):

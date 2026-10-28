@@ -128,10 +128,10 @@ export default function InspectionAppealForm({organizationId, inspectorId, creat
         {pending && <p className="hint" role="status">Проверяем отправку. Повторная попытка не создаст дубль.</p>}
         <fieldset disabled={locked}>
           <p><strong>{organization?.name}</strong>{organization?.city ? ' · ' + organization.city : ''}</p>
-          <RecipientChoice label="Улица и адрес" name="address_id" placeholder="Выберите адрес" options={(organization?.addresses || []).map(item => ({value: item.id, label: item.label}))}
+          <RecipientChoice label="Территория" name="address_id" placeholder="Выберите территорию" options={(organization?.addresses || []).map(item => ({value: item.id, label: item.label}))}
             value={form.address_id} disabled={locked} onChange={id => {const selected = organization?.addresses?.find(item => item.id === id); setForm(current => ({...current, address_id: id, address: selected?.label || '', latitude: null, longitude: null}));}}/>
           <p className="hint">{!organization?.city ? 'У организации не указан город. Его должен добавить владелец сервиса.' : organization?.addresses?.length
-            ? 'Для этой организации можно выбрать только адрес из списка обслуживаемых ею адресов.' : 'Организация пока не добавила обслуживаемые адреса.'}</p>
+            ? 'Выберите территорию этой организации и отметьте на карте место проблемы.' : 'У организации пока нет активных территорий на карте.'}</p>
           {organization && address && <Suspense fallback={<p>Загружаем карту…</p>}><ProblemMap organization={organization} districtId={address.district_id} apiKey={catalog.yandex_maps_api_key}
             point={located ? [form.longitude!, form.latitude!] : null} disabled={locked} onPoint={point => setForm(current => ({...current, longitude: point[0], latitude: point[1]}))}/></Suspense>}
         </fieldset>

@@ -122,7 +122,7 @@ export default function CitizenAppeal() {
   }
   async function submit(event: FormEvent) {
     event.preventDefault(); if (requestActive.current) return;
-    if (!photos.length || (!pending && (!located || !validRecipient(form, catalog)))) {setError('Выберите адрес и точку на карте, опишите проблему и приложите фото.'); return;}
+    if (!photos.length || (!pending && (!located || !validRecipient(form, catalog)))) {setError('Выберите территорию и точку на карте, опишите проблему и приложите фото.'); return;}
     requestActive.current = true; setBusy(true); setError(''); let attempted = false;
     try {
       if (token.current) {
@@ -173,16 +173,16 @@ export default function CitizenAppeal() {
           {step === 1 ? <fieldset disabled={locked}>
             <RecipientChoice label="Организация" name="organization_id" options={cityOrganizations.map(item => ({value: item.id, label: item.name}))} value={form.organization_id} disabled={locked}
               onChange={id => setForm(current => ({...current, organization_id: id, category: '', address_id: '', address: '', latitude: null, longitude: null}))}/>
-            {recipient && <><RecipientChoice label="Улица и адрес" name="address_id" placeholder="Выберите адрес" options={(recipient.addresses || []).map(item => ({value: item.id, label: item.label}))}
+            {recipient && <><RecipientChoice label="Территория" name="address_id" placeholder="Выберите территорию" options={(recipient.addresses || []).map(item => ({value: item.id, label: item.label}))}
               value={form.address_id} disabled={locked} onChange={id => {const chosen = recipient.addresses?.find(item => item.id === id); setForm(current => ({...current, address_id: id, address: chosen?.label || '', latitude: null, longitude: null}));}}/>
-              <p className="signal-address-rule"><ShieldCheck size={17}/>{recipient.addresses?.length ? 'Для этой организации можно выбрать только адрес из списка обслуживаемых ею адресов.' : 'Организация пока не добавила обслуживаемые адреса. Отправка обращения будет доступна после их добавления.'}</p></>}
+              <p className="signal-address-rule"><ShieldCheck size={17}/>{recipient.addresses?.length ? 'Выберите территорию этой организации и отметьте на карте место проблемы.' : 'У организации пока нет активных территорий на карте.'}</p></>}
             {recipient && address && <Suspense fallback={<p>Загружаем карту…</p>}><ProblemMap key={recipient.id + address.id} organization={recipient} organizations={cityOrganizations} districtId={address.district_id} apiKey={catalog?.yandex_maps_api_key || ''}
               point={located ? [form.longitude!, form.latitude!] : null} disabled={locked} onPoint={point => setForm(current => ({...current, longitude: point[0], latitude: point[1]}))}/></Suspense>}
             {!catalog?.organizations.length && !catalogError && <p className="signal-notice">{catalog ? 'Пока нет организаций, готовых принимать обращения.' : 'Загружаем города и организации…'}</p>}
             <button type="button" className="citizen-primary signal-next" disabled={!located || locked} onClick={() => setStep(2)}>Далее<ArrowRight size={18}/></button>
           </fieldset> : <>
-            <button type="button" className="signal-back" disabled={locked} onClick={() => setStep(1)}><ArrowLeft size={17}/>{form.address || 'Выбрать адрес и место'}</button>
-            {!located && !pending && <p className="citizen-error">Сначала выберите обслуживаемый адрес и отметьте место на карте.</p>}
+            <button type="button" className="signal-back" disabled={locked} onClick={() => setStep(1)}><ArrowLeft size={17}/>{form.address || 'Выбрать территорию и место'}</button>
+            {!located && !pending && <p className="citizen-error">Сначала выберите территорию и отметьте место на карте.</p>}
             <fieldset disabled={locked || (!located && !pending)}>
               <RecipientChoice label="Что случилось?" name="category" placeholder="Выберите проблему" options={recipient?.work_types.filter(work => work.code !== 'DRAIN_CLEANING').map(citizenWorkOption) || []} value={form.category} disabled={locked}
                 onChange={category => setForm(current => ({...current, category}))}/>
