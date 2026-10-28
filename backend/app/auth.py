@@ -81,18 +81,12 @@ def current_user(request: Request, db: Db):
             "user_agent": observed_ua,
             "ip_address": observed_ip,
         }
-        if organization and not user._platform_owner:
-            db.info["session_activity"]["analytics_actor"] = {
-                "key": f"{organization.id}:{user.id}", "organization_id": organization.id,
-                "kind": "administrator" if user.role == "ADMIN_OPERATOR" else "operator"}
         attributes.set_committed_value(session, "last_seen_at", instant)
         if session.user_agent is None and observed_ua:
             attributes.set_committed_value(session, "user_agent", observed_ua)
         if observed_ip:
             attributes.set_committed_value(session, "ip_address", observed_ip)
     request.state.login_session = session
-    from app.platform_security import actor_context
-    actor_context(request, user)
     return user
 
 
@@ -208,7 +202,6 @@ def rate_limit_login(db: Session, request: Request, login: str):
 
 @router.post("/login")
 def login(body: LoginInput, request: Request, response: Response, db: Db):
-    request.state.security_login = body.login
     if settings().organizations_enabled and current_organization() is None:
         from app.signin import common_login
         return common_login(body, request, response, db)
@@ -250,14 +243,6 @@ def issue_login(user, request, response, db, *, password=None):
     )
     db.execute(delete(LoginSession).where(LoginSession.expires_at < now()))
     db.commit()
-    from app.platform_security import actor_context
-    actor_context(request, user)
-    organization = current_organization()
-    if organization and not user._platform_owner:
-        from app.platform_tracking import record_operator_activity
-        record_operator_activity({'at': instant, 'analytics_actor': {
-            'key': f'{organization.id}:{user.id}', 'organization_id': organization.id,
-            'kind': 'administrator' if user.role == 'ADMIN_OPERATOR' else 'operator'}})
     if current_organization():
         from app.models import WorkspaceSession
         from app.organization_registry import control_session

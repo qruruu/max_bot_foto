@@ -815,16 +815,3 @@ class ExchangeFile(Base):
         CheckConstraint("status IN ('PENDING','AVAILABLE','DELETING','DELETED')"),
         Index("ix_exchange_files_section", "root", "section", "publication_id"),
     )
-
-# Register the control-only analytics tables for migrations and isolated database tests.
-from app.platform_models import (  # noqa: E402, F401
-    AnalyticsState,
-    PlatformActivity,
-    PlatformPageView,
-    PlatformRequestMinute,
-    PlatformRuntime,
-    PlatformSample,
-    PlatformSecurityAlert,
-    PlatformSecurityEvent,
-    PlatformVisit,
-)

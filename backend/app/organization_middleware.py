@@ -88,7 +88,7 @@ class OrganizationsMiddleware:
             with organization_scope(organization):
                 return await self.app(child, receive, send)
         if path.startswith("/api/") and not (
-            path.startswith(("/api/platform/", "/api/auth/", "/api/inspection/", "/api/public/appeals", "/api/public/metrics/"))
+            path.startswith(("/api/platform/", "/api/auth/", "/api/inspection/", "/api/public/appeals"))
             or path in {"/api/webhooks/max", "/api/health"}
         ):
             return await JSONResponse({"detail": "Сначала выберите организацию"}, 409)(scope, receive, send)

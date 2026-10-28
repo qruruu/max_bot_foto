@@ -9,7 +9,6 @@ vi.mock('./api', () => ({api: vi.fn()}));
 vi.mock('./App', () => ({ErrorBox: () => null}));
 vi.mock('./Login', () => ({default: () => null, signInDestination: () => '/'}));
 vi.mock('./ConnectDisk', () => ({default: () => null}));
-vi.mock('./control/Control', () => ({default: () => <div>Контроль сервиса</div>}));
 vi.mock('./theme', () => ({useTheme: () => ({theme: 'dark', setTheme: vi.fn()})}));
 
 it('requires confirmation before pausing an organization and keeps settings when cancelled', async () => {
@@ -22,7 +21,6 @@ it('requires confirmation before pausing an organization and keeps settings when
   const button = (text: string) => [...element.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent?.includes(text))!;
   try {
     await act(async () => {root.render(<Organizations/>); await tick();});
-    await act(async () => {button('Организации').click();});
     await act(async () => {button('Настроить').click();});
     await act(async () => {element.querySelector<HTMLInputElement>('input[type=checkbox]')!.click(); button('Сохранить').click(); await tick();});
     expect(element.querySelector('[role=alertdialog]')).not.toBeNull();

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { ArrowUpRight, Building2, Camera, Layers, LayoutDashboard, LogOut, MessageSquare, Moon, Newspaper, Plus, RefreshCw, Settings2, ShieldCheck, Sun, Users, X } from 'lucide-react';
+import { ArrowUpRight, Building2, Camera, Layers, LogOut, MessageSquare, Moon, Newspaper, Plus, RefreshCw, Settings2, ShieldCheck, Sun, Users, X } from 'lucide-react';
 import { api } from './api';
 import { ErrorBox } from './App';
 import Login, { signInDestination } from './Login';
@@ -12,7 +12,6 @@ import './organizations.css';
 const NewsAdmin = lazy(() => import('./NewsAdmin'));
 const OwnerAppeals = lazy(() => import('./appeals/OwnerAppeals'));
 const InspectionOwner = lazy(() => import('./inspection/Owner'));
-const Control = lazy(() => import('./control/Control'));
 
 export type Organization = {
   id: string; name: string; city?: string | null; slug: string; status: 'ACTIVE' | 'PAUSED' | 'PROVISIONING' | 'ERROR' | 'IMPORTING';
@@ -48,9 +47,9 @@ export default function Organizations() {
   const [user, setUser] = useState<User | null>(null), [loading, setLoading] = useState(true);
   const [items, setItems] = useState<Organization[]>([]), [chats, setChats] = useState<Chat[]>([]);
   const [newsEditing,setNewsEditing]=useState(false);
-  const [tab, setTab] = useState<'control' | 'organizations' | 'chats' | 'news' | 'appeals' | 'inspectors'>(() => {
+  const [tab, setTab] = useState<'organizations' | 'chats' | 'news' | 'appeals' | 'inspectors'>(() => {
     const section = new URLSearchParams(window.location.search).get('section');
-    return section === 'organizations' || section === 'chats' || section === 'news' || section === 'appeals' || section === 'inspectors' ? section : 'control';
+    return section === 'news' || section === 'appeals' || section === 'inspectors' ? section : 'organizations';
   });
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Organization | 'new' | null>(null);
@@ -140,11 +139,10 @@ export default function Organizations() {
       <div><span className="owner-account"><ShieldCheck size={17}/>{user.name}<small>Владелец сервиса</small></span>
         <button aria-label="Сменить оформление" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}</button>
         <button aria-label="Выйти" onClick={async () => {try {await api('/auth/logout', 'POST'); setUser(null);} catch(e) {setError((e as Error).message);}}}><LogOut size={18}/></button></div></header>
-    {(tab === 'organizations' || tab === 'chats') && <header className="page-header"><div><span className="eyebrow">КАБИНЕТ ВЛАДЕЛЬЦА</span><h1>Организации</h1>
+    {tab !== 'news' && tab !== 'appeals' && tab !== 'inspectors' && <header className="page-header"><div><span className="eyebrow">КАБИНЕТ ВЛАДЕЛЬЦА</span><h1>Организации</h1>
       <p>Отдельные фотографии, операторы, чаты и обучение для каждой компании.</p></div>
       <button className="primary" disabled={busy} onClick={() => open('new')}><Plus size={18}/>Создать организацию</button></header>}
     <nav className="organization-tabs" aria-label="Управление организациями">
-      <button className={tab === 'control' ? 'selected' : ''} disabled={newsEditing} onClick={() => setTab('control')}><LayoutDashboard size={18}/>Контроль сервиса</button>
       <button className={tab === 'organizations' ? 'selected' : ''} disabled={newsEditing} onClick={() => setTab('organizations')}><Building2 size={18}/>Организации <span>{items.length}</span></button>
       <button className={tab === 'chats' ? 'selected' : ''} disabled={newsEditing} onClick={() => setTab('chats')}><MessageSquare size={18}/>Чаты MAX{chats.some(c => !c.organization_id) && <span className="count-pill">{chats.filter(c => !c.organization_id).length} новых</span>}</button>
       <button className={tab === 'news' ? 'selected' : ''} onClick={() => setTab('news')}><Newspaper size={18}/>Новости</button>
@@ -154,7 +152,7 @@ export default function Organizations() {
     </nav>
     {!editing && !binding && <ErrorBox error={error}/>}
     {notice && <p className="organization-notice" role="status">{notice}</p>}
-    {tab === 'control' ? <Suspense fallback={<p className="loading">Открываем контроль сервиса…</p>}><Control/></Suspense> : tab === 'inspectors' ? <Suspense fallback={<p className="loading">Открываем проверяющих…</p>}><InspectionOwner organizations={ready}/></Suspense> : tab === 'appeals' ? <Suspense fallback={<p className="loading">Открываем обращения…</p>}><OwnerAppeals/></Suspense> : tab === 'news' ? <Suspense fallback={<p className="loading">Открываем редактор…</p>}><NewsAdmin onEditingChange={setNewsEditing}/></Suspense> : tab === 'organizations' ? <div className="organization-grid">{items.map(item => <OrganizationCard key={item.id} item={item} edit={() => open(item)} retry={() => void retry(item.id)}/>)}</div> : <section className="panel organization-chats">
+    {tab === 'inspectors' ? <Suspense fallback={<p className="loading">Открываем проверяющих…</p>}><InspectionOwner organizations={ready}/></Suspense> : tab === 'appeals' ? <Suspense fallback={<p className="loading">Открываем обращения…</p>}><OwnerAppeals/></Suspense> : tab === 'news' ? <Suspense fallback={<p className="loading">Открываем редактор…</p>}><NewsAdmin onEditingChange={setNewsEditing}/></Suspense> : tab === 'organizations' ? <div className="organization-grid">{items.map(item => <OrganizationCard key={item.id} item={item} edit={() => open(item)} retry={() => void retry(item.id)}/>)}</div> : <section className="panel organization-chats">
       <div className="section-title"><div><h2>Один бот — разные организации</h2><p className="hint">Закрепите каждый чат за своей компанией. Нераспределённые вложения ожидают назначения и ещё не обрабатываются.</p></div>
         <button disabled={!ready.length} onClick={() => openBinding()}><Plus size={17}/>Добавить чат по ID</button></div>
       <div className="table-scroll"><table><thead><tr><th>Чат</th><th>Организация</th><th>Ожидают доставки</th><th/></tr></thead><tbody>{chats.map(chat => {

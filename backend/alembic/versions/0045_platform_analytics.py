@@ -1,4 +1,8 @@
-"""Owner analytics, private security events and operational samples."""
+"""Historical owner-analytics schema; retained for already upgraded installations.
+
+The embedded owner monitor was removed. This revision is immutable because it was
+applied in production; the application no longer reads or writes these tables.
+"""
 from alembic import op
 
 revision = '0045'

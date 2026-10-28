@@ -11,7 +11,6 @@ import { citizenWorkOption } from './workTypes';
 import { galleryPhoto } from './gallery';
 import Wall from './Wall';
 import UpdateNotice from '../UpdateNotice';
-import { useUsage } from '../useUsage';
 import './citizen.css';
 import './signal.css';
 
@@ -25,7 +24,6 @@ export default function CitizenAppeal() {
   const [busy, setBusy] = useState(false), [preparing, setPreparing] = useState(false), [error, setError] = useState('');
   const [receipt, setReceipt] = useState('');
   const [loaded, setLoaded] = useState(false), [restored, setRestored] = useState(false), [pending, setPending] = useState(false);
-  useUsage('signal', tab === 'create' ? 'appeal_form' : 'appeals', tab, loaded);
   const [storageError, setStorageError] = useState(false), [offline, setOffline] = useState(!navigator.onLine), [reloading, setReloading] = useState(false);
   const token = useRef<string | null>(null), requestActive = useRef(false), mounted = useRef(true), allowReload = useRef(false);
   const writes = useRef<Promise<void>>(Promise.resolve()), receiptRef = useRef(''), photoRef = useRef(photos);
@@ -58,7 +56,6 @@ export default function CitizenAppeal() {
     } catch {requestActive.current = false; setReloading(false); throw new Error('Не удалось сохранить черновик. Не закрывайте страницу и попробуйте обновить ещё раз.');}
   }
   function complete(number: string) {
-    window.MetkaUsage?.event('signal', 'appeal_sent');
     receiptRef.current = number;
     void persist({form: {...EMPTY_FORM, city: form.city}, photos: [], token: null, pending: false, receipt: number, savedAt: Date.now()});
     if (!mounted.current) return;

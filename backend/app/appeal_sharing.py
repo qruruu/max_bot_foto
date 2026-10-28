@@ -69,8 +69,8 @@ def public_html(item):
 <meta property="og:image:width" content="1200"/><meta property="og:image:height" content="630"/>
 <meta property="og:image:type" content="image/jpeg"/><meta property="og:image:alt" content="Обращение {e(item['number'])}: {e(item['address'], quote=True)}"/>
 <meta name="twitter:card" content="summary_large_image"/>
-<link rel="stylesheet" href="/appeal-detail.css"/><script src="/usage.js" defer></script><script src="/appeal-detail.js" defer></script></head>
-<body data-usage-page="appeals"><div class="signal-detail-shell"><header class="signal-detail-header"><a class="signal-detail-brand" href="{e(wall_url, quote=True)}"><span aria-hidden="true">◉</span>Сигнал</a><span>{e(item["city"])}</span></header>
+<link rel="stylesheet" href="/appeal-detail.css"/><script src="/appeal-detail.js" defer></script></head>
+<body><div class="signal-detail-shell"><header class="signal-detail-header"><a class="signal-detail-brand" href="{e(wall_url, quote=True)}"><span aria-hidden="true">◉</span>Сигнал</a><span>{e(item["city"])}</span></header>
 <main><a class="signal-detail-back" href="{e(wall_url, quote=True)}">← Все обращения города</a>
 <article class="signal-detail-card"><div class="signal-detail-meta"><span>{e(item["number"])}</span><span class="signal-detail-status status-{item['status']}">{status}</span></div>
 <h1>{e(item["address"])}</h1>{f'<p class="signal-detail-place">{e(item["place"])}</p>' if item["place"] else ''}
