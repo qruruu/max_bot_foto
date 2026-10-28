@@ -11,7 +11,7 @@ let root: Root, element: HTMLDivElement, messages: number;
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const row = {id: 42, number: 'ОБ-000042', status: 'NEW', version: 1, photo_count: 1, organization_name: 'Организация',
   city: 'Сургут', address: 'Сквер', place: 'У входа', description: 'Мусор', category: 'WASTE', created_at: '2026-10-28T10:00:00Z', owner_note: '',
-  photos: [{id: 'one', url: '/photo', preview_url: '/preview'}], task: null, can_manage: true, can_execute: false};
+  preview_url: '/preview', photos: [{id: 'one', url: '/photo', preview_url: '/preview', original_url: '/original'}], task: null, can_manage: true, can_execute: false};
 beforeEach(() => {
   messages = 2; vi.clearAllMocks();
   vi.mocked(api).mockImplementation(async (path, method) => {
@@ -28,10 +28,14 @@ afterEach(async () => {await act(async () => root.unmount()); element.remove();}
 
 it('keeps message notifications after opening and clears them after a reply without losing the drafted administrator answer', async () => {
   await act(async () => {root.render(<OwnerAppeals organization endpoint="/appeals"/>); await tick();});
-  expect(element.textContent).toContain('Новые сообщения: 2'); expect(element.querySelector('img')).toBeNull();
+  expect(element.textContent).toContain('Новые сообщения: 2'); expect(element.querySelector('img')?.getAttribute('src')).toBe('/preview');
+  expect(element.textContent).not.toContain('Показать фото');
   expect(element.querySelector('button button')).toBeNull();
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
   expect(element.textContent).toContain('Новые сообщения: 2');
+  expect(element.querySelector('.owner-appeal-photos img')?.getAttribute('src')).toBe('/photo');
+  expect(element.querySelector<HTMLAnchorElement>('.owner-appeal-photos .button')?.getAttribute('href')).toBe('/original');
+  expect(element.textContent).not.toContain('Показать фото');
   const answer = [...element.querySelectorAll('textarea')].find(textarea => textarea.placeholder === 'Результат рассмотрения обращения')!;
   const chat = element.querySelector<HTMLTextAreaElement>('[aria-label="Сообщение по обращению"]')!;
   await act(async () => {

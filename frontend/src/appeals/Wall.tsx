@@ -53,15 +53,15 @@ export default function Wall({city, organizations, revision, apiKey = ''}: {city
   if (!city) return <div className="signal-empty"><Inbox size={36}/><h2>Выберите город</h2><p>Здесь появятся обращения его жителей.</p></div>;
   return <section className="signal-wall"><div className="signal-section-title"><div><span className="signal-eyebrow">ЧТО ПРОИСХОДИТ В ГОРОДЕ</span><h1>Обращения жителей</h1></div>
     <button className="signal-icon-button" aria-label="Обновить стену" onClick={() => setRefresh(value => value + 1)}><RefreshCw size={19}/></button></div>
-    <form className="signal-wall-search" role="search" onSubmit={event => {event.preventDefault(); setQuery(search.trim()); setPage(1);}}>
-      <Search size={19} aria-hidden="true"/><input type="search" aria-label="Поиск обращений" maxLength={200} value={search} onChange={event => setSearch(event.target.value)} placeholder="Поиск по тексту, адресу или дате"/>
-      {search && <button type="button" aria-label="Очистить поиск" onClick={() => {setSearch(''); setQuery(''); setPage(1);}}><X size={18}/></button>}
-    </form>
     <Suspense fallback={<p>Загружаем карту территорий…</p>}><TerritoryMap organizations={organizations} selected={organization} apiKey={apiKey} disabled={false}
       onChoose={id => {setOrganization(id); setPage(1); setData(null);}}/></Suspense>
     <div className="signal-wall-filters"><RecipientChoice label="Организация" name="wall_organization" placeholder="Все организации" value={organization} disabled={false}
       options={organizations.map(item => ({value: item.id, label: item.name}))} onChange={id => {setOrganization(id); setPage(1); setData(null);}}/>
       <label>Порядок<select value={sort} onChange={event => {setSort(event.target.value); setPage(1); setData(null);}}><option value="newest">Сначала новые</option><option value="oldest">Сначала старые</option><option value="organization">По организации</option></select></label></div>
+    <form className="signal-wall-search" role="search" onSubmit={event => {event.preventDefault(); setQuery(search.trim()); setPage(1);}}>
+      <Search size={19} aria-hidden="true"/><input type="search" aria-label="Поиск обращений" maxLength={200} value={search} onChange={event => setSearch(event.target.value)} placeholder="Поиск по тексту, адресу или дате"/>
+      {search && <button type="button" aria-label="Очистить поиск" onClick={() => {setSearch(''); setQuery(''); setPage(1);}}><X size={18}/></button>}
+    </form>
     {error && <p className="citizen-error" role="alert">{error}</p>}
     {!data ? <p role="status">Загружаем обращения…</p> : !data.items.length ? <div className="signal-empty"><Inbox size={36}/><h2>{query ? 'Ничего не найдено' : 'Пока тихо'}</h2><p>{query ? 'Попробуйте другие слова или числа.' : 'Новое обращение появится здесь сразу после отправки.'}</p></div>
       : data.items.map(item => <article className="signal-wall-card" key={item.id}>

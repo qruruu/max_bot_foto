@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ArrowLeft, ArrowUpRight, Camera, ChevronLeft, ChevronRight, Inbox, LockKeyhole, MessageCircle, Plus, RefreshCw } from 'lucide-react';
+import { ArrowDownToLine, ArrowLeft, ArrowUpRight, Camera, ChevronLeft, ChevronRight, Inbox, LockKeyhole, MessageCircle, Plus, RefreshCw } from 'lucide-react';
 import { api } from '../api';
 import AppealActions from './AppealActions';
 import type { WorkflowAppeal } from './AppealActions';
 import AppealDiscussion from './AppealDiscussion';
-import AppealPhotos from './AppealPhotos';
 import { appealStatuses } from './Wall';
 import './owner-appeals.css';
 
@@ -100,7 +99,11 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
           {detail.latitude != null && detail.longitude != null && <a className="button" href={'https://yandex.ru/maps/?' + new URLSearchParams({pt: detail.longitude + ',' + detail.latitude, z: '18', l: 'map'})} target="_blank" rel="noreferrer">Место проблемы на карте</a>}
           <AppealActions key={detail.id + ':' + detail.version} appeal={detail} endpoint={endpoint} readOnly={readOnly} changed={() => setRevision(value => value + 1)}/>
         </article>
-        <div className="owner-appeal-photos"><article className="panel owner-appeal-photo-panel"><AppealPhotos photos={detail.photos}/></article>
+        <div className="owner-appeal-photos">{detail.photos.map((photo, index) => <article className="panel" key={photo.id}>
+          <a href={photo.url} target="_blank" rel="noreferrer"><img src={photo.url} alt={`Фотография обращения ${detail.number}, снимок ${index + 1}`}/></a>
+          <div><strong>Фотография обращения</strong>
+            <a className="button" href={photo.original_url} target="_blank" rel="noreferrer"><ArrowDownToLine size={15}/>Открыть фотографию</a></div>
+        </article>)}
           <AppealDiscussion key={detail.id} endpoint={endpoint + '/' + detail.id} archived={!!detail.archived_at}/></div>
       </div>}
     </> : <>
@@ -109,12 +112,11 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
       <div className="appeal-folder-tabs" role="tablist" aria-label="Раздел обращений">{[false, true].map(value => <button key={String(value)} role="tab" aria-selected={archived === value} onClick={() => {setArchived(value); setPage(1); setStatus('');}}>{value ? 'Архив' : 'Рабочий список'}</button>)}</div>
       <div className="owner-appeal-toolbar"><label>Состояние<select value={status} onChange={event => {setStatus(event.target.value); setPage(1);}}><option value="">Все обращения</option>
         {Object.entries(statuses).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><span className="hint">{data ? `${data.total} обращений` : 'Загружаем…'}</span></div>
-      {!data ? !error && <p className="loading">Загружаем обращения…</p> : !data.items.length ? <div className="panel empty"><Inbox size={32}/><h3>Обращений пока нет</h3><p>Новые анкеты жителей появятся здесь.</p></div> : <div className="owner-appeal-list">{data.items.map(item => <article className="panel owner-appeal-card" key={item.id}>
-        <button className="owner-appeal-card-open" onClick={() => setSelected(item.id)}><div className="owner-appeal-card-top"><strong>{item.number}</strong><AppealBadges status={item.status} messages={item.unanswered_comments}/></div>
+      {!data ? !error && <p className="loading">Загружаем обращения…</p> : !data.items.length ? <div className="panel empty"><Inbox size={32}/><h3>Обращений пока нет</h3><p>Новые анкеты жителей появятся здесь.</p></div> : <div className="owner-appeal-list">{data.items.map(item => <button className="panel owner-appeal-card owner-appeal-card-open" key={item.id} onClick={() => setSelected(item.id)}>
+        <img src={item.preview_url} alt="" loading="lazy"/><div><div className="owner-appeal-card-top"><strong>{item.number}</strong><AppealBadges status={item.status} messages={item.unanswered_comments}/></div>
           {item.submitted_by_inspector_name && <span className="owner-appeal-source"><LockKeyhole size={13}/>От проверяющего · Только в «Метке»</span>}
           <h3>{item.work_type_name || data.categories?.[item.category] || item.category}</h3>{(!organization || readOnly) && <p>{item.organization_name || 'Без назначенной организации'}</p>}<p>{item.city}, {item.address}</p><p className="owner-appeal-excerpt">{item.description}</p>
-          <small>{moment(item.created_at)}<span><Camera size={13}/>{item.photo_count}</span></small></button>
-          <AppealPhotos endpoint={endpoint + '/' + item.id} count={item.photo_count}/></article>)}</div>}
+          <small>{moment(item.created_at)}<span><Camera size={13}/>{item.photo_count}</span></small></div></button>)}</div>}
       {data && data.total > data.page_size && <div className="owner-appeal-pagination"><button disabled={page <= 1} onClick={() => setPage(value => value - 1)}><ChevronLeft size={17}/></button>
         <span>{page} / {Math.ceil(data.total / data.page_size)}</span><button disabled={page * data.page_size >= data.total} onClick={() => setPage(value => value + 1)}><ChevronRight size={17}/></button></div>}
     </>}

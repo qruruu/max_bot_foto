@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { appealStatuses } from './Wall';
 import { galleryPhoto } from './gallery';
-import AppealPhotos from './AppealPhotos';
 
 export type ResultPhoto = {id: string; url: string; preview_url: string};
 export type AppealTask = {id: number; operator_id: number; operator_name: string; instruction?: string;
@@ -58,7 +57,7 @@ export default function AppealActions({appeal, endpoint, readOnly, changed}: {
     {appeal.task && <section className="appeal-task"><h3>Исполнитель: {appeal.task.operator_name}</h3><p className="hint">{appealStatuses[appeal.task.status]}</p>
       {appeal.task.instruction && <><strong>Комментарий к задаче</strong><p className="owner-appeal-text">{appeal.task.instruction}</p><small className="hint">Виден администратору и исполнителю.</small></>}
       {appeal.task.result_comment && <><h4>Результат исполнителя</h4><p className="owner-appeal-text">{appeal.task.result_comment}</p></>}
-      <AppealPhotos photos={appeal.task.photos} label="Фото результата исполнителя"/>
+      <div className="appeal-evidence">{appeal.task.photos.map(photo => <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Фото результата исполнителя"/></a>)}</div>
     </section>}
     {appeal.can_set_task_status && !appeal.archived_at && <section className="appeal-task"><h3>Статус задачи</h3>
       <label>Состояние задачи<select disabled={busy} value={result} onChange={event => setResult(event.target.value)}>
@@ -94,7 +93,7 @@ export default function AppealActions({appeal, endpoint, readOnly, changed}: {
         </> : <p className="hint">Закрытие и публикация ответа будут доступны после результата исполнителя.</p>}
       </section>
     </>}
-    {appeal.public_response && ['RESOLVED', 'DECLINED'].includes(appeal.status) && <section className="appeal-task"><h3>{appeal.is_public === false ? 'Ответ организации в «Метке»' : 'Ответ организации на стене'}</h3><p className="owner-appeal-text">{appeal.public_response}</p><AppealPhotos photos={appeal.response_photos || []} label="Результат рассмотрения"/></section>}
+    {appeal.public_response && ['RESOLVED', 'DECLINED'].includes(appeal.status) && <section className="appeal-task"><h3>{appeal.is_public === false ? 'Ответ организации в «Метке»' : 'Ответ организации на стене'}</h3><p className="owner-appeal-text">{appeal.public_response}</p><div className="appeal-evidence">{appeal.response_photos?.map(photo => <a href={photo.url} key={photo.id} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Результат рассмотрения"/></a>)}</div></section>}
     {manage && ['RESOLVED', 'DECLINED', 'SPAM'].includes(appeal.status) && <section className="appeal-task"><button disabled={busy} onClick={() => void send('/archive', {archived: !appeal.archived_at, expected_version: appeal.version})}>{appeal.archived_at ? 'Вернуть из архива' : 'Перенести в архив'}</button><p className="hint">{appeal.status === 'SPAM' ? 'Спам будет убран из рабочего списка. На стене «Сигнала» он не появится.' : appeal.is_public === false ? 'Архив убирает обращение из рабочего списка. Ответ и фотографии сохраняются в «Метке».' : 'Архив убирает обращение из рабочего списка. Ответ жителю сохраняется на стене.'}</p></section>}
     {manage && !!appeal.task_history?.length && <details><summary>История назначений ({appeal.task_history.length})</summary>{appeal.task_history.map(task => <section className="appeal-task" key={task.id}><strong>{task.operator_name} · {appealStatuses[task.status]}</strong><p className="owner-appeal-text">{task.instruction}</p><p className="owner-appeal-text">{task.result_comment}</p></section>)}</details>}
     {error && <p className="error" role="alert">{error}</p>}
