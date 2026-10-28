@@ -18,6 +18,7 @@ from app import (
     inspection_chats,  # noqa: F401 - registers the inspection conversation routes
     inspection_profile,  # noqa: F401 - registers inspector personal settings
 )
+from app.appeal_sharing import router as appeal_sharing_router
 from app.appeals import organization_router as appeals_organization_router
 from app.appeals import owner_router as appeals_owner_router
 from app.appeals import public_router as appeals_public_router
@@ -133,6 +134,7 @@ app.include_router(inspection_admin_router)
 app.include_router(appeals_owner_router)
 app.include_router(appeals_organization_router)
 app.include_router(appeals_public_router)
+app.include_router(appeal_sharing_router)
 app.include_router(signin_router)
 app.include_router(operator_chats_router)
 app.include_router(chat_senders_router)

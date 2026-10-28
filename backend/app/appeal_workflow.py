@@ -322,11 +322,14 @@ def public_conditions(city=None, organization_id=None):
 
 
 def wall_dict(db, appeal):
+    from app.appeal_sharing import appeal_url
+
     # Explicit allowlist: never publish contact, internal notes, identities or task instructions.
     result = {key: getattr(appeal, key) for key in (
         "id", "organization_id", "organization_name", "city", "address", "place", "category",
         "description", "work_type_name", "status", "latitude", "longitude", "created_at", "updated_at")}
     result["number"] = receipt(appeal.id)["number"]
+    result["share_url"] = appeal_url(appeal.id)
     result["photos"] = [{"id": photo.id, "url": f"/api/public/appeals/wall/{appeal.id}/photos/{photo.id}",
                          "preview_url": f"/api/public/appeals/wall/{appeal.id}/photos/{photo.id}?variant=preview"}
                         for photo in db.scalars(select(AppealPhoto).where(AppealPhoto.appeal_id == appeal.id)

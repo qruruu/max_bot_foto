@@ -5,6 +5,7 @@ import type { PublicOrganization } from './catalog';
 import { citizenWorkOption } from './workTypes';
 import RecipientChoice from './RecipientChoice';
 import AppealPhotos from './AppealPhotos';
+import AppealShare from './AppealShare';
 
 const TerritoryMap = lazy(() => import('./TerritoryMap'));
 
@@ -12,7 +13,7 @@ export const appealStatuses: Record<string, string> = {NEW: 'Новое', IN_REV
   IN_PROGRESS: 'В работе', COMPLETED: 'На проверке результата', REJECTED: 'Исполнитель отклонил', CANCELLED: 'Задача отменена', RESOLVED: 'Закрыто', DECLINED: 'Отказ', SPAM: 'Спам'};
 type WallPhoto = {id: string; url: string; preview_url: string};
 type WallAppeal = {id: number; number: string; organization_name: string; address: string; place: string; description: string;
-  category: string; work_type_name?: string; status: string; created_at: string; photos: WallPhoto[];
+  category: string; work_type_name?: string; status: string; created_at: string; photos: WallPhoto[]; share_url?: string;
   response: {comment: string; at: string; photos: WallPhoto[]} | null};
 type WallPage = {items: WallAppeal[]; page: number; total: number; page_size: number};
 const date = (value: string) => new Date(value).toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'});
@@ -71,6 +72,7 @@ export default function Wall({city, organizations, revision, apiKey = ''}: {city
         <p className="signal-wall-text">{item.description}</p><AppealPhotos photos={item.photos}/>
         {item.response && <div className="signal-public-response"><strong><CheckCircle2 size={17}/>Ответ организации</strong><p className="signal-wall-text">{item.response.comment}</p>
           <AppealPhotos photos={item.response.photos} label="Фотография ответа организации"/><small>{date(item.response.at)}</small></div>}
+        <AppealShare id={item.id} url={item.share_url}/>
       </article>)}
     {data && data.total > data.page_size && <div className="signal-pagination"><button aria-label="Предыдущая страница" disabled={page <= 1} onClick={() => setPage(value => value - 1)}><ChevronLeft/></button><span>{page} / {Math.ceil(data.total / data.page_size)}</span><button aria-label="Следующая страница" disabled={page * data.page_size >= data.total} onClick={() => setPage(value => value + 1)}><ChevronRight/></button></div>}
   </section>;

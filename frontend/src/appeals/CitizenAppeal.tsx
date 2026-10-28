@@ -20,7 +20,7 @@ export default function CitizenAppeal() {
   const [catalog, setCatalog] = useState<AppealCatalog | null>(null), [catalogError, setCatalogError] = useState('');
   const [catalogRevision, setCatalogRevision] = useState(0), [wallRevision, setWallRevision] = useState(0);
   const [tab, setTab] = useState<'wall' | 'create'>('wall'), [step, setStep] = useState(1);
-  const [form, setForm] = useState(EMPTY_FORM), [photos, setPhotos] = useState<LocalPhoto[]>([]);
+  const [form, setForm] = useState(() => ({...EMPTY_FORM, city: (new URLSearchParams(window.location.search).get('city') || '').slice(0, 150)})), [photos, setPhotos] = useState<LocalPhoto[]>([]);
   const [busy, setBusy] = useState(false), [preparing, setPreparing] = useState(false), [error, setError] = useState('');
   const [receipt, setReceipt] = useState('');
   const [loaded, setLoaded] = useState(false), [restored, setRestored] = useState(false), [pending, setPending] = useState(false);
