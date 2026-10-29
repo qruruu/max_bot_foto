@@ -21,6 +21,7 @@ from app.models import LoginAttempt, LoginSession, User
 from app.organization_context import current_organization, workspace_url
 from app.permissions import Permission, effective_permissions, has_permission
 from app.schemas import LoginInput, PasswordInput, SidebarOrderInput
+from app.security_telemetry import identify
 from app.session_details import client_address, session_dict
 
 hasher = PasswordHasher()
@@ -87,6 +88,8 @@ def current_user(request: Request, db: Db):
         if observed_ip:
             attributes.set_committed_value(session, "ip_address", observed_ip)
     request.state.login_session = session
+    identify(request, platform_session.user_id if platform_session else user.id,
+             "owner" if user._platform_owner else "administrator" if user.role == "ADMIN_OPERATOR" else "operator")
     return user
 
 
@@ -271,6 +274,7 @@ def issue_login(user, request, response, db, *, password=None):
             max_age=settings().session_hours * 3600,
             path="/",
         )
+    identify(request, user.id, "owner" if platform_login else "administrator" if user.role == "ADMIN_OPERATOR" else "operator", login=True)
     return user_dict(user)
 
 

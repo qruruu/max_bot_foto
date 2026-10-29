@@ -7,6 +7,7 @@ from app import appeal_workflow  # noqa: F401 - registers map intake and public 
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS
 from app.appeal_sharing import router as sharing_router
 from app.appeals import public_router
+from app.security_telemetry import SecurityTelemetry
 
 
 class AppealBodyLimit:
@@ -40,6 +41,7 @@ class AppealBodyLimit:
 app = FastAPI(title="Обращения граждан", docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(public_router)
 app.include_router(sharing_router)
+app.add_middleware(SecurityTelemetry)
 app.add_middleware(AppealBodyLimit)
 
 

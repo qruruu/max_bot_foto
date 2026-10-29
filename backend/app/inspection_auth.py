@@ -13,6 +13,7 @@ from app.config import base_settings
 from app.domain import now
 from app.models import InspectionAgency, InspectionSession, Inspector
 from app.organization_context import current_organization
+from app.security_telemetry import identify
 from app.session_details import client_address
 
 INSPECTION_MENU = ["/inspectors", "/", "/photos", "/photo-map", "/districts", "/appeals", "/messages", "/users"]
@@ -56,6 +57,7 @@ def current_inspector(request: Request, db: Db):
         if not secrets.compare_digest(session.csrf_hash, digest(request.headers.get("x-csrf-token", ""))):
             raise HTTPException(403, "Недействительный CSRF-токен")
     request.state.inspection_session = session
+    identify(request, account.id, "inspector")
     if session.last_seen_at is None or session.last_seen_at < now() - timedelta(minutes=1):
         db.info["session_activity"] = {"inspection": True, "token_hash": session.token_hash, "at": now(),
                                        "user_agent": request.headers.get("user-agent", "")[:512] or None,
@@ -94,4 +96,5 @@ def try_inspector_login(body, request, response, db):
     for name, value, http_only in (("inspection_session", token, True), ("inspection_csrf", csrf, False)):
         response.set_cookie(name, value, httponly=http_only, secure=base_settings().cookie_secure,
                             samesite="strict", path="/", max_age=base_settings().session_hours * 3600)
+    identify(request, account.id, "inspector", login=True)
     return inspector_dict(account, agency)

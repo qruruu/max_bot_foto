@@ -117,6 +117,7 @@ from app.schemas import (
     UserUpdate,
     validate_polygon,
 )
+from app.security_telemetry import SecurityTelemetry
 from app.signin import router as signin_router
 from app.work_types import catalog_rows, require_work_type, work_catalog
 from app.work_types import router as work_types_router
@@ -147,6 +148,7 @@ app.include_router(daily_reports_router)
 app.include_router(organizations_router)
 app.include_router(disk_accounts_router)
 app.include_router(photo_promotion_router)
+app.add_middleware(SecurityTelemetry)
 app.add_middleware(OrganizationsMiddleware)
 app.add_middleware(AppealBodyLimit)
 Filters = Annotated[PhotoFilters, Query()]
