@@ -80,12 +80,14 @@ def territory_choice_id(organization_id, district_id):
     return str(uuid5(UUID(str(organization_id)), "appeal-territory:" + str(district_id)))
 
 
-def validate_recipient(db, body):
+def validate_recipient(db, body, *, require_work_type=True):
     record = db.get(Organization, str(body.organization_id), with_for_update=True)
     if not record or record.status != "ACTIVE" or not record.city:
         raise HTTPException(422, "Выберите действующую организацию из списка")
     if body.city != record.city:
         raise HTTPException(422, "Выберите город, указанный у этой организации")
+    if not require_work_type and not body.category:
+        return record, None
     try:
         catalog = organization_catalog(record)
     except (OSError, ValueError, RuntimeError, SQLAlchemyError) as exc:

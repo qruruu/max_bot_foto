@@ -141,6 +141,27 @@ def test_gallery_requires_allowed_address_map_point_photos_and_consent(workflow)
         assert operators[0].get(scopes[0].prefix + "/api/appeals/workflow/settings").status_code == 403
 
 
+@pytest.mark.parametrize("include_category", [False, True])
+def test_citizen_can_submit_without_a_work_type_and_retry_without_duplicates(workflow, include_category):
+    owner, scopes, _, _, addresses, _ = workflow
+    scope = scopes[0]
+    body = metadata(scope, addresses[0])
+    if include_category:
+        body["category"] = ""
+    else:
+        del body["category"]
+    with TestClient(public_app) as citizen:
+        token = session(citizen)
+        response = submit(citizen, body, token)
+        assert response.status_code == 201, response.text
+        assert submit(citizen, body, token).json() == response.json()
+        listing = owner.get(scope.prefix + "/api/appeals").json()
+        assert listing["total"] == 1
+        appeal = listing["items"][0]
+        assert appeal["category"] == appeal["work_type_name"] == ""
+        assert citizen.get(f'/api/public/appeals/wall/{appeal["id"]}').json()["description"] == body["description"]
+
+
 def test_assignment_operator_result_admin_publication_and_spam_privacy(workflow):
     owner, scopes, operators, operator_ids, addresses, inspectors = workflow
     scope, other = scopes

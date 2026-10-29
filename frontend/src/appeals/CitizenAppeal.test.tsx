@@ -62,7 +62,8 @@ it('opens the city wall and requires a map point before the questionnaire', asyn
   expect(file.hasAttribute('capture')).toBe(false);
   expect(element.textContent).not.toContain('КОЛОДЦЫ');
   expect(element.textContent).not.toContain('сток для дождевой воды');
-  expect(element.querySelector('[data-field="category"]')!.textContent).toContain('Переполненная урна');
+  expect(element.querySelector('[data-field="category"], select[name="category"]')).toBeNull();
+  expect(element.textContent).not.toContain('Выберите проблему');
 });
 
 it('blocks submission when the organization has no active territories', async () => {
@@ -82,7 +83,7 @@ it('restores gallery photos and submits map coordinates with stable organization
   await click(submitButton());
   const upload = vi.mocked(publicRequest).mock.calls.find(call => call[0] === '/submissions')!;
   const data = upload[1].body as FormData, metadata = JSON.parse(data.get('metadata') as string);
-  expect(metadata).toMatchObject({capture_source: 'gallery', organization_id: organizationId, address_id: addressId, latitude: 61.1, longitude: 72.6, category: 'BIN_EMPTYING', public_consent: true});
+  expect(metadata).toMatchObject({capture_source: 'gallery', organization_id: organizationId, address_id: addressId, latitude: 61.1, longitude: 72.6, category: '', public_consent: true});
   expect(metadata).not.toHaveProperty('captures');
   expect(data.getAll('photos')).toHaveLength(1);
   expect(upload[1].headers).toEqual({'X-Capture-Token': 'restored-token'});

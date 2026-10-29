@@ -71,6 +71,7 @@ class AppealFields(StrictModel):
 
 
 class GalleryInput(AppealFields):
+    category: str = Field(default="", max_length=60)
     capture_source: Literal["gallery"]
     public_consent: Literal[True] = True
 
@@ -231,7 +232,7 @@ def submission_session(request: Request):
 
 
 def create_appeal(db, body, photos, *, is_public, inspector=None):
-    organization, work = validate_recipient(db, body)
+    organization, work = validate_recipient(db, body, require_work_type=inspector is not None)
     scope = scope_for(organization)
     with Session(database_engine(scope.database_url)) as tenant:
         selected = next(((id, name) for id, name in tenant.execute(select(District.id, District.name)
@@ -253,7 +254,7 @@ def create_appeal(db, body, photos, *, is_public, inspector=None):
         if not covered:
             raise HTTPException(422, "Отметьте проблему внутри выбранной территории организации")
     appeal = CitizenAppeal(organization_id=organization.id, organization_name=organization.name,
-        work_type_name=work["name"], city=organization.city, address_id=str(body.address_id), address=label,
+        work_type_name=work["name"] if work else "", city=organization.city, address_id=str(body.address_id), address=label,
         place=body.place, category=body.category, description=body.description, contact=body.contact,
         latitude=body.latitude, longitude=body.longitude, is_public=is_public,
         photo_count=len(photos), status="NEW", owner_note="", version=1,

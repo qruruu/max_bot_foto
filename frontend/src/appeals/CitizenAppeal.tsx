@@ -7,7 +7,6 @@ import type { AppealDraft, ResumeSession, StoredPhoto } from './drafts';
 import { availableRecipient, recipientFor, validRecipient } from './catalog';
 import type { AppealCatalog } from './catalog';
 import RecipientChoice from './RecipientChoice';
-import { citizenWorkOption } from './workTypes';
 import { galleryPhoto } from './gallery';
 import Wall from './Wall';
 import UpdateNotice from '../UpdateNotice';
@@ -96,7 +95,7 @@ export default function CitizenAppeal() {
     return () => {window.removeEventListener('online', online); window.removeEventListener('offline', online);};
   }, []);
   useEffect(() => {
-    if (loaded && catalog && !locked) setForm(current => availableRecipient(current, catalog));
+    if (loaded && catalog && !locked) setForm(current => availableRecipient(current, catalog, false));
   }, [loaded, catalog, locked, form.city, form.organization_id, form.category, form.address_id]);
   useEffect(() => {
     main.current?.scrollIntoView?.({block: 'start'});
@@ -184,8 +183,6 @@ export default function CitizenAppeal() {
             <button type="button" className="signal-back" disabled={locked} onClick={() => setStep(1)}><ArrowLeft size={17}/>{form.address || 'Выбрать территорию и место'}</button>
             {!located && !pending && <p className="citizen-error">Сначала выберите территорию и отметьте место на карте.</p>}
             <fieldset disabled={locked || (!located && !pending)}>
-              <RecipientChoice label="Что случилось?" name="category" placeholder="Выберите проблему" options={recipient?.work_types.filter(work => work.code !== 'DRAIN_CLEANING').map(citizenWorkOption) || []} value={form.category} disabled={locked}
-                onChange={category => setForm(current => ({...current, category}))}/>
               <label>Описание<textarea required maxLength={4000} rows={4} placeholder="Что произошло и что нужно исправить?" value={form.description} onChange={event => setForm(current => ({...current, description: event.target.value}))}/></label>
               <label>Уточнение места <small>необязательно</small><input maxLength={300} placeholder="Например, рядом со вторым подъездом" value={form.place} onChange={event => setForm(current => ({...current, place: event.target.value}))}/></label>
               <div className="signal-section-title"><h2>Фотографии</h2><span>{photos.length} / 3</span></div>
