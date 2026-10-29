@@ -77,9 +77,9 @@ def check(config):
             port = docker("port", name, "80/tcp").strip().rsplit(":", 1)[1]
             docker("exec", name, "nginx", "-t")
 
-            def request(path, ip="198.51.100.10"):
+            def request(path, ip="198.51.100.10", headers=None, method="GET"):
                 req = urllib.request.Request(
-                    "http://127.0.0.1:" + port + path, headers={"X-Forwarded-For": ip}
+                    "http://127.0.0.1:" + port + path, headers={"X-Forwarded-For": ip, **(headers or {})}, method=method
                 )
                 try:
                     response = urllib.request.urlopen(req, timeout=5)
@@ -150,6 +150,22 @@ def check(config):
             else:
                 assert request("/api/health")[0] == 404
                 assert request("/missing-page")[0] == 404
+            # Browser page opens count once; API, assets, bots without document headers do not.
+            browser = {"Sec-Fetch-Dest": "document", "Accept": "text/html"}
+            assert request("/?private=QUERY_SECRET", headers={**browser, "Referer": "https://yandex.ru/search?private=REFERRER_SECRET"})[0] == 200
+            assert request("/a/123", headers={**browser, "Referer": "https://vk.com/private-path"})[0] == 200
+            assert request("/", headers={"Accept": "text/html", "Referer": "https://google.com.evil.example/private"})[0] == 200
+            request("/assets/test.js", headers=browser)
+            request("/api/public/appeals/catalog", headers=browser)
+            request("/missing-page", headers=browser)
+            request("/", headers=browser, method="POST")
+            usage_logs = docker("logs", name)
+            usage = [json.loads(line.partition("METKA_USAGE_V1 ")[2]) for line in usage_logs.splitlines() if line.startswith("METKA_USAGE_V1 ")]
+            assert len(usage) == 3, usage
+            assert {(r["page"], r["source"]) for r in usage} == {("home", "yandex"), ("appeal_card", "vk"), ("home", "other")}, usage
+            assert all(set(r) == {"at", "page", "source"} for r in usage)
+            safe_usage = json.dumps(usage)
+            assert all(secret not in safe_usage for secret in ("QUERY_SECRET", "REFERRER_SECRET", "private-path", "198.51.100"))
             # All probe requests produce exactly one safe structured record, including rejections.
             logs = docker("logs", name)
             rows = [
@@ -174,6 +190,7 @@ def check(config):
                 "burst_429": 14,
                 "normal_routes_ok": True,
                 "private_log_ok": True,
+                "anonymous_usage_ok": True,
             }
         finally:
             subprocess.run(
