@@ -10,15 +10,23 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import AwareDatetime, Field, model_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import SQLAlchemyError
 
-from app.appeal_catalog import public_organizations
+from app.appeal_catalog import organization_catalog, public_organizations
 from app.appeal_events import unanswered_comments
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS
 from app.appeal_search import appeal_search
 from app.auth import CurrentUser, is_platform_owner
 from app.config import base_settings
 from app.domain import audit, now
-from app.models import AppealCaptureSession, AppealPhoto, AppealRateLimit, CitizenAppeal, PlatformOwner
+from app.models import (
+    AppealCaptureSession,
+    AppealPhoto,
+    AppealRateLimit,
+    CitizenAppeal,
+    Organization,
+    PlatformOwner,
+)
 from app.organization_context import current_organization, workspace_url
 from app.organization_registry import control_session
 from app.schemas import StrictModel
@@ -52,6 +60,7 @@ class OwnerEdit(StrictModel):
     status: AppealStatus
     owner_note: str = Field(max_length=4000)
     expected_version: int = Field(ge=1)
+    category: str | None = Field(default=None, max_length=60)
 
 
 def require_appeal_access(user: CurrentUser):
@@ -244,6 +253,25 @@ def appeal_detail(appeal_id: int, user: AppealReader):
             select(AppealPhoto).where(AppealPhoto.appeal_id == appeal.id).order_by(AppealPhoto.position))]}
 
 
+def work_types_for_appeal(db, appeal):
+    organization = db.get(Organization, appeal.organization_id) if appeal.organization_id else None
+    if organization is None:
+        raise HTTPException(422, "У обращения не назначена организация")
+    try:
+        return organization_catalog(organization, public=False)["work_types"]
+    except (OSError, ValueError, RuntimeError, SQLAlchemyError) as exc:
+        raise HTTPException(503, "Не удалось загрузить виды работ организации. Попробуйте ещё раз.") from exc
+
+
+@owner_router.get("/{appeal_id}/work-types")
+@organization_router.get("/{appeal_id}/work-types")
+def appeal_work_types(appeal_id: int, user: AppealReader):
+    if user.role != "ADMIN_OPERATOR":
+        raise HTTPException(403, "Назначать вид работ может администратор")
+    with control_session() as db:
+        return work_types_for_appeal(db, find_appeal(db, appeal_id, user=user))
+
+
 @owner_router.patch("/{appeal_id}")
 @organization_router.patch("/{appeal_id}")
 def edit_appeal(appeal_id: int, body: OwnerEdit, user: AppealReader):
@@ -258,18 +286,31 @@ def edit_appeal(appeal_id: int, body: OwnerEdit, user: AppealReader):
             raise HTTPException(409, "Сначала верните обращение из архива")
         if appeal.version != body.expected_version:
             raise HTTPException(409, "Обращение изменилось. Обновите карточку перед сохранением.")
-        before = {"status": appeal.status, "owner_note": appeal.owner_note}
+        before = {"status": appeal.status, "owner_note": appeal.owner_note,
+                  "category": appeal.category, "work_type_name": appeal.work_type_name}
+        if body.category is not None and body.category != appeal.category:
+            work = None
+            if body.category:
+                work = next((item for item in work_types_for_appeal(db, appeal) if item["code"] == body.category), None)
+            if body.category and work is None:
+                raise HTTPException(422, "Выберите вид работ из справочника организации обращения")
+            appeal.category, appeal.work_type_name = body.category, work["name"] if work else ""
         appeal.status, appeal.owner_note = body.status, body.owner_note
         from app.appeal_events import record_event
         if before["status"] != appeal.status:
             record_event(db, appeal, "STATUS", user)
         if before["owner_note"] != appeal.owner_note:
             record_event(db, appeal, "NOTE", user, comment=appeal.owner_note, visibility="ADMIN")
+        if before["category"] != appeal.category:
+            record_event(db, appeal, "WORK_TYPE", user,
+                         comment=f'{before["work_type_name"] or "Не назначен"} → {appeal.work_type_name or "Не назначен"}')
         appeal.version += 1
         appeal.updated_at = now()
         organization = current_organization()
         audit(db, None if organization else user.id, "CITIZEN_APPEAL_UPDATED", "citizen_appeal", appeal.id, before,
-              {"status": appeal.status, "owner_note": appeal.owner_note, "organization_id": appeal.organization_id,
+              {"status": appeal.status, "owner_note": appeal.owner_note,
+               "category": appeal.category, "work_type_name": appeal.work_type_name,
+               "organization_id": appeal.organization_id,
                "actor_user_id": user.id, "actor_name": user.name,
                "actor_organization_id": organization.id if organization else None})
         db.commit()

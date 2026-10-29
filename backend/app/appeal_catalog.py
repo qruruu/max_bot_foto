@@ -33,13 +33,14 @@ def organization_colors(records):
     return result
 
 
-def organization_catalog(record):
+def organization_catalog(record, *, public=True):
     scope = scope_for(record)
     with Session(database_engine(scope.database_url)) as tenant:
         tenant.execute(text("SET TRANSACTION READ ONLY"))
         tenant.execute(text("SET LOCAL statement_timeout = '4000ms'"))
         works = [{"code": code, "name": name} for code, name in tenant.execute(
-            select(WorkType.code, WorkType.name).where(WorkType.code.not_in(("SPAM", "DRAIN_CLEANING")))
+            select(WorkType.code, WorkType.name).where(
+                WorkType.code.not_in(("SPAM", "DRAIN_CLEANING") if public else ("SPAM",)))
             .order_by(WorkType.sort_order, WorkType.id))]
         territories = [{"id": id, "name": name, "geometry": json.loads(geometry)}
                        for id, name, geometry in tenant.execute(select(

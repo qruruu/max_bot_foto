@@ -17,6 +17,7 @@ type Appeal = {id: number; number: string; city: string; address: string; place:
 type Photo = {id: string; url: string; preview_url: string; original_url: string; captured_at: string; latitude: number; longitude: number; accuracy: number};
 type Detail = Appeal & WorkflowAppeal & {photos: Photo[]; latitude?: number; longitude?: number};
 type Page = {items: Appeal[]; total: number; page: number; page_size: number; categories: Record<string, string>; public_url: string; can_manage?: boolean; can_execute?: boolean};
+type WorkType = {code: string; name: string};
 const statuses = appealStatuses;
 const moment = (value: string) => new Date(value).toLocaleString('ru-RU', {dateStyle: 'short', timeStyle: 'short'});
 
@@ -27,6 +28,8 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
   const [data, setData] = useState<Page | null>(null), [status, setStatus] = useState(''), [page, setPage] = useState(1);
   const [detail, setDetail] = useState<Detail | null>(null), [selected, setSelected] = useState<number | null>(null);
   const [nextStatus, setNextStatus] = useState<Status>('NEW'), [note, setNote] = useState('');
+  const [workType, setWorkType] = useState(''), [workTypes, setWorkTypes] = useState<WorkType[] | null>(null);
+  const [workTypesError, setWorkTypesError] = useState('');
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [revision, setRevision] = useState(0);
   const [archived, setArchived] = useState(false);
   const [search, setSearch] = useState(''), [query, setQuery] = useState('');
@@ -67,18 +70,25 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
   }, []);
   useEffect(() => {
     if (selected === null) {setDetail(null); return;}
-    const controller = new AbortController(); setError(''); setDetail(null);
+    const controller = new AbortController(); setError(''); setDetail(null); setWorkTypes(null); setWorkTypesError('');
     api<Detail>(endpoint + '/' + selected, 'GET', undefined, controller.signal).then(item => {
-      setDetail(item); setNextStatus(item.status); setNote(item.owner_note);
+      if (controller.signal.aborted) return;
+      setDetail(item); setNextStatus(item.status); setNote(item.owner_note); setWorkType(item.category);
+      if (!readOnly && item.can_manage !== false && !item.can_execute && !item.archived_at && item.organization_id) {
+        void api<WorkType[]>(endpoint + '/' + selected + '/work-types', 'GET', undefined, controller.signal)
+          .then(value => {if (!controller.signal.aborted) setWorkTypes(value);})
+          .catch(error => {if (!controller.signal.aborted) setWorkTypesError(error.message);});
+      }
     }).catch(error => {if (error.name !== 'AbortError') setError(error.message);});
     return () => controller.abort();
-  }, [selected, revision, endpoint, refreshKey]);
+  }, [selected, revision, endpoint, refreshKey, readOnly]);
 
   async function save() {
     if (!detail || readOnly) return;
     setBusy(true); setError('');
     try {
-      await api(endpoint + '/' + detail.id, 'PATCH', {status: nextStatus, owner_note: note, expected_version: detail.version});
+      await api(endpoint + '/' + detail.id, 'PATCH', {status: nextStatus, owner_note: note, expected_version: detail.version,
+        ...(workType !== detail.category ? {category: workType} : {})});
       window.dispatchEvent(new Event('appeals-changed'));
       if (active.current) setRevision(value => value + 1);
     } catch (error) {if (active.current) setError((error as Error).message);}
@@ -96,16 +106,23 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
       {!detail ? !error && <p className="loading">Открываем обращение…</p> : <div className="owner-appeal-detail">
         <article className="panel"><div className="section-title"><h2>{detail.number}</h2><AppealBadges status={detail.status} messages={data?.items.find(item => item.id === detail.id)?.unanswered_comments ?? detail.unanswered_comments}/></div>
           <p className="hint">Получено {moment(detail.created_at)}{detail.archived_at && ' · В архиве'}</p>{detail.submitted_by_inspector_name && <p className="owner-appeal-source"><LockKeyhole size={14}/>От проверяющего: {detail.submitted_by_inspector_name} · Только в «Метке»</p>}
-          <h3>{detail.work_type_name || data?.categories?.[detail.category] || detail.category}</h3>
+          <h3>{detail.work_type_name || data?.categories?.[detail.category] || detail.category || 'Вид работ не назначен'}</h3>
           <dl><dt>Адрес</dt><dd>{detail.city}, {detail.address}</dd><dt>Место</dt><dd>{detail.place}</dd>
             <dt>Описание</dt><dd className="owner-appeal-text">{detail.description}</dd>
             <dt>Организация</dt><dd>{detail.organization_name || detail.organization_hint || 'Не назначена — обращение из прежней формы'}</dd>
             {!detail.submitted_by_inspector_name && !readOnly && detail.can_manage !== false && !detail.can_execute && <><dt>Контакт</dt><dd>{detail.contact || 'Не оставлен'}</dd></>}</dl>
-          {!detail.archived_at && !readOnly && detail.can_manage !== false && !detail.can_execute && <div className="owner-appeal-edit"><label>Состояние<select disabled={busy} value={nextStatus} onChange={event => setNextStatus(event.target.value as Status)}>
+          {!detail.archived_at && !readOnly && detail.can_manage !== false && !detail.can_execute && <div className="owner-appeal-edit">
+            {detail.organization_id && <label>Вид работ<select name="work_type" disabled={busy || workTypes === null} value={workType} onChange={event => setWorkType(event.target.value)}>
+              <option value="">Не назначен</option>
+              {detail.category && !workTypes?.some(work => work.code === detail.category) && <option value={detail.category} disabled>{detail.work_type_name || detail.category}</option>}
+              {workTypes?.map(work => <option key={work.code} value={work.code}>{work.name}</option>)}
+            </select></label>}
+            {workTypesError && <p className="error" role="alert">{workTypesError}</p>}
+            <label>Состояние<select disabled={busy} value={nextStatus} onChange={event => setNextStatus(event.target.value as Status)}>
             {Object.entries(statuses).filter(([key]) => ['NEW','IN_REVIEW','SPAM'].includes(key) || key === detail.status).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
             <label>Внутренняя заметка<textarea disabled={busy} rows={4} maxLength={4000} placeholder="Что проверено и что нужно сделать…" value={note} onChange={event => setNote(event.target.value)}/></label>
             <p className="hint">Заметка видна администраторам этой организации и владельцу сервиса.</p>
-            <button className="primary" disabled={busy || (nextStatus === detail.status && note === detail.owner_note)} onClick={() => void save()}>{busy ? 'Сохраняем…' : 'Сохранить'}</button></div>}
+            <button className="primary" disabled={busy || (nextStatus === detail.status && note === detail.owner_note && workType === detail.category)} onClick={() => void save()}>{busy ? 'Сохраняем…' : 'Сохранить'}</button></div>}
           {detail.latitude != null && detail.longitude != null && <a className="button" href={'https://yandex.ru/maps/?' + new URLSearchParams({pt: detail.longitude + ',' + detail.latitude, z: '18', l: 'map'})} target="_blank" rel="noreferrer">Место проблемы на карте</a>}
           <AppealActions key={detail.id + ':' + detail.version} appeal={detail} endpoint={endpoint} readOnly={readOnly} changed={() => setRevision(value => value + 1)}/>
         </article>
@@ -129,7 +146,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
       {!data ? !error && <p className="loading">Загружаем обращения…</p> : !data.items.length ? <div className="panel empty"><Inbox size={32}/><h3>{query ? 'Ничего не найдено' : 'Обращений пока нет'}</h3><p>{query ? 'Попробуйте другие слова, адрес, номер или дату.' : 'Новые анкеты жителей появятся здесь.'}</p></div> : <div className="owner-appeal-list">{data.items.map(item => <button className="panel owner-appeal-card owner-appeal-card-open" key={item.id} onClick={() => setSelected(item.id)}>
         <img src={item.preview_url} alt="" loading="lazy"/><div><div className="owner-appeal-card-top"><strong>{item.number}</strong><AppealBadges status={item.status} messages={item.unanswered_comments}/></div>
           {item.submitted_by_inspector_name && <span className="owner-appeal-source"><LockKeyhole size={13}/>От проверяющего · Только в «Метке»</span>}
-          <h3>{item.work_type_name || data.categories?.[item.category] || item.category}</h3>{(!organization || readOnly) && <p>{item.organization_name || 'Без назначенной организации'}</p>}<p>{item.city}, {item.address}</p><p className="owner-appeal-excerpt">{item.description}</p>
+          <h3>{item.work_type_name || data.categories?.[item.category] || item.category || 'Вид работ не назначен'}</h3>{(!organization || readOnly) && <p>{item.organization_name || 'Без назначенной организации'}</p>}<p>{item.city}, {item.address}</p><p className="owner-appeal-excerpt">{item.description}</p>
           <small>{moment(item.created_at)}<span><Camera size={13}/>{item.photo_count}</span></small></div></button>)}</div>}
       {data && data.total > data.page_size && <div className="owner-appeal-pagination"><button disabled={page <= 1} onClick={() => setPage(value => value - 1)}><ChevronLeft size={17}/></button>
         <span>{page} / {Math.ceil(data.total / data.page_size)}</span><button disabled={page * data.page_size >= data.total} onClick={() => setPage(value => value + 1)}><ChevronRight size={17}/></button></div>}

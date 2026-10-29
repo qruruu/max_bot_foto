@@ -4,22 +4,29 @@ import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import OwnerAppeals from './OwnerAppeals';
-import { api } from '../api';
+import { api, ApiError } from '../api';
 
 vi.mock('../api', async () => ({...await vi.importActual('../api'), api: vi.fn()}));
 let root: Root, element: HTMLDivElement, messages: number;
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
-const row = {id: 42, number: 'ОБ-000042', status: 'NEW', version: 1, photo_count: 1, organization_name: 'Организация',
+const row = {id: 42, number: 'ОБ-000042', status: 'NEW', version: 1, photo_count: 1, organization_name: 'Организация', organization_id: 'organization-one', work_type_name: '',
   city: 'Сургут', address: 'Сквер', place: 'У входа', description: 'Мусор', category: 'WASTE', created_at: '2026-10-28T10:00:00Z', owner_note: '',
   preview_url: '/preview', photos: [{id: 'one', url: '/photo', preview_url: '/preview', original_url: '/original'}], task: null, can_manage: true, can_execute: false};
+let current: typeof row & {archived_at?: string};
 beforeEach(() => {
-  messages = 2; vi.clearAllMocks();
-  vi.mocked(api).mockImplementation(async (path, method) => {
+  messages = 2; current = {...row}; vi.clearAllMocks();
+  vi.mocked(api).mockImplementation(async (path, method, body) => {
+    if (method === 'PATCH') {
+      const fields = body as {category?: string};
+      current = {...current, ...fields, work_type_name: fields.category === 'BIN_EMPTYING' ? 'УРНЫ' : fields.category === '' ? '' : current.work_type_name, version: current.version + 1};
+      return current;
+    }
     if (method === 'POST') {messages = 0; return {id: 3};}
     if (path.includes('/events')) return {items: [], has_more: false, can_comment: true};
     if (path.endsWith('/operators')) return [];
-    if (path.includes('?page=')) return {items: [{...row, unanswered_comments: messages}], total: 1, page: 1, page_size: 20, can_manage: true};
-    return {...row, unanswered_comments: messages};
+    if (path.endsWith('/work-types')) return [{code: 'BIN_EMPTYING', name: 'УРНЫ'}, {code: 'CUSTOM', name: 'Особая работа организации'}];
+    if (path.includes('?page=')) return {items: [{...current, unanswered_comments: messages}], total: 1, page: 1, page_size: 20, can_manage: current.can_manage};
+    return {...current, unanswered_comments: messages};
   });
   (globalThis as {IS_REACT_ACT_ENVIRONMENT?: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
   element = document.createElement('div'); document.body.append(element); root = createRoot(element);
@@ -49,6 +56,54 @@ it('keeps message notifications after opening and clears them after a reply with
   messages = 1;
   await act(async () => {window.dispatchEvent(new Event('focus')); await tick();});
   expect(element.textContent).toContain('Новые сообщения: 1'); expect(answer.value).toBe('Черновик ответа');
+});
+
+it.each(['/appeals', '/platform/appeals'])('assigns original organization work types and can clear them through %s', async endpoint => {
+  current.category = '';
+  await act(async () => {root.render(<OwnerAppeals organization endpoint={endpoint}/>); await tick();});
+  expect(element.textContent).toContain('Вид работ не назначен');
+  await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
+  let select = element.querySelector<HTMLSelectElement>('select[name=work_type]')!;
+  expect([...select.options].map(option => option.text)).toEqual(['Не назначен', 'УРНЫ', 'Особая работа организации']);
+  expect(element.textContent).not.toContain('Переполненная урна');
+  await act(async () => {select.value = 'BIN_EMPTYING'; select.dispatchEvent(new Event('change', {bubbles: true}));});
+  await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-edit button')!.click(); await tick();});
+  expect(api).toHaveBeenCalledWith(endpoint + '/42', 'PATCH', {category: 'BIN_EMPTYING', status: 'NEW', owner_note: '', expected_version: 1});
+  expect(element.querySelector('.owner-appeal-detail h3')!.textContent).toBe('УРНЫ');
+  select = element.querySelector<HTMLSelectElement>('select[name=work_type]')!;
+  await act(async () => {select.value = ''; select.dispatchEvent(new Event('change', {bubbles: true}));});
+  await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-edit button')!.click(); await tick();});
+  expect(api).toHaveBeenCalledWith(endpoint + '/42', 'PATCH', {category: '', status: 'NEW', owner_note: '', expected_version: 2});
+  expect(element.querySelector('.owner-appeal-detail h3')!.textContent).toBe('Вид работ не назначен');
+});
+
+it.each(['operator', 'inspector', 'archived'])('does not offer work type editing for %s', async role => {
+  if (role === 'operator') current = {...current, can_manage: false, can_execute: true};
+  if (role === 'archived') current = {...current, archived_at: '2026-10-29T12:00:00Z'};
+  await act(async () => {root.render(<OwnerAppeals organization endpoint="/appeals" readOnly={role === 'inspector'}/>); await tick();});
+  await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
+  expect(element.querySelector('select[name=work_type]')).toBeNull();
+  expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/work-types'))).toBe(false);
+});
+
+it('keeps the selected work type and note after a version conflict', async () => {
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async (path, method, ...args) => {
+    if (method === 'PATCH') throw new ApiError(409, 'Обращение изменилось. Обновите карточку.');
+    return original(path, method, ...args);
+  });
+  await act(async () => {root.render(<OwnerAppeals organization endpoint="/appeals"/>); await tick();});
+  await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
+  const select = element.querySelector<HTMLSelectElement>('select[name=work_type]')!;
+  const note = element.querySelector<HTMLTextAreaElement>('.owner-appeal-edit textarea')!;
+  await act(async () => {
+    select.value = 'BIN_EMPTYING'; select.dispatchEvent(new Event('change', {bubbles: true}));
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(note, 'Проверить урну');
+    note.dispatchEvent(new Event('input', {bubbles: true}));
+  });
+  await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-edit button')!.click(); await tick();});
+  expect(element.textContent).toContain('Обращение изменилось');
+  expect(select.value).toBe('BIN_EMPTYING'); expect(note.value).toBe('Проверить урну');
 });
 
 it.each([

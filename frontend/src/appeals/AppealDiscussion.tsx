@@ -9,7 +9,7 @@ type EventPage = {items: AppealEvent[]; has_more: boolean; can_comment: boolean}
 const kinds: Record<string, string> = {CREATED: 'Обращение создано', ASSIGNED: 'Назначен исполнитель',
   INSTRUCTION: 'Комментарий к задаче', STATUS: 'Изменён статус', RESULT: 'Получен результат исполнителя',
   CLOSED: 'Обращение закрыто', ARCHIVED: 'Перенесено в архив', RESTORED: 'Возвращено из архива',
-  NOTE: 'Изменена внутренняя заметка', COMMENT: 'Сообщение в обсуждении', IMPORTED: 'Состояние до включения истории'};
+  NOTE: 'Изменена внутренняя заметка', WORK_TYPE: 'Изменён вид работ', COMMENT: 'Сообщение в обсуждении', IMPORTED: 'Состояние до включения истории'};
 const roles: Record<string, string> = {INSPECTOR: 'Проверяющий', ADMIN_OPERATOR: 'Администратор', OPERATOR: 'Оператор', CITIZEN: 'Житель'};
 const date = (value: string) => new Date(value).toLocaleString('ru-RU', {dateStyle: 'short', timeStyle: 'short'});
 const initials = (name: string) => (name.match(/[\p{L}\p{N}]+/gu) || []).slice(0, 2).map(part => part[0]).join('').toUpperCase();

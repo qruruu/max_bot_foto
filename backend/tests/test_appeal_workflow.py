@@ -162,6 +162,82 @@ def test_citizen_can_submit_without_a_work_type_and_retry_without_duplicates(wor
         assert citizen.get(f'/api/public/appeals/wall/{appeal["id"]}').json()["description"] == body["description"]
 
 
+def test_admin_assigns_original_work_types_with_versioning_history_and_owner_access(workflow):
+    owner, scopes, clients, _, addresses, _ = workflow
+    scope = scopes[0]
+    with TestClient(public_app) as citizen:
+        response = submit(citizen, {**metadata(scope, addresses[0]), "category": ""})
+        assert response.status_code == 201, response.text
+    id = int(response.json()["number"].split("-")[-1])
+    path = scope.prefix + f"/api/appeals/{id}"
+    global_path = f"/api/platform/appeals/{id}"
+    options = owner.get(global_path + "/work-types")
+    assert options.status_code == 200, options.text
+    assert options.json() == [{"code": "BIN_EMPTYING", "name": "УРНЫ"},
+                              {"code": "DRAIN_CLEANING", "name": "КОЛОДЦЫ"}]
+    edit = {"status": "NEW", "owner_note": "", "expected_version": 1, "category": "BIN_EMPTYING"}
+    assert clients[0].get(path + "/work-types").status_code == 403
+    assert clients[0].patch(path, json=edit).status_code == 403
+    for code in ("SPAM", "FOREIGN", "Переполненная урна"):
+        assert owner.patch(path, json={**edit, "category": code}).status_code == 422
+    assert owner.get(path).json()["version"] == 1
+    with organization_scope(scope), Session(engine()) as tenant:
+        tenant.scalar(select(User).where(User.login == "same-login")).role = "ADMIN_OPERATOR"
+        tenant.commit()
+    result = clients[0].patch(path, json=edit)
+    assert result.status_code == 200, result.text
+    assert result.json()["category"] == "BIN_EMPTYING" and result.json()["work_type_name"] == "УРНЫ"
+    assert result.json()["version"] == 2
+    events = clients[0].get(path + "/events").json()["items"]
+    assigned = [event for event in events if event["kind"] == "WORK_TYPE"]
+    assert len(assigned) == 1 and assigned[0]["actor_name"] == "Operator 0"
+    assert assigned[0]["comment"] == "Не назначен → УРНЫ"
+    assert owner.patch(global_path, json={**edit, "category": "DRAIN_CLEANING"}).status_code == 409
+    replaced = owner.patch(global_path, json={**edit, "category": "DRAIN_CLEANING", "expected_version": 2})
+    assert replaced.status_code == 200 and replaced.json()["work_type_name"] == "КОЛОДЦЫ"
+    cleared = owner.patch(global_path, json={**edit, "category": "", "expected_version": 3})
+    assert cleared.status_code == 200 and cleared.json()["category"] == cleared.json()["work_type_name"] == ""
+
+
+def test_work_type_edit_is_isolated_preserves_old_labels_and_respects_archive(workflow, monkeypatch):
+    from app.domain import now
+
+    owner, scopes, clients, _, addresses, inspectors = workflow
+    scope = scopes[0]
+    with TestClient(public_app) as citizen:
+        response = submit(citizen, metadata(scope, addresses[0]))
+        assert response.status_code == 201
+    id = int(response.json()["number"].split("-")[-1])
+    path = scope.prefix + f"/api/appeals/{id}"
+    other_path = scopes[1].prefix + f"/api/appeals/{id}"
+    edit = {"status": "NEW", "owner_note": "Заметка", "expected_version": 1, "category": "DRAIN_CLEANING"}
+    assert owner.get(other_path + "/work-types").status_code == 404
+    assert owner.patch(other_path, json=edit).status_code == 404
+    assert clients[1].patch(path, json=edit).status_code == 401
+    assert inspectors[0].patch(path, json=edit).status_code in (401, 403)
+    with organization_scope(scope), Session(engine()) as tenant:
+        tenant.delete(tenant.scalar(select(WorkType).where(WorkType.code == "BIN_EMPTYING")))
+        tenant.commit()
+    saved = owner.patch(path, json={key: value for key, value in edit.items() if key != "category"})
+    assert saved.status_code == 200 and saved.json()["work_type_name"] == "УРНЫ"
+    assert saved.json()["category"] == "BIN_EMPTYING"
+    assert owner.patch(path, json={**edit, "category": "BIN_EMPTYING", "expected_version": 2}).status_code == 200
+    with control_session() as db:
+        appeal = db.get(CitizenAppeal, id)
+        appeal.archived_at = now()
+        db.commit()
+    assert owner.patch(path, json={**edit, "expected_version": 3}).status_code == 409
+    with control_session() as db:
+        db.get(CitizenAppeal, id).archived_at = None
+        db.commit()
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("Organization database is temporarily unavailable")
+    monkeypatch.setattr("app.appeals.organization_catalog", unavailable)
+    assert owner.get(path + "/work-types").status_code == 503
+    assert owner.patch(path, json={**edit, "expected_version": 3}).status_code == 503
+    assert owner.get(path).json()["category"] == "BIN_EMPTYING"
+
+
 def test_assignment_operator_result_admin_publication_and_spam_privacy(workflow):
     owner, scopes, operators, operator_ids, addresses, inspectors = workflow
     scope, other = scopes
