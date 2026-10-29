@@ -1,0 +1,15 @@
+[Unit]
+Description=Restore and verify the MAX Photo Yandex archive
+After=network-online.target max-foto-backup-verify.service max-foto-yandex-backup.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/max-foto-yandex-backup verify
+TimeoutStartSec=2h
+TimeoutStopSec=1min
+Nice=15
+IOSchedulingClass=idle
+CPUQuota=75%
+MemoryMax=700M
+UMask=0077

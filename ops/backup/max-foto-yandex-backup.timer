@@ -1,0 +1,11 @@
+[Unit]
+Description=MAX Photo Yandex archive every day at 04:00 Yekaterinburg
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 Asia/Yekaterinburg
+Persistent=true
+AccuracySec=1min
+Unit=max-foto-yandex-backup.service
+
+[Install]
+WantedBy=timers.target

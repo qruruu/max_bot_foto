@@ -259,9 +259,10 @@ class Backup:
                 self.sync(Path(source), self.stage / 'server' / name)
         units = self.stage / 'server' / 'systemd'
         units.mkdir(parents=True, exist_ok=True)
-        for source in Path('/etc/systemd/system').glob('max-foto-backup*'):
-            if source.is_file():
-                shutil.copy2(source, units / source.name)
+        for pattern in ('max-foto-backup*', 'max-foto-yandex-backup*'):
+            for source in Path('/etc/systemd/system').glob(pattern):
+                if source.is_file():
+                    shutil.copy2(source, units / source.name)
         atomic_json(self.stage / 'manifest.json', metadata)
         hashes, links = {}, {}
         for path in sorted(self.stage.rglob('*')):
@@ -420,7 +421,9 @@ def main():
         app.resume()
         return
     if args.action == 'status':
-        for name in ['last-success.json', 'last-attempt.json', 'last-verification.json']:
+        for name in ['last-success.json', 'last-attempt.json', 'last-verification.json',
+                     'yandex-last-success.json', 'yandex-last-attempt.json',
+                     'yandex-last-verification.json']:
             path = app.state / name
             if path.exists():
                 print(name + ': ' + path.read_text())

@@ -1,0 +1,16 @@
+[Unit]
+Description=Encrypted archive of MAX Photo Yandex Disk folders to Selectel
+After=docker.service network-online.target max-foto-backup.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/max-foto-yandex-backup backup
+TimeoutStartSec=3h
+TimeoutStopSec=1min
+Nice=15
+IOSchedulingClass=idle
+CPUQuota=75%
+MemoryMax=700M
+UMask=0077
