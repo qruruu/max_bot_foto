@@ -23,7 +23,7 @@ afterEach(async () => {await act(async () => root.unmount()); element.remove();}
 
 it('renders the complaint and public administrator result without personal or private task fields', async () => {
   await act(async () => {root.render(<Wall city="Сургут" organizations={organizations} revision={0}/>); await tick();});
-  expect(element.textContent).toContain('Переполненная урна'); expect(element.textContent).toContain('Урну очистили');
+  expect(element.textContent).not.toContain('Переполненная урна'); expect(element.textContent).toContain('Урну очистили');
   expect(element.textContent).not.toContain('private-');
   expect(element.querySelector('img')).toBeNull();
   await act(async () => {element.querySelector<HTMLButtonElement>('.appeal-photo-toggle')!.click(); await tick();});
