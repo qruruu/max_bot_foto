@@ -8,7 +8,7 @@ from app.models import CitizenAppeal
 
 def appeal_search(query):
     local_time = func.timezone(base_settings().app_timezone, CitizenAppeal.created_at)
-    searchable = func.concat_ws(" ", CitizenAppeal.description, CitizenAppeal.address, CitizenAppeal.place,
+    searchable = func.concat_ws(" ", CitizenAppeal.subject, CitizenAppeal.description, CitizenAppeal.address, CitizenAppeal.place,
         CitizenAppeal.city, CitizenAppeal.organization_name, CitizenAppeal.work_type_name,
         func.concat("ОБ-", func.lpad(cast(CitizenAppeal.id, String), 6, "0")),
         func.to_char(local_time, "DD.MM.YYYY HH24:MI"), func.to_char(local_time, "YYYY-MM-DD"),

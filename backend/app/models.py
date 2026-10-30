@@ -44,6 +44,7 @@ class CitizenAppeal(Timestamps, Base):
     address: Mapped[str] = mapped_column(String(300))
     place: Mapped[str] = mapped_column(String(300))
     category: Mapped[str] = mapped_column(String(60))
+    subject: Mapped[str] = mapped_column(String(80), default="", server_default="")
     description: Mapped[str] = mapped_column(Text)
     organization_hint: Mapped[str] = mapped_column(String(200), default="")
     contact: Mapped[str] = mapped_column(String(200), default="")

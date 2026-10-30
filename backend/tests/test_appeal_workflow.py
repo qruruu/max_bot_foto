@@ -162,6 +162,28 @@ def test_citizen_can_submit_without_a_work_type_and_retry_without_duplicates(wor
         assert citizen.get(f'/api/public/appeals/wall/{appeal["id"]}').json()["description"] == body["description"]
 
 
+def test_citizen_subject_is_saved_searchable_and_separate_from_work_type(workflow):
+    owner, scopes, _, _, addresses, _ = workflow
+    body = {**metadata(scopes[0], addresses[0]), "subject": "  Сломана   скамейка  ", "category": ""}
+    with TestClient(public_app) as citizen:
+        token = session(citizen)
+        oversized = submit(citizen, {**body, "subject": "Я" * 81}, token)
+        assert oversized.status_code == 422
+        response = submit(citizen, body, token)
+        assert response.status_code == 201, response.text
+        assert submit(citizen, body, token).json() == response.json()
+        wall = citizen.get("/api/public/appeals/wall", params={"city": body["city"], "q": "скамейка"}).json()
+        assert wall["total"] == 1
+        row = wall["items"][0]
+        assert row["subject"] == "Сломана скамейка"
+        assert row["description"] == body["description"]
+        assert row["category"] == row["work_type_name"] == ""
+        detail = owner.get(scopes[0].prefix + f'/api/appeals/{row["id"]}').json()
+        assert detail["subject"] == row["subject"]
+        public_page = citizen.get(f'/a/{row["id"]}')
+        assert '<h1>Сломана скамейка</h1>' in public_page.text
+
+
 def test_admin_assigns_original_work_types_with_versioning_history_and_owner_access(workflow):
     owner, scopes, clients, _, addresses, _ = workflow
     scope = scopes[0]

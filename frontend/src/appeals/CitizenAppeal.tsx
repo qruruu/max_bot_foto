@@ -72,13 +72,13 @@ export default function CitizenAppeal() {
     mounted.current = true; let active = true;
     loadDraft().then(draft => {
       if (!active || !draft) return;
-      const hasContent = draft.photos.length || draft.form.description || draft.pending;
+      const hasContent = draft.photos.length || draft.form.subject || draft.form.description || draft.pending;
       if (hasContent) setForm({...EMPTY_FORM, ...draft.form});
       if (draft.receipt) {receiptRef.current = draft.receipt; setReceipt(draft.receipt); return;}
       if (!hasContent) return;
       setPhotos(draft.photos.map(photo => ({...photo, url: URL.createObjectURL(photo.preview)})));
       token.current = draft.token; setPending(draft.pending); setRestored(true);
-      if (draft.photos.length || draft.form.description || draft.pending) {setTab('create'); setStep(2);}
+      setTab('create'); setStep(2);
     }).catch(() => {if (active) setStorageError(true);}).finally(() => {if (active) setLoaded(true);});
     return () => {active = false; mounted.current = false; photoRef.current.forEach(photo => URL.revokeObjectURL(photo.url));};
   }, []);
@@ -101,9 +101,9 @@ export default function CitizenAppeal() {
     main.current?.scrollIntoView?.({block: 'start'});
   }, [step, tab]);
   useEffect(() => {
-    const leaving = (event: BeforeUnloadEvent) => {if (!allowReload.current && !receiptRef.current && (photoRef.current.length || form.description)) {event.preventDefault(); event.returnValue = '';}};
+    const leaving = (event: BeforeUnloadEvent) => {if (!allowReload.current && !receiptRef.current && (photoRef.current.length || form.subject || form.description)) {event.preventDefault(); event.returnValue = '';}};
     window.addEventListener('beforeunload', leaving); return () => window.removeEventListener('beforeunload', leaving);
-  }, [form.description]);
+  }, [form.subject, form.description]);
 
   async function addPhotos(files: FileList | null) {
     if (!files || requestActive.current || locked) return;
@@ -122,6 +122,7 @@ export default function CitizenAppeal() {
   async function submit(event: FormEvent) {
     event.preventDefault(); if (requestActive.current) return;
     if (!photos.length || (!pending && (!located || !validRecipient(form, catalog)))) {setError('Выберите территорию и точку на карте, опишите проблему и приложите фото.'); return;}
+    if (!pending && (!(form.subject || '').trim() || !form.description.trim())) {setError('Укажите тему обращения и опишите проблему.'); return;}
     requestActive.current = true; setBusy(true); setError(''); let attempted = false;
     try {
       if (token.current) {
@@ -165,9 +166,11 @@ export default function CitizenAppeal() {
       {storageError && <p className="signal-notice">Не закрывайте вкладку до отправки: браузер не разрешил сохранить черновик.</p>}
       {receipt && <div className="signal-receipt" role="status"><CheckCircle2/><div><strong>Обращение {receipt} отправлено</strong><p>Оно появилось на стене города. Ответ организации появится в этой же карточке.</p></div></div>}
       {tab === 'wall' ? <Wall city={form.city} organizations={cityOrganizations} apiKey={catalog?.yandex_maps_api_key || ''} revision={wallRevision}/> : <>
-        <div className="signal-compose-title"><span className="signal-eyebrow">НОВОЕ ОБРАЩЕНИЕ · ШАГ {step} ИЗ 2</span><h1>{step === 1 ? 'Выберите место' : 'Расскажите о проблеме'}</h1></div>
+        <div className="signal-compose-title"><div className="signal-step-meta"><span>НОВОЕ ОБРАЩЕНИЕ</span><span>ШАГ {step} ИЗ 2</span></div>
+          <progress className="signal-progress" value={step} max={2} aria-label={`Шаг ${step} из 2`}/>
+          <h1>{step === 1 ? 'Сообщить о проблеме' : 'Расскажите о проблеме'}</h1></div>
         <form className="citizen-form signal-form" onSubmit={event => void submit(event)}>
-          {restored && <p className="signal-notice">Восстановили ваш черновик вместе с фотографиями.</p>}
+          {restored && <p className="signal-notice">Восстановили ваш черновик{photos.length ? ' вместе с фотографиями' : ''}.</p>}
           {pending && <p className="signal-notice" role="status">Проверяем, получено ли обращение. Повторная попытка не создаст дубль.</p>}
           {step === 1 ? <fieldset disabled={locked}>
             <RecipientChoice label="Организация" name="organization_id" options={cityOrganizations.map(item => ({value: item.id, label: item.name}))} value={form.organization_id} disabled={locked}
@@ -183,16 +186,21 @@ export default function CitizenAppeal() {
             <button type="button" className="signal-back" disabled={locked} onClick={() => setStep(1)}><ArrowLeft size={17}/>{form.address || 'Выбрать территорию и место'}</button>
             {!located && !pending && <p className="citizen-error">Сначала выберите территорию и отметьте место на карте.</p>}
             <fieldset disabled={locked || (!located && !pending)}>
-              <label>Описание<textarea required maxLength={4000} rows={4} placeholder="Что произошло и что нужно исправить?" value={form.description} onChange={event => setForm(current => ({...current, description: event.target.value}))}/></label>
+              <div className="signal-field"><label htmlFor="appeal-subject">Тема обращения <span className="signal-required" aria-hidden="true">*</span></label>
+                <input id="appeal-subject" name="subject" required maxLength={80} aria-describedby="appeal-subject-help" placeholder="Например, не убрана детская площадка" value={form.subject || ''} onChange={event => setForm(current => ({...current, subject: event.target.value}))}/>
+                <div className="signal-field-meta" id="appeal-subject-help"><span>Кратко сформулируйте проблему</span><span>{(form.subject || '').length}/80</span></div></div>
+              <div className="signal-field"><label htmlFor="appeal-description">Описание <span className="signal-required" aria-hidden="true">*</span></label>
+                <textarea id="appeal-description" name="description" required maxLength={4000} rows={5} aria-describedby="appeal-description-count" placeholder="Что произошло и что нужно исправить?" value={form.description} onChange={event => setForm(current => ({...current, description: event.target.value}))}/>
+                <div className="signal-field-meta signal-field-count" id="appeal-description-count">{form.description.length}/4000</div></div>
               <label>Уточнение места <small>необязательно</small><input maxLength={300} placeholder="Например, рядом со вторым подъездом" value={form.place} onChange={event => setForm(current => ({...current, place: event.target.value}))}/></label>
-              <div className="signal-section-title"><h2>Фотографии</h2><span>{photos.length} / 3</span></div>
+              <div className="signal-section-title signal-photo-heading"><h2>Фотографии <span className="signal-required" aria-hidden="true">*</span></h2><span>{photos.length} / 3</span></div>
               <div className="signal-upload-grid">{photos.map((photo, index) => <div className="signal-upload-photo" key={photo.id}><a href={photo.url} target="_blank" rel="noreferrer"><img src={photo.url} alt={`Фото ${index + 1}`}/></a>
                 <button type="button" aria-label={`Удалить фото ${index + 1}`} onClick={() => {URL.revokeObjectURL(photo.url); setPhotos(current => current.filter(item => item.id !== photo.id));}}><Trash2 size={17}/></button></div>)}
                 {photos.length < 3 && <button type="button" className="signal-add-photo" onClick={() => input.current?.click()}><ImagePlus size={26}/><span>{preparing ? 'Подготавливаем…' : 'Добавить фото'}</span></button>}</div>
               <input className="signal-file" ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple onChange={event => void addPhotos(event.target.files)} aria-label="Фотографии с телефона"/>
               <label>Телефон или электронная почта <small>необязательно</small><input maxLength={200} placeholder="Для уточнения обращения" value={form.contact} onChange={event => setForm(current => ({...current, contact: event.target.value}))}/></label>
               <p className="signal-contact-rule"><ShieldCheck size={16}/>Контакты видны только администратору организации, на стене их не будет.</p>
-              <p className="signal-contact-rule">Описание и фотографии появятся на стене города. Не добавляйте в них личные данные.</p>
+              <p className="signal-contact-rule">Тема, описание и фотографии появятся на стене города. Не добавляйте в них личные данные.</p>
               <label className="citizen-honeypot" aria-hidden="true">Сайт<input tabIndex={-1} autoComplete="off" value={form.website} onChange={event => setForm(current => ({...current, website: event.target.value}))}/></label>
             </fieldset>
             <div className="citizen-submit"><button className="citizen-primary" disabled={busy || preparing || reloading || !photos.length || (!pending && (!located || !validRecipient(form, catalog)))}>{busy ? 'Отправляем…' : pending ? 'Проверить отправку' : 'Отправить обращение'}<ArrowRight size={18}/></button></div>

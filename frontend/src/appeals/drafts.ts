@@ -1,9 +1,9 @@
 import type { CaptureMetadata, CaptureSession } from './camera';
 
-export type AppealForm = {city: string; organization_id: string; address: string; place: string; category: string; description: string;
+export type AppealForm = {city: string; organization_id: string; address: string; place: string; category: string; subject: string; description: string;
   contact: string; website: string; address_id: string; latitude: number | null; longitude: number | null};
 export const EMPTY_FORM: AppealForm = {city: '', organization_id: '', address: '', address_id: '', latitude: null, longitude: null,
-  place: '', category: '', description: '', contact: '', website: ''};
+  place: '', category: '', subject: '', description: '', contact: '', website: ''};
 export type StoredPhoto = {id: string; blob: Blob; preview: Blob; capture?: CaptureMetadata};
 export type AppealDraft = {form: AppealForm; photos: StoredPhoto[]; token: string | null; pending: boolean; savedAt: number; receipt?: string; clientId?: string};
 const DATABASE = 'citizen-appeal-drafts', STORE = 'drafts', KEY = 'current';

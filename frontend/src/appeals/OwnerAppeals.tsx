@@ -10,7 +10,7 @@ import { appealStatuses } from './Wall';
 import './owner-appeals.css';
 
 type Status = 'NEW' | 'IN_REVIEW' | 'ASSIGNED' | 'IN_PROGRESS' | 'COMPLETED' | 'REJECTED' | 'CANCELLED' | 'RESOLVED' | 'DECLINED' | 'SPAM';
-type Appeal = {id: number; number: string; city: string; address: string; place: string; category: string; description: string;
+type Appeal = {id: number; number: string; city: string; address: string; place: string; category: string; subject?: string; description: string;
   organization_id: string | null; organization_name: string; work_type_name: string;
   organization_hint: string; contact: string; photo_count: number; status: Status; owner_note: string; version: number;
   created_at: string; updated_at: string; preview_url: string; submitted_by_inspector_name?: string; unanswered_comments?: number};
@@ -106,7 +106,8 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
       {!detail ? !error && <p className="loading">Открываем обращение…</p> : <div className="owner-appeal-detail">
         <article className="panel"><div className="section-title"><h2>{detail.number}</h2><AppealBadges status={detail.status} messages={data?.items.find(item => item.id === detail.id)?.unanswered_comments ?? detail.unanswered_comments}/></div>
           <p className="hint">Получено {moment(detail.created_at)}{detail.archived_at && ' · В архиве'}</p>{detail.submitted_by_inspector_name && <p className="owner-appeal-source"><LockKeyhole size={14}/>От проверяющего: {detail.submitted_by_inspector_name} · Только в «Метке»</p>}
-          <h3>{detail.work_type_name || data?.categories?.[detail.category] || detail.category || 'Вид работ не назначен'}</h3>
+          <h3>{detail.subject || detail.work_type_name || data?.categories?.[detail.category] || detail.category || 'Вид работ не назначен'}</h3>
+          {detail.subject && <p className="hint">Вид работ: {detail.work_type_name || data?.categories?.[detail.category] || detail.category || 'не назначен'}</p>}
           <dl><dt>Адрес</dt><dd>{detail.city}, {detail.address}</dd><dt>Место</dt><dd>{detail.place}</dd>
             <dt>Описание</dt><dd className="owner-appeal-text">{detail.description}</dd>
             <dt>Организация</dt><dd>{detail.organization_name || detail.organization_hint || 'Не назначена — обращение из прежней формы'}</dd>
@@ -146,7 +147,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
       {!data ? !error && <p className="loading">Загружаем обращения…</p> : !data.items.length ? <div className="panel empty"><Inbox size={32}/><h3>{query ? 'Ничего не найдено' : 'Обращений пока нет'}</h3><p>{query ? 'Попробуйте другие слова, адрес, номер или дату.' : 'Новые анкеты жителей появятся здесь.'}</p></div> : <div className="owner-appeal-list">{data.items.map(item => <button className="panel owner-appeal-card owner-appeal-card-open" key={item.id} onClick={() => setSelected(item.id)}>
         <img src={item.preview_url} alt="" loading="lazy"/><div><div className="owner-appeal-card-top"><strong>{item.number}</strong><AppealBadges status={item.status} messages={item.unanswered_comments}/></div>
           {item.submitted_by_inspector_name && <span className="owner-appeal-source"><LockKeyhole size={13}/>От проверяющего · Только в «Метке»</span>}
-          <h3>{item.work_type_name || data.categories?.[item.category] || item.category || 'Вид работ не назначен'}</h3>{(!organization || readOnly) && <p>{item.organization_name || 'Без назначенной организации'}</p>}<p>{item.city}, {item.address}</p><p className="owner-appeal-excerpt">{item.description}</p>
+          <h3>{item.subject || item.work_type_name || data.categories?.[item.category] || item.category || 'Вид работ не назначен'}</h3>{(!organization || readOnly) && <p>{item.organization_name || 'Без назначенной организации'}</p>}<p>{item.city}, {item.address}</p><p className="owner-appeal-excerpt">{item.description}</p>
           <small>{moment(item.created_at)}<span><Camera size={13}/>{item.photo_count}</span></small></div></button>)}</div>}
       {data && data.total > data.page_size && <div className="owner-appeal-pagination"><button disabled={page <= 1} onClick={() => setPage(value => value - 1)}><ChevronLeft size={17}/></button>
         <span>{page} / {Math.ceil(data.total / data.page_size)}</span><button disabled={page * data.page_size >= data.total} onClick={() => setPage(value => value + 1)}><ChevronRight size={17}/></button></div>}

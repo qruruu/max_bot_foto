@@ -193,7 +193,7 @@ async def submit_appeal(request: Request):
 
 def appeal_dict(appeal):
     return {"id": appeal.id, "number": receipt(appeal.id)["number"],
-            **{key: getattr(appeal, key) for key in ("city", "address", "place", "category", "description",
+            **{key: getattr(appeal, key) for key in ("city", "address", "place", "category", "subject", "description",
                 "organization_id", "organization_name", "work_type_name",
                 "organization_hint", "contact", "photo_count", "status", "owner_note", "version",
                 "created_at", "updated_at", "latitude", "longitude", "is_public", "public_response", "resolved_at",

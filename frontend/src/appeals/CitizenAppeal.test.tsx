@@ -25,7 +25,7 @@ let root: Root, element: HTMLDivElement;
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 function draft(pending = false): AppealDraft {
   return {form: {...EMPTY_FORM, city: 'Сургут', organization_id: organizationId, address_id: addressId, address: '11А мкр', latitude: 61.1, longitude: 72.6,
-    category: 'BIN_EMPTYING', description: 'Мусор возле урны', contact: 'private-contact'}, token: 'restored-token', pending, savedAt: Date.now(),
+    category: 'BIN_EMPTYING', subject: 'Переполнена урна', description: 'Мусор возле урны', contact: 'private-contact'}, token: 'restored-token', pending, savedAt: Date.now(),
     photos: [{id: 'one', blob: new Blob(['photo'], {type: 'image/jpeg'}), preview: new Blob(['preview'], {type: 'image/jpeg'})}]};
 }
 const resumed = () => ({token: 'restored-token', expires_at: new Date(Date.now() + 1800_000).toISOString(), expired: false, submitted: null});
@@ -77,13 +77,15 @@ it('blocks submission when the organization has no active territories', async ()
 it('restores gallery photos and submits map coordinates with stable organization and address identifiers', async () => {
   const short = draft(); short.form.description = 'Мусор';
   await mount(short);
+  const subject = element.querySelector<HTMLInputElement>('input[name=subject]')!;
+  expect(subject.value).toBe('Переполнена урна'); expect(subject.required).toBe(true); expect(subject.maxLength).toBe(80);
   expect(element.querySelector('textarea')!.hasAttribute('minlength')).toBe(false);
   expect(element.querySelectorAll('.signal-upload-photo')).toHaveLength(1);
   expect(element.querySelector('input[type=checkbox]')).toBeNull();
   await click(submitButton());
   const upload = vi.mocked(publicRequest).mock.calls.find(call => call[0] === '/submissions')!;
   const data = upload[1].body as FormData, metadata = JSON.parse(data.get('metadata') as string);
-  expect(metadata).toMatchObject({capture_source: 'gallery', organization_id: organizationId, address_id: addressId, latitude: 61.1, longitude: 72.6, category: '', public_consent: true});
+  expect(metadata).toMatchObject({capture_source: 'gallery', organization_id: organizationId, address_id: addressId, latitude: 61.1, longitude: 72.6, category: '', subject: 'Переполнена урна', public_consent: true});
   expect(metadata).not.toHaveProperty('captures');
   expect(data.getAll('photos')).toHaveLength(1);
   expect(upload[1].headers).toEqual({'X-Capture-Token': 'restored-token'});
@@ -92,8 +94,16 @@ it('restores gallery photos and submits map coordinates with stable organization
   expect(vi.mocked(saveDraft).mock.calls.at(-1)![0].form.contact).toBe('');
 });
 
-it('returns to city choice when there are multiple cities and the old draft only contained automatic selections', async () => {
+it('restores a draft containing only its subject', async () => {
   const previous = draft(); previous.form.description = ''; previous.photos = [];
+  await mount(previous);
+  expect(element.querySelector<HTMLInputElement>('input[name=subject]')!.value).toBe(previous.form.subject);
+  expect(element.querySelector('textarea')).not.toBeNull();
+  expect(element.textContent).toContain('Восстановили ваш черновик');
+});
+
+it('returns to city choice when there are multiple cities and the old draft only contained automatic selections', async () => {
+  const previous = draft(); previous.form.subject = ''; previous.form.description = ''; previous.photos = [];
   vi.mocked(publicRequest).mockImplementation(async path => path === '/catalog' ? {...catalog, organizations: [catalog.organizations[0], {...catalog.organizations[0], id: 'second', city: 'Тюмень'}]} : emptyWall);
   await mount(previous);
   expect(element.querySelector<HTMLSelectElement>('select[name=city]')!.value).toBe('');

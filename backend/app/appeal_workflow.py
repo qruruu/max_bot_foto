@@ -58,9 +58,16 @@ class AppealFields(StrictModel):
     longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
     place: str = Field(default="", max_length=300)
     category: str = Field(min_length=1, max_length=60)
+    # Older tabs and inspector forms can finish without a subject.
+    subject: str = Field(default="", max_length=80)
     description: str = Field(min_length=1, max_length=4000)
     contact: str = Field(default="", max_length=200)
     website: str = Field(default="", max_length=0)
+
+    @field_validator("subject")
+    @classmethod
+    def clean_subject(cls, value):
+        return " ".join(value.split())
 
     @field_validator("description")
     @classmethod
@@ -255,7 +262,7 @@ def create_appeal(db, body, photos, *, is_public, inspector=None):
             raise HTTPException(422, "Отметьте проблему внутри выбранной территории организации")
     appeal = CitizenAppeal(organization_id=organization.id, organization_name=organization.name,
         work_type_name=work["name"] if work else "", city=organization.city, address_id=str(body.address_id), address=label,
-        place=body.place, category=body.category, description=body.description, contact=body.contact,
+        place=body.place, category=body.category, subject=body.subject, description=body.description, contact=body.contact,
         latitude=body.latitude, longitude=body.longitude, is_public=is_public,
         photo_count=len(photos), status="NEW", owner_note="", version=1,
         submitted_by_inspector_id=inspector.id if inspector else None,
@@ -328,7 +335,7 @@ def wall_dict(db, appeal):
     # Explicit allowlist: never publish contact, internal notes, identities or task instructions.
     result = {key: getattr(appeal, key) for key in (
         "id", "organization_id", "organization_name", "city", "address", "place", "category",
-        "description", "work_type_name", "status", "latitude", "longitude", "created_at", "updated_at")}
+        "subject", "description", "work_type_name", "status", "latitude", "longitude", "created_at", "updated_at")}
     result["number"] = receipt(appeal.id)["number"]
     result["share_url"] = appeal_url(appeal.id)
     result["photos"] = [{"id": photo.id, "url": f"/api/public/appeals/wall/{appeal.id}/photos/{photo.id}",

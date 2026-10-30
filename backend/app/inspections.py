@@ -616,7 +616,7 @@ def restricted_appeal(db, appeal):
     from app.appeal_workflow import workflow_detail
     first = db.scalar(select(AppealPhoto.id).where(AppealPhoto.appeal_id == appeal.id).order_by(AppealPhoto.position).limit(1))
     return {key: getattr(appeal, key) for key in ("id", "organization_id", "organization_name", "city", "address", "place",
-            "description", "work_type_name", "category", "status", "version", "created_at", "updated_at", "latitude", "longitude",
+            "subject", "description", "work_type_name", "category", "status", "version", "created_at", "updated_at", "latitude", "longitude",
             "public_response", "resolved_at", "is_public", "submitted_by_inspector_id", "submitted_by_inspector_name", "archived_at")} | workflow_detail(db, appeal,
                 lambda path: f"/api/inspection/organizations/{appeal.organization_id}/appeals" + path, private=False) | {
         "number": f"ОБ-{appeal.id:06d}", "photo_count": appeal.photo_count,

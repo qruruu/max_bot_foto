@@ -45,7 +45,8 @@ def photo_gallery(photos, label):
 def public_html(item):
     url = appeal_url(item["id"])
     status = STATUSES.get(item["status"], "На рассмотрении")
-    title = f'{item["address"]} — обращение {item["number"]} | Сигнал'
+    subject = item.get("subject", "")
+    title = f'{subject or item["address"]} — обращение {item["number"]} | Сигнал'
     description = " ".join(item["description"].split())[:200]
     image = f'{url}/card.jpg?v={item["updated_at"].timestamp():.0f}'
     created = item["created_at"].astimezone(ZoneInfo(base_settings().app_timezone)).strftime("%d.%m.%Y в %H:%M")
@@ -72,10 +73,11 @@ def public_html(item):
 <link rel="stylesheet" href="/appeal-detail.css"/><script src="/appeal-detail.js" defer></script></head>
 <body><div class="signal-detail-shell"><header class="signal-detail-header"><a class="signal-detail-brand" href="{e(wall_url, quote=True)}"><span aria-hidden="true">◉</span>Сигнал</a><span>{e(item["city"])}</span></header>
 <main><a class="signal-detail-back" href="{e(wall_url, quote=True)}">← Все обращения города</a>
-<article class="signal-detail-card"><div class="signal-detail-meta"><span>{e(item["number"])}</span><span class="signal-detail-status status-{item['status']}">{status}</span></div>
-<h1>{e(item["address"])}</h1>{f'<p class="signal-detail-place">{e(item["place"])}</p>' if item["place"] else ''}
-<p class="signal-detail-organization">{e(item["organization_name"])}</p><p class="signal-detail-date">{created}</p>
-<p class="signal-detail-text">{e(item["description"])}</p>{photo_gallery(item["photos"], "Фотография обращения")}{response}
+<article class="signal-detail-card"><div class="signal-detail-meta"><span>{e(item["number"])}</span><span class="signal-detail-date">{created}</span></div>
+<h1>{e(subject or item["description"])}</h1>{f'<p class="signal-detail-text">{e(item["description"])}</p>' if subject else ''}
+<p class="signal-detail-status status-{item['status']}">{status}</p><p class="signal-detail-place">{e(item["address"])}</p>{f'<p class="signal-detail-place">{e(item["place"])}</p>' if item["place"] else ''}
+<p class="signal-detail-organization">{e(item["organization_name"])}</p>
+{photo_gallery(item["photos"], "Фотография обращения")}{response}
 <section class="signal-detail-share" aria-label="Ссылка на обращение"><h2>Ссылка на обращение</h2>
 <div class="signal-detail-share-actions"><button type="button" id="copy-link" data-url="{e(url, quote=True)}">Копировать ссылку</button></div>
 <p id="copy-status" role="status" aria-live="polite"></p><label id="copy-manual" hidden>Скопируйте ссылку<input readonly value="{e(url, quote=True)}" aria-label="Ссылка на обращение"/></label></section></article>
@@ -157,7 +159,7 @@ def preview_card(item, photo=None):
         draw.text((48, y), line, font=card_font(25), fill="#627668")
         y += 33
     y += 18
-    for line in card_lines(draw, item["address"], card_font(42, True), right - 48, 4):
+    for line in card_lines(draw, item.get("subject") or item["address"], card_font(42, True), right - 48, 4):
         draw.text((48, y), line, font=card_font(42, True), fill="#1d352c")
         y += 56
     y += 20

@@ -42,6 +42,22 @@ it('removes spam cards and their images when the wall refreshes', async () => {
   expect(element.querySelector('.signal-wall-card')).toBeNull(); expect(element.querySelector('img')).toBeNull();
 });
 
+it('shows the resident subject and description, then status, then location and organization', async () => {
+  vi.mocked(publicRequest).mockResolvedValue({...response, items: [{...response.items[0], subject: 'Уберите мусор у дома',
+    photos: [{id: 'one', url: '/resident-original', preview_url: '/resident-preview'}]}]});
+  await act(async () => {root.render(<Wall city="Сургут" organizations={organizations} revision={0}/>); await tick();});
+  const card = element.querySelector('.signal-wall-card')!;
+  expect(card.querySelector('h2')!.textContent).toBe('Уберите мусор у дома');
+  const text = card.textContent!;
+  expect(text.indexOf('Мусор возле урны')).toBeLessThan(text.indexOf('Закрыто'));
+  expect(text.indexOf('Закрыто')).toBeLessThan(text.indexOf('Ленина, 10'));
+  expect(text.indexOf('Ленина, 10')).toBeLessThan(text.indexOf('Уборка города'));
+  const thumbnail = card.querySelector<HTMLButtonElement>('.signal-wall-thumbnail')!;
+  expect(thumbnail.querySelector('img')!.getAttribute('src')).toBe('/resident-preview');
+  await act(async () => {thumbnail.click(); await tick();});
+  expect(card.querySelector('.signal-wall-photos a')!.getAttribute('href')).toBe('/resident-original');
+});
+
 it('uses one search field for words and dates and keeps city and organization filters', async () => {
   await act(async () => {root.render(<Wall city="Сургут" organizations={organizations} revision={0}/>); await tick();});
   const input = element.querySelector<HTMLInputElement>('input[type=search]')!;
