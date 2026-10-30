@@ -27,6 +27,60 @@ void main() {
       ..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));
     await icons.load();
   });
+  for (final width in [320.0, 390.0, 1024.0]) {
+    testWidgets(
+      'version update floats above the page without moving content at $width px',
+      (tester) async {
+        tester.view.physicalSize = Size(width, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+        final browser = MemoryBrowser();
+        final c = SignalController(
+          browser: browser,
+          api: SignalApi(
+            origin: browser.location,
+            client: MockClient(
+              (request) async => responses.json(
+                request.url.path.endsWith('/catalog') ? catalogJson : emptyWall,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpWidget(SignalApp(controller: c));
+        await tester.pumpAndSettle();
+        final heading = tester.getRect(find.text('Обращения жителей'));
+        c.updateAvailable = true;
+        c.showWall();
+        await tester.pumpAndSettle();
+        expect(tester.getRect(find.text('Обращения жителей')), heading);
+        final notice = find.byKey(const ValueKey('version-update-notice'));
+        final bounds = tester.getRect(notice);
+        expect(bounds.top, greaterThan(650));
+        expect(bounds.left, greaterThanOrEqualTo(16));
+        expect(bounds.right, lessThanOrEqualTo(width - 16));
+        expect(
+          find.descendant(
+            of: notice,
+            matching: find.text('Доступна новая версия'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: notice,
+            matching: find.widgetWithText(FilledButton, 'Обновить'),
+          ),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump();
+      },
+    );
+  }
   for (final width in [320.0, 390.0, 480.0]) {
     testWidgets('full wall fits a $width logical pixel viewport', (
       tester,

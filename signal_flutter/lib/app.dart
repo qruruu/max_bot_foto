@@ -5,6 +5,7 @@ import 'screens/intake.dart';
 import 'screens/wall.dart';
 import 'theme.dart';
 import 'widgets/common.dart';
+import 'widgets/update_notice.dart';
 
 class SignalApp extends StatelessWidget {
   const SignalApp({super.key, required this.controller});
@@ -47,7 +48,7 @@ class _SignalHomeState extends State<SignalHome> {
     builder: (context, _) {
       final c = widget.controller;
       final desktop = isDesktop(context);
-      return ColoredBox(
+      final page = ColoredBox(
         color: const Color(0xffeaf0ed),
         child: Center(
           child: ConstrainedBox(
@@ -185,24 +186,6 @@ class _SignalHomeState extends State<SignalHome> {
                           onDismiss: c.dismissReceipt,
                         ),
                       ),
-                    if (c.updateAvailable)
-                      Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          desktop ? 40 : 16,
-                          10,
-                          desktop ? 40 : 16,
-                          0,
-                        ),
-                        child: Notice(
-                          'Доступна новая версия. Сохраним черновик перед обновлением.',
-                          action: TextButton(
-                            onPressed: c.busy || c.preparing
-                                ? null
-                                : c.applyUpdate,
-                            child: const Text('Обновить'),
-                          ),
-                        ),
-                      ),
                     Expanded(
                       child: c.loading
                           ? const Center(
@@ -255,6 +238,13 @@ class _SignalHomeState extends State<SignalHome> {
             ),
           ),
         ),
+      );
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          page,
+          if (c.updateAvailable) VersionUpdateNotice(controller: c),
+        ],
       );
     },
   );

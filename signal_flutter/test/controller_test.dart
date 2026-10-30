@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -15,6 +16,42 @@ http.Response json(Object value, [int status = 200]) => http.Response(
 );
 
 void main() {
+  test(
+    'version update saves the draft before reload and allows retry after storage failure',
+    () async {
+      final browser = _UpdateBrowser();
+      final c = SignalController(
+        browser: browser,
+        api: SignalApi(
+          origin: browser.location,
+          client: MockClient(
+            (request) async => json(
+              request.url.path.endsWith('/catalog') ? catalogJson : emptyWall,
+            ),
+          ),
+        ),
+      );
+      await c.initialize();
+      c.changeText(subject: 'Сохранить перед обновлением');
+      browser.failSave = true;
+      await c.applyUpdate();
+      expect(browser.reloads, 0);
+      expect(c.updating, isFalse);
+      expect(c.updateError, contains('Не удалось сохранить черновик'));
+      browser.failSave = false;
+      browser.pendingSave = Completer<void>();
+      final update = c.applyUpdate();
+      await c.applyUpdate();
+      expect(c.updating, isTrue);
+      expect(c.updateError, isNull);
+      expect(browser.reloads, 0);
+      browser.pendingSave!.complete();
+      await update;
+      expect(browser.reloads, 1);
+      expect(browser.draft!.form.subject, 'Сохранить перед обновлением');
+      c.dispose();
+    },
+  );
   test(
     'geometry accepts territory boundaries but rejects holes and points outside',
     () {
@@ -191,4 +228,19 @@ void main() {
       c.dispose();
     },
   );
+}
+
+class _UpdateBrowser extends MemoryBrowser {
+  bool failSave = false;
+  int reloads = 0;
+  Completer<void>? pendingSave;
+  @override
+  Future<void> saveDraft(AppealDraft value) async {
+    if (failSave) throw StateError('storage unavailable');
+    await pendingSave?.future;
+    await super.saveDraft(value);
+  }
+
+  @override
+  void reload() => reloads++;
 }

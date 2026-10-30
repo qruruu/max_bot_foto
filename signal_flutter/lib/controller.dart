@@ -23,6 +23,8 @@ class SignalController extends ChangeNotifier {
       preparing = false,
       pending = false;
   bool restored = false, storageError = false, online, updateAvailable = false;
+  bool updating = false;
+  String? updateError;
   bool _disposed = false;
   Timer? _draftTimer, _searchTimer, _pollTimer, _versionTimer;
   Future<void> _writes = Future.value();
@@ -474,12 +476,16 @@ class SignalController extends ChangeNotifier {
     receipt == null && (form.hasText || photos.isNotEmpty || pending),
   );
   Future<void> applyUpdate() async {
-    if (busy || preparing) return;
+    if (busy || preparing || updating) return;
+    updating = true;
+    updateError = null;
+    _notify();
     try {
       await _persist(required: true);
       browser.reload();
     } catch (_) {
-      error = 'Не удалось сохранить черновик. Не закрывайте страницу.';
+      updating = false;
+      updateError = 'Не удалось сохранить черновик. Не закрывайте страницу.';
       _notify();
     }
   }
