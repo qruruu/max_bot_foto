@@ -44,3 +44,25 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+  signal-flutter:
+    runs-on: ubuntu-latest
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: 'true'
+      CI: 'true'
+    defaults:
+      run:
+        working-directory: signal_flutter
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Flutter SDK
+        run: |
+          git clone --depth 1 --branch 3.47.9 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter analyze
+      - run: flutter test
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test test/browser/*.test.cjs
+      - run: python3 tool/build.py

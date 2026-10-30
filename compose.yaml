@@ -92,8 +92,8 @@ services:
   appeals-web:
     profiles: [appeals]
     build:
-      context: ./frontend
-      target: citizens
+      context: .
+      dockerfile: signal_flutter/Dockerfile
     ports:
       - "127.0.0.1:${APPEALS_HTTP_PORT:-8081}:80"
     depends_on:
