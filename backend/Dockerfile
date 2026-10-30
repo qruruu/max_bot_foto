@@ -12,6 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends fonts-liberatio
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini .
+# Git does not track read permissions; protected host files may arrive as 0600.
+# Keep image code owned by root and readable by the unprivileged service user.
+RUN find app alembic -type d -exec chmod 0755 {} + \
+    && find app alembic -type f -exec chmod 0644 {} + \
+    && chmod 0644 alembic.ini
 RUN useradd --uid 10001 --create-home service && mkdir /data && chown service:service /data
 USER service
 EXPOSE 8000
