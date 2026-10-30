@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, Copy, ExternalLink } from 'lucide-react';
+import { Check, Copy, ExternalLink, MessageCircle, Send } from 'lucide-react';
 import './appeal-share.css';
 
 export function appealShareLinks(url: string, attribution = false) {
@@ -30,7 +30,7 @@ function ShareControls({link, social = false, compact = false}: {link: string; s
   return <div className={'appeal-share' + (compact ? ' appeal-share-compact' : '')}>
     {!compact && <div className="appeal-share-heading"><span>{social ? 'Поделиться страницей для жителей' : 'Ссылка на обращение'}</span><a href={link} aria-label={social ? 'Открыть страницу для жителей' : 'Открыть обращение по отдельной ссылке'}><ExternalLink size={15}/></a></div>}
     <div className="appeal-share-actions">
-      {social && appealShareLinks(link, true).map(item => <a key={item.name} href={item.href} target="_blank" rel="noopener noreferrer nofollow" aria-label={'Поделиться в ' + item.name}>{item.name}</a>)}
+      {social && appealShareLinks(link, true).map((item, index) => <a key={item.name} href={item.href} target="_blank" rel="noopener noreferrer nofollow" aria-label={'Поделиться в ' + item.name}><span className={'appeal-network-icon appeal-network-' + index} aria-hidden="true">{index === 0 ? <MessageCircle size={15}/> : index === 1 ? <Send size={14}/> : 'VK'}</span>{item.name}</a>)}
       <button type="button" onClick={() => void copy()} aria-label={copyLabel} title={copyLabel}>{copied ? <Check size={compact ? 20 : 17}/> : <Copy size={compact ? 20 : 17}/>}<span className={compact ? 'appeal-share-label-hidden' : undefined}>{copied ? 'Скопировано' : 'Копировать ссылку'}</span></button>
     </div>
     {copied && <small className={compact ? 'appeal-share-label-hidden' : undefined} role="status">Ссылка скопирована</small>}

@@ -16,6 +16,7 @@ from app.appeal_catalog import organization_catalog, public_organizations
 from app.appeal_events import unanswered_comments
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS
 from app.appeal_search import appeal_search
+from app.appeal_statuses import DECISION_STATUSES, AppealStatus, is_final
 from app.auth import CurrentUser, is_platform_owner
 from app.config import base_settings
 from app.domain import audit, now
@@ -39,7 +40,6 @@ CATEGORIES = {
     "roads": "Дороги и тротуары", "lighting": "Освещение", "playgrounds": "Детские и спортивные площадки",
     "building": "Дом и подъезд", "other": "Другая проблема",
 }
-AppealStatus = Literal["NEW", "IN_REVIEW", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "REJECTED", "CANCELLED", "RESOLVED", "DECLINED", "SPAM"]
 
 
 class Capture(StrictModel):
@@ -192,7 +192,7 @@ async def submit_appeal(request: Request):
 
 
 def appeal_dict(appeal):
-    return {"id": appeal.id, "number": receipt(appeal.id)["number"],
+    return {"id": appeal.id, "number": receipt(appeal.id)["number"], "is_final": is_final(appeal),
             **{key: getattr(appeal, key) for key in ("city", "address", "place", "category", "subject", "description",
                 "organization_id", "organization_name", "work_type_name",
                 "organization_hint", "contact", "photo_count", "status", "owner_note", "version",
@@ -224,6 +224,7 @@ def list_appeals(user: AppealReader, status: AppealStatus | None = None, page: i
             private_url(f"/{appeal.id}/photos/{photo_id}?variant=preview")} for appeal, photo_id in rows],
             "total": total, "page": page, "page_size": 20, "categories": CATEGORIES,
             "public_url": base_settings().public_appeals_origin.rstrip("/") or "/appeals",
+            "yandex_maps_api_key": base_settings().yandex_maps_api_key,
             "can_manage": user.role == "ADMIN_OPERATOR", "can_execute": user.role == "OPERATOR"}
 
 
@@ -234,7 +235,7 @@ def appeal_notifications(user: AppealReader):
         conditions.append(CitizenAppeal.archived_at.is_(None))
         statuses = ("ASSIGNED", "IN_PROGRESS") if user.role == "OPERATOR" else ("NEW", "COMPLETED", "REJECTED", "CANCELLED")
         count = db.scalar(select(func.count()).select_from(CitizenAppeal).where(
-            *conditions, CitizenAppeal.status.in_(statuses)))
+            *conditions, CitizenAppeal.status.in_(statuses), CitizenAppeal.resolved_at.is_(None)))
         latest = db.scalar(select(func.max(CitizenAppeal.id)).where(*conditions)) or 0
         return {"new_count": count, "latest_id": latest}
 
@@ -280,7 +281,7 @@ def edit_appeal(appeal_id: int, body: OwnerEdit, user: AppealReader):
     with control_session() as db:
         appeal = find_appeal(db, appeal_id, lock=True)
         if ((appeal.is_public or appeal.submitted_by_inspector_id) and body.status not in {"NEW", "IN_REVIEW", "SPAM"}
-                or body.status == "DECLINED") and body.status != appeal.status:
+                or body.status in DECISION_STATUSES - {"RESOLVED"}) and body.status != appeal.status:
             raise HTTPException(422, "Назначьте исполнителя или используйте закрытие с публичным ответом")
         if appeal.archived_at:
             raise HTTPException(409, "Сначала верните обращение из архива")
@@ -296,6 +297,8 @@ def edit_appeal(appeal_id: int, body: OwnerEdit, user: AppealReader):
                 raise HTTPException(422, "Выберите вид работ из справочника организации обращения")
             appeal.category, appeal.work_type_name = body.category, work["name"] if work else ""
         appeal.status, appeal.owner_note = body.status, body.owner_note
+        if before["status"] != appeal.status and appeal.status in {"NEW", "IN_REVIEW"}:
+            appeal.resolved_at = None
         from app.appeal_events import record_event
         if before["status"] != appeal.status:
             record_event(db, appeal, "STATUS", user)

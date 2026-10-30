@@ -220,12 +220,12 @@ def test_admin_closes_or_refuses_without_photos_and_publishes_only_the_response(
     owner, scopes, operators, operator_ids, addresses, inspectors = workflow
     inbox = scopes[0].prefix + '/api/appeals'
     with TestClient(public_app) as citizen:
-        for status in ('RESOLVED', 'DECLINED'):
+        for status in ('RESOLVED', 'DECLINED', 'CANCELLED', 'REJECTED'):
             created = submit(citizen, metadata(scopes[0], addresses[0]))
             id = int(created.json()['number'].split('-')[-1])
             endpoint = inbox + f'/{id}'
             version = 1
-            if status == 'DECLINED':
+            if status != 'RESOLVED':
                 assert owner.post(endpoint + '/assign', json={'operator_id': operator_ids[0], 'expected_version': 1}).status_code == 200
                 version = 2
             assert multipart(owner, endpoint + '/close', {'status': status, 'comment': '  ', 'expected_version': version}, False).status_code == 422
@@ -235,13 +235,97 @@ def test_admin_closes_or_refuses_without_photos_and_publishes_only_the_response(
             assert public['status'] == status and public['response']['photos'] == []
             assert public['response']['comment'] == 'Ответ по обращению'
             assert 'unanswered_comments' not in public
-            if status == 'DECLINED':
+            if status != 'RESOLVED':
                 assert operators[0].get(endpoint).json()['task']['status'] == 'CANCELLED'
             checked = f'/api/inspection/organizations/{scopes[0].id}/appeals/{id}'
             assert not inspectors[0].get(checked).json()['can_set_task_status']
             assert owner.post(endpoint + '/archive', json={'archived': True, 'expected_version': version + 1}).status_code == 200
             assert citizen.get(f'/api/public/appeals/wall/{id}').json()['response'] == public['response']
             assert owner.post(endpoint + '/archive', json={'archived': False, 'expected_version': version + 2}).status_code == 200
+
+
+@pytest.mark.parametrize('status,label', [('CANCELLED', 'Задача отменена'), ('REJECTED', 'Исполнитель отклонил')])
+@pytest.mark.parametrize('public', [True, False])
+def test_final_cancel_or_reject_stops_task_preserves_visibility_and_can_reopen(workflow, status, label, public):
+    owner, scopes, operators, operator_ids, addresses, inspectors = workflow
+    inbox = scopes[0].prefix + '/api/appeals'
+    inspection = f'/api/inspection/organizations/{scopes[0].id}/appeals'
+    with TestClient(public_app) as citizen:
+        created = (submit(citizen, metadata(scopes[0], addresses[0])) if public else
+                   multipart(inspectors[0], inspection, inspector_metadata(scopes[0], addresses[0])))
+        assert created.status_code == 201, created.text
+        id = int(created.json()['number'].split('-')[-1])
+        endpoint, checked = inbox + f'/{id}', inspection + f'/{id}'
+        assert owner.post(endpoint + '/assign', json={'operator_id': operator_ids[0], 'expected_version': 1}).status_code == 200
+        decision = {'status': status, 'comment': 'Уникальное объяснение решения', 'expected_version': 2}
+        # Final decisions require the close action and the administrator's role.
+        assert owner.patch(endpoint, json={'status': status, 'owner_note': '', 'expected_version': 2}).status_code == 422
+        assert multipart(operators[0], endpoint + '/close', decision).status_code == 403
+        closed = multipart(owner, endpoint + '/close', decision)
+        assert closed.status_code == 200, closed.text
+        detail = owner.get(endpoint).json()
+        assert detail['status'] == status and detail['resolved_at'] and detail['is_final']
+        assert detail['task']['status'] == 'CANCELLED' and len(detail['response_photos']) == 1
+        assert owner.get(inbox, params={'status': status, 'q': 'Уникальное объяснение'}).json()['total'] == 1
+        assert inspectors[0].get(inspection, params={'status': status}).json()['total'] == 1
+        assert not inspectors[0].get(checked).json()['can_set_task_status']
+        assert inspectors[0].post(checked + '/task-status', json={'status': 'COMPLETED', 'expected_version': 3}).status_code == 409
+        assert multipart(operators[0], endpoint + '/result', {'status': 'COMPLETED', 'comment': 'Поздний отчёт', 'expected_version': 3}).status_code == 409
+        assert owner.post(endpoint + '/assign', json={'operator_id': operator_ids[0], 'expected_version': 3}).status_code == 409
+        assert multipart(owner, endpoint + '/close', {**decision, 'expected_version': 3}, False).status_code == 409
+        assert owner.get(inbox + '/notifications').json()['new_count'] == 0
+        assert operators[0].get(inbox + '/notifications').json()['new_count'] == 0
+        wall_url = f'/api/public/appeals/wall/{id}'
+        if public:
+            wall = citizen.get(wall_url).json()
+            assert wall['status'] == status and wall['response']['comment'] == decision['comment']
+            photo_url = wall['response']['photos'][0]['url']
+            assert citizen.get(photo_url).status_code == 200
+            assert label in citizen.get(f'/a/{id}').text
+        else:
+            assert citizen.get(wall_url).status_code == 404
+            assert citizen.get(f'/a/{id}').status_code == 404
+        assert owner.post(endpoint + '/archive', json={'archived': True, 'expected_version': 3}).status_code == 200
+        archived = owner.get(inbox, params={'archived': True, 'status': status}).json()
+        assert archived['total'] == 1 and archived['items'][0]['status'] == status
+        assert owner.post(endpoint + '/archive', json={'archived': False, 'expected_version': 4}).status_code == 200
+        assert owner.get(endpoint).json()['status'] == status
+        assert owner.patch(endpoint, json={'status': 'IN_REVIEW', 'owner_note': '', 'expected_version': 5}).status_code == 200
+        assert owner.post(endpoint + '/assign', json={'operator_id': operator_ids[0], 'expected_version': 6}).status_code == 200
+        if public:
+            assert citizen.get(wall_url).json()['response'] is None
+            assert citizen.get(photo_url).status_code == 404
+
+
+def test_executor_result_can_be_finalized_with_same_status_and_reopened_without_old_answer(workflow):
+    owner, scopes, operators, operator_ids, addresses, _ = workflow
+    inbox = scopes[0].prefix + '/api/appeals'
+    with TestClient(public_app) as citizen:
+        for status in ('CANCELLED', 'REJECTED'):
+            created = submit(citizen, metadata(scopes[0], addresses[0]))
+            id = int(created.json()['number'].split('-')[-1])
+            endpoint = inbox + f'/{id}'
+            assign = {'operator_id': operator_ids[0], 'expected_version': 1}
+            assert owner.post(endpoint + '/assign', json=assign).status_code == 200
+            report = {'status': status, 'comment': 'Служебный отчёт исполнителя', 'expected_version': 2}
+            assert multipart(operators[0], endpoint + '/result', report).status_code == 200
+            assert not owner.get(endpoint).json()['is_final']
+            wall_url = f'/api/public/appeals/wall/{id}'
+            wall = citizen.get(wall_url).json()
+            assert wall['status'] == status and wall['response'] is None and not wall['is_final']
+            assert owner.post(endpoint + '/archive', json={'archived': True, 'expected_version': 3}).status_code == 409
+            closed = multipart(owner, endpoint + '/close', {'status': status, 'comment': 'Публичное объяснение организации', 'expected_version': 3}, False)
+            assert closed.status_code == 200, closed.text
+            wall = citizen.get(wall_url).json()
+            assert wall['status'] == status and wall['is_final']
+            assert wall['response']['comment'] == 'Публичное объяснение организации'
+            assert 'Служебный отчёт исполнителя' not in citizen.get(wall_url).text
+            assert owner.patch(endpoint, json={'status': 'IN_REVIEW', 'owner_note': '', 'expected_version': 4}).status_code == 200
+            assert owner.get(endpoint).json()['resolved_at'] is None
+            assert owner.post(endpoint + '/assign', json={**assign, 'expected_version': 5}).status_code == 200
+            assert multipart(operators[0], endpoint + '/result', {**report, 'expected_version': 6}).status_code == 200
+            wall = citizen.get(wall_url).json()
+            assert wall['status'] == status and not wall['is_final'] and wall['response'] is None
 
 
 def test_operator_updates_only_their_current_assignment_and_loses_access_after_reassignment(workflow):

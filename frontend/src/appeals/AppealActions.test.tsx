@@ -124,11 +124,15 @@ it('allows a checking inspector to mark completed or cancelled without exposing 
   expect(element.textContent).not.toContain('Назначить исполнителя'); expect(element.textContent).not.toContain('Решение по обращению');
 });
 
-it.each(['RESOLVED', 'DECLINED'])('confirms the administrator decision %s with a required answer and optional photos', async status => {
-  await mount({...appeal, task: status === 'DECLINED' ? {...appeal.task!, status: 'ASSIGNED'} : null});
+it.each(['RESOLVED', 'DECLINED', 'CANCELLED', 'REJECTED'])('confirms the administrator decision %s with a required answer and optional photos', async status => {
+  await mount({...appeal, task: status !== 'RESOLVED' ? {...appeal.task!, status: 'ASSIGNED'} : null});
   const decision = [...element.querySelectorAll('select')].find(select => [...select.options].some(option => option.value === 'DECLINED'))!;
   await act(async () => {decision.value = status; decision.dispatchEvent(new Event('change', {bubbles: true}));});
-  const action = () => byText(status === 'DECLINED' ? 'Отказать и опубликовать' : 'Закрыть и опубликовать');
+  const text = {
+    RESOLVED: ['Закрыть и опубликовать', 'Подтвердить закрытие'], DECLINED: ['Отказать и опубликовать', 'Подтвердить отказ'],
+    CANCELLED: ['Отменить и опубликовать', 'Подтвердить отмену'], REJECTED: ['Отклонить и опубликовать', 'Подтвердить отклонение'],
+  }[status]!;
+  const action = () => byText(text[0]);
   expect(action().disabled).toBe(true);
   await act(async () => {
     const textarea = [...element.querySelectorAll('textarea')].at(-1)!;
@@ -137,9 +141,30 @@ it.each(['RESOLVED', 'DECLINED'])('confirms the administrator decision %s with a
   expect(action().disabled).toBe(false); await click(action());
   expect(element.querySelector('[role=alertdialog]')?.textContent).toContain('Фотографий результата: 0');
   expect(vi.mocked(api).mock.calls.filter(([, method]) => method === 'POST')).toHaveLength(0);
-  await click(byText(status === 'DECLINED' ? 'Подтвердить отказ' : 'Подтвердить закрытие'));
+  await click(byText(text[1]));
   const call = vi.mocked(api).mock.calls.find(([, method]) => method === 'POST')!;
   expect(call[0]).toBe('/appeals/42/close');
   expect(JSON.parse((call[2] as FormData).get('metadata') as string)).toMatchObject({status, comment: 'Ответ организации', operator_photo_ids: []});
   expect((call[2] as FormData).getAll('photos')).toHaveLength(0);
+});
+
+it.each(['CANCELLED', 'REJECTED'])('keeps final decision %s visible and offers archive instead of assignment', async status => {
+  await mount({...appeal, status, is_final: true, resolved_at: new Date().toISOString(), public_response: 'Причина завершения', response_photos: []});
+  expect(element.textContent).toContain('Причина завершения');
+  expect(element.textContent).not.toContain('Решение по обращению');
+  expect(element.textContent).not.toContain('Перенаправить задачу');
+  expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/operators'))).toBe(false);
+  await click(byText('Перенести в архив'));
+  expect(api).toHaveBeenCalledWith('/appeals/42/archive', 'POST', {archived: true, expected_version: 3});
+  await mount({...appeal, status, is_final: true, archived_at: new Date().toISOString()});
+  await click(byText('Вернуть из архива'));
+  expect(api).toHaveBeenCalledWith('/appeals/42/archive', 'POST', {archived: false, expected_version: 3});
+});
+
+it.each(['CANCELLED', 'REJECTED'])('allows the administrator to finalize task result %s without changing its name', async status => {
+  await mount({...appeal, status, is_final: false, resolved_at: null, task: {...appeal.task!, status}});
+  expect(element.textContent).toContain('Решение по обращению');
+  expect(element.textContent).not.toContain('Перенести в архив');
+  const decision = [...element.querySelectorAll('select')].find(select => [...select.options].some(option => option.value === 'DECLINED'))!;
+  expect([...decision.options].map(option => option.text)).toEqual(['Закрыть обращение', 'Отказ', 'Задача отменена', 'Исполнитель отклонил']);
 });

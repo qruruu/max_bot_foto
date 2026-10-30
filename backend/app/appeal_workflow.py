@@ -18,6 +18,7 @@ from app.appeal_catalog import organization_catalog, territory_choice_id, valida
 from app.appeal_events import CommentInput, add_comment, event_page, record_event
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS, prepare_upload
 from app.appeal_search import appeal_search
+from app.appeal_statuses import CloseStatus, has_decision, is_final
 from app.appeals import (
     AppealReader,
     capture_session,
@@ -106,7 +107,7 @@ class ResultInput(StrictModel):
 
 
 class CloseInput(StrictModel):
-    status: Literal["RESOLVED", "DECLINED"] = "RESOLVED"
+    status: CloseStatus = "RESOLVED"
     comment: str = Field(min_length=1, max_length=4000)
     operator_photo_ids: list[UUID] = Field(default_factory=list, max_length=MAX_PHOTOS)
     expected_version: int = Field(ge=1)
@@ -337,13 +338,14 @@ def wall_dict(db, appeal):
         "id", "organization_id", "organization_name", "city", "address", "place", "category",
         "subject", "description", "work_type_name", "status", "latitude", "longitude", "created_at", "updated_at")}
     result["number"] = receipt(appeal.id)["number"]
+    result["is_final"] = is_final(appeal)
     result["share_url"] = appeal_url(appeal.id)
     result["photos"] = [{"id": photo.id, "url": f"/api/public/appeals/wall/{appeal.id}/photos/{photo.id}",
                          "preview_url": f"/api/public/appeals/wall/{appeal.id}/photos/{photo.id}?variant=preview"}
                         for photo in db.scalars(select(AppealPhoto).where(AppealPhoto.appeal_id == appeal.id)
                                                 .order_by(AppealPhoto.position))]
     result["response"] = None
-    if appeal.status in {"RESOLVED", "DECLINED"}:
+    if has_decision(appeal):
         result["response"] = {"comment": appeal.public_response, "at": appeal.resolved_at,
             "photos": [{"id": photo.id, "url": f"/api/public/appeals/wall/{appeal.id}/results/{photo.id}",
                         "preview_url": f"/api/public/appeals/wall/{appeal.id}/results/{photo.id}?variant=preview"}
@@ -403,7 +405,7 @@ def wall_result(appeal_id: int, photo_id: UUID, variant: Literal["content", "pre
         public_available(db)
         appeal = public_appeal(db, appeal_id)
         photo = db.get(AppealAttachment, str(photo_id))
-        if appeal.status not in {"RESOLVED", "DECLINED"} or not photo or photo.appeal_id != appeal_id or not photo.published:
+        if not has_decision(appeal) or not photo or photo.appeal_id != appeal_id or not photo.published:
             raise HTTPException(404)
         return image_response(getattr(photo, variant))
 
@@ -427,7 +429,7 @@ def assign(appeal_id: int, body: AssignmentInput, user: AppealReader):
     with control_session() as db:
         appeal = find_appeal(db, appeal_id, lock=True, user=user)
         versioned(appeal, body.expected_version)
-        if appeal.status in {"RESOLVED", "DECLINED", "SPAM"}:
+        if is_final(appeal):
             raise HTTPException(409, "Сначала верните обращение на рассмотрение")
         scope = tenant_scope(db, appeal.organization_id)
         with Session(database_engine(scope.database_url)) as tenant:
@@ -513,9 +515,9 @@ def save_close(appeal_id, body, photos, user):
         appeal = find_appeal(db, appeal_id, lock=True, user=user)
         versioned(appeal, body.expected_version)
         task = latest_task(db, appeal.id)
-        if appeal.status in {"RESOLVED", "DECLINED", "SPAM"}:
+        if is_final(appeal):
             raise HTTPException(409, "Обращение уже закрыто или находится в спаме")
-        if body.status != "DECLINED" and task and task.status not in {"COMPLETED", "REJECTED", "CANCELLED"}:
+        if body.status == "RESOLVED" and task and task.status not in {"COMPLETED", "REJECTED", "CANCELLED"}:
             raise HTTPException(409, "Сначала дождитесь результата исполнителя")
         if not body.comment.strip():
             raise HTTPException(422, "Напишите публичный ответ жителю")
@@ -530,7 +532,7 @@ def save_close(appeal_id, body, photos, user):
         for photo in photos:
             db.add(AppealAttachment(id=str(uuid4()), appeal_id=appeal.id, content=photo["original"],
                 preview=photo["preview"], width=photo["width"], height=photo["height"], published=True))
-        if body.status == "DECLINED" and task and task.status in {"ASSIGNED", "IN_PROGRESS"}:
+        if body.status != "RESOLVED" and task and task.status in {"ASSIGNED", "IN_PROGRESS"}:
             task.status = "CANCELLED"
         appeal.status, appeal.public_response, appeal.resolved_at = body.status, body.comment.strip(), now()
         record_event(db, appeal, "CLOSED", user, comment=appeal.public_response)
@@ -556,7 +558,7 @@ def archive_appeal(appeal_id: int, body: ArchiveInput, user: AppealReader):
     with control_session() as db:
         appeal = find_appeal(db, appeal_id, lock=True, user=user)
         versioned(appeal, body.expected_version)
-        if appeal.status not in {"RESOLVED", "DECLINED", "SPAM"}:
+        if not is_final(appeal):
             raise HTTPException(409, "В архив можно перенести закрытое обращение или спам")
         if bool(appeal.archived_at) != body.archived:
             appeal.archived_at = now() if body.archived else None

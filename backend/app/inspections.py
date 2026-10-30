@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.appeal_events import CommentInput, add_comment, event_page, record_event, unanswered_comments
 from app.appeal_search import appeal_search
+from app.appeal_statuses import AppealStatus, is_final
 from app.auth import AdminUser, Db, digest, hasher
 from app.config import base_settings
 from app.day_verification import confirmed_condition
@@ -596,7 +597,7 @@ async def create_inspector_appeal(organization_id: UUID, request: Request, db: D
 
 @router.get("/organizations/{organization_id}/appeals")
 def appeals(organization_id: UUID, db: Db, user: InspectorUser, page: int = Query(default=1, ge=1),
-            status: Literal["NEW", "IN_REVIEW", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "REJECTED", "CANCELLED", "RESOLVED", "DECLINED", "SPAM"] | None = None,
+            status: AppealStatus | None = None,
             archived: bool = False, q: str = Query(default="", max_length=200)):
     authorized_organization(db, user, organization_id)
     condition = CitizenAppeal.organization_id == str(organization_id)
@@ -609,6 +610,7 @@ def appeals(organization_id: UUID, db: Db, user: InspectorUser, page: int = Quer
                           .order_by(CitizenAppeal.id.desc()).offset((page - 1) * 20).limit(20)))
     messages = unanswered_comments(db, [appeal.id for appeal in rows], user, inspector=True)
     return {"total": db.scalar(select(func.count()).select_from(CitizenAppeal).where(condition)), "page": page, "page_size": 20,
+            "yandex_maps_api_key": base_settings().yandex_maps_api_key,
             "items": [{**restricted_appeal(db, a), "unanswered_comments": messages.get(a.id, 0)} for a in rows]}
 
 
@@ -621,7 +623,8 @@ def restricted_appeal(db, appeal):
                 lambda path: f"/api/inspection/organizations/{appeal.organization_id}/appeals" + path, private=False) | {
         "number": f"ОБ-{appeal.id:06d}", "photo_count": appeal.photo_count,
         "can_manage": False, "can_execute": False,
-        "can_set_task_status": not appeal.archived_at and appeal.status not in {"RESOLVED", "DECLINED", "SPAM"},
+        "is_final": is_final(appeal),
+        "can_set_task_status": not appeal.archived_at and not is_final(appeal),
         "preview_url": f"/api/inspection/organizations/{appeal.organization_id}/appeals/{appeal.id}/photos/{first}?variant=preview" if first else None,
         "photos": [{"id": p.id, "url": f"/api/inspection/organizations/{appeal.organization_id}/appeals/{appeal.id}/photos/{p.id}",
                     "preview_url": f"/api/inspection/organizations/{appeal.organization_id}/appeals/{appeal.id}/photos/{p.id}?variant=preview",
@@ -688,7 +691,7 @@ def inspector_appeal_status(organization_id: UUID, appeal_id: int, body: Inspect
     if not appeal or appeal.organization_id != str(organization_id):
         raise HTTPException(404, "Обращение не найдено")
     versioned(appeal, body.expected_version)
-    if appeal.archived_at or appeal.status in {"RESOLVED", "DECLINED", "SPAM"}:
+    if appeal.archived_at or is_final(appeal):
         raise HTTPException(409, "Статус закрытого обращения или спама изменить нельзя")
     if appeal.status != body.status:
         before = appeal.status

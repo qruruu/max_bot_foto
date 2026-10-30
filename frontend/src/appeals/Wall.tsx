@@ -3,13 +3,13 @@ import { Building2, Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight
 import { publicRequest } from './requests';
 import type { PublicOrganization } from './catalog';
 import RecipientChoice from './RecipientChoice';
+import { appealStatuses } from './statuses';
+export { appealStatuses } from './statuses';
 import AppealPhotos from './AppealPhotos';
 import AppealShare from './AppealShare';
 
 const TerritoryMap = lazy(() => import('./TerritoryMap'));
 
-export const appealStatuses: Record<string, string> = {NEW: 'Новое', IN_REVIEW: 'На рассмотрении', ASSIGNED: 'Назначен исполнитель',
-  IN_PROGRESS: 'В работе', COMPLETED: 'На проверке результата', REJECTED: 'Исполнитель отклонил', CANCELLED: 'Задача отменена', RESOLVED: 'Закрыто', DECLINED: 'Отказ', SPAM: 'Спам'};
 type WallPhoto = {id: string; url: string; preview_url: string};
 type WallAppeal = {id: number; number: string; organization_name: string; address: string; place: string; subject?: string; description: string;
   status: string; created_at: string; photos: WallPhoto[]; share_url?: string;

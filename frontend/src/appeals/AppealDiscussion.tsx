@@ -63,7 +63,7 @@ export default function AppealDiscussion({endpoint, archived}: {endpoint: string
   }
   const visible = tab === 'chat' ? events.filter(item => item.kind === 'COMMENT') : events;
   return <section className="panel appeal-discussion" aria-label="Обсуждение и история обращения">
-    <div className="appeal-discussion-toolbar"><div role="tablist" aria-label="Обсуждение и события"><button role="tab" aria-selected={tab === 'chat'} onClick={() => setTab('chat')}>Обсуждение</button><button role="tab" aria-selected={tab === 'history'} onClick={() => setTab('history')}><History size={15}/>История событий</button></div><button type="button" disabled={busy} aria-label="Обновить обсуждение" onClick={() => setRevision(value => value + 1)}><RefreshCw size={16}/></button></div>
+    <div className="appeal-discussion-toolbar"><div role="tablist" aria-label="Обсуждение и события"><button role="tab" aria-selected={tab === 'chat'} onClick={() => setTab('chat')}>Внутреннее обсуждение</button><button role="tab" aria-selected={tab === 'history'} onClick={() => setTab('history')}><History size={15}/>История событий</button></div><button type="button" disabled={busy} aria-label="Обновить обсуждение" onClick={() => setRevision(value => value + 1)}><RefreshCw size={16}/></button></div>
     <p className="appeal-discussion-privacy" title="Видно администратору, проверяющим и назначенному оператору. На стене «Сигнала» обсуждения нет."><LockKeyhole size={12}/>Внутреннее обсуждение</p>
     {more && <button disabled={busy} onClick={() => void older()}>Показать более ранние события</button>}
     <div className="appeal-event-list" role="log" aria-label={tab === 'chat' ? 'Сообщения по обращению' : 'События обращения'} aria-live="polite">
@@ -74,9 +74,9 @@ export default function AppealDiscussion({endpoint, archived}: {endpoint: string
       </article>)}
     </div>
     {tab === 'chat' && (archived || !allowed ? <p className="hint appeal-discussion-readonly">Обсуждение в архиве доступно для чтения.</p> : <form className="appeal-discussion-compose" onSubmit={event => {event.preventDefault(); void send();}}>
-      <textarea aria-label="Сообщение по обращению" required maxLength={4000} rows={2} disabled={busy || pending} value={text} onChange={event => setText(event.target.value)} placeholder="Задать вопрос или написать ответ…"/>
+      <textarea aria-label="Сообщение по обращению" required maxLength={4000} rows={2} disabled={busy || pending} value={text} onChange={event => setText(event.target.value)} placeholder="Напишите сообщение для сотрудников…"/>
       {pending && !busy && <p className="hint">Повторите отправку — сообщение не продублируется.</p>}
-      <button className="primary" disabled={busy || !text.trim()} title={pending ? 'Повторить отправку' : 'Отправить сообщение'}><Send size={18}/><span className="appeal-sr-only">{busy ? 'Отправляем…' : pending ? 'Повторить отправку' : 'Отправить сообщение'}</span></button>
+      <button className="primary" disabled={busy || !text.trim()} title={pending ? 'Повторить отправку' : 'Отправить сообщение'}><Send size={18}/><span>{busy ? 'Отправляем…' : pending ? 'Повторить отправку' : 'Отправить сообщение'}</span></button>
     </form>)}
     {error && <p className="error" role="alert">{error}</p>}
   </section>;

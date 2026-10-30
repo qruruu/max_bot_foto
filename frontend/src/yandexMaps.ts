@@ -9,6 +9,7 @@ export interface YPolygon {
   events: { add(name: string, callback: (event: YMapEvent) => void): void };
 }
 export interface YMap {
+  container?: {fitToViewport(): void};
   geoObjects: { add(object: YPolygon | YObjectManager | YMarker): void; remove(object: YPolygon | YObjectManager | YMarker): void; getBounds(): number[][] | null };
   events?: {add(name: string, callback: (event: YMapEvent) => void): void};
   setBounds(bounds: number[][], options?: Record<string, unknown>): void;

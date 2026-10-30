@@ -61,7 +61,7 @@ it('keeps message notifications after opening and clears them after a reply with
 it.each(['/appeals', '/platform/appeals'])('assigns original organization work types and can clear them through %s', async endpoint => {
   current.category = '';
   await act(async () => {root.render(<OwnerAppeals organization endpoint={endpoint}/>); await tick();});
-  expect(element.textContent).toContain('Вид работ не назначен');
+  expect(element.querySelector('.appeal-list-title')!.textContent).toBe('Мусор');
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
   let select = element.querySelector<HTMLSelectElement>('select[name=work_type]')!;
   expect([...select.options].map(option => option.text)).toEqual(['Не назначен', 'УРНЫ', 'Особая работа организации']);
@@ -69,12 +69,13 @@ it.each(['/appeals', '/platform/appeals'])('assigns original organization work t
   await act(async () => {select.value = 'BIN_EMPTYING'; select.dispatchEvent(new Event('change', {bubbles: true}));});
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-edit button')!.click(); await tick();});
   expect(api).toHaveBeenCalledWith(endpoint + '/42', 'PATCH', {category: 'BIN_EMPTYING', status: 'NEW', owner_note: '', expected_version: 1});
-  expect(element.querySelector('.owner-appeal-detail h3')!.textContent).toBe('УРНЫ');
+  expect(element.querySelector<HTMLSelectElement>('select[name=work_type]')!.value).toBe('BIN_EMPTYING');
+  expect(element.querySelector('.appeal-subject-panel h2')!.textContent).toBe('Мусор');
   select = element.querySelector<HTMLSelectElement>('select[name=work_type]')!;
   await act(async () => {select.value = ''; select.dispatchEvent(new Event('change', {bubbles: true}));});
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-edit button')!.click(); await tick();});
   expect(api).toHaveBeenCalledWith(endpoint + '/42', 'PATCH', {category: '', status: 'NEW', owner_note: '', expected_version: 2});
-  expect(element.querySelector('.owner-appeal-detail h3')!.textContent).toBe('Вид работ не назначен');
+  expect(element.querySelector<HTMLSelectElement>('select[name=work_type]')!.value).toBe('');
 });
 
 it.each(['operator', 'inspector', 'archived'])('does not offer work type editing for %s', async role => {
@@ -134,4 +135,33 @@ it.each([
   await act(async () => {element.querySelector<HTMLButtonElement>('[aria-label="Очистить поиск"]')!.click(); await tick();});
   const params = new URLSearchParams(lastSearch().split('?')[1]);
   expect(params.has('q')).toBe(false); expect(params.get('status')).toBe('SPAM'); expect(params.get('archived')).toBe('true');
+});
+
+it('keeps the request separate from processing and retains all drafts when switching tabs', async () => {
+  await act(async () => {root.render(<OwnerAppeals organization endpoint="/appeals"/>); await tick();});
+  await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
+  const request = element.querySelector<HTMLElement>('#appeal-panel-request')!;
+  const work = element.querySelector<HTMLElement>('#appeal-panel-work')!;
+  expect(request.hidden).toBe(false); expect(work.hidden).toBe(true);
+  expect(request.textContent).toContain('Описание жителя');
+  expect(request.querySelector('.appeal-request-copy > .owner-appeal-edit')).not.toBeNull();
+  expect(work.querySelector('.owner-appeal-edit')).toBeNull();
+  await act(async () => {element.querySelector<HTMLButtonElement>('.appeal-go-work')!.click();});
+  expect(request.hidden).toBe(true); expect(work.hidden).toBe(false);
+  const fields = [
+    [element.querySelector<HTMLTextAreaElement>('.owner-appeal-edit textarea')!, 'Черновик внутренней заметки'],
+    [element.querySelector<HTMLTextAreaElement>('[placeholder="Результат рассмотрения обращения"]')!, 'Черновик публичного ответа'],
+    [element.querySelector<HTMLTextAreaElement>('[aria-label="Сообщение по обращению"]')!, 'Неотправленное сообщение'],
+  ] as const;
+  await act(async () => {
+    for (const [field, text] of fields) {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(field, text);
+      field.dispatchEvent(new Event('input', {bubbles: true}));
+    }
+  });
+  await act(async () => {element.querySelector<HTMLButtonElement>('#appeal-tab-request')!.click();});
+  expect(request.hidden).toBe(false); expect(work.hidden).toBe(true);
+  await act(async () => {element.querySelector<HTMLButtonElement>('#appeal-tab-work')!.click();});
+  for (const [field, text] of fields) {expect(field.isConnected).toBe(true); expect(field.value).toBe(text);}
+  expect(vi.mocked(api).mock.calls.filter(([, method]) => method === 'POST')).toHaveLength(0);
 });

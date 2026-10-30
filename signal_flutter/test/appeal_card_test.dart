@@ -7,11 +7,69 @@ import 'package:signal_citizens/browser_stub.dart';
 import 'package:signal_citizens/models.dart';
 import 'package:signal_citizens/theme.dart';
 import 'package:signal_citizens/widgets/appeal_card.dart';
+import 'package:signal_citizens/widgets/desktop_appeal_card.dart';
 import 'fixtures.dart';
 import 'image_client.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  for (final desktop in [false, true]) {
+    for (final (status, label) in [
+      ('CANCELLED', 'Задача отменена'),
+      ('REJECTED', 'Исполнитель отклонил'),
+    ]) {
+      testWidgets(
+        'citizen card shows $label and final answer on ${desktop ? "desktop" : "mobile"}',
+        (tester) async {
+          tester.view.physicalSize = Size(desktop ? 1024 : 390, 844);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(() {
+            tester.view.resetPhysicalSize();
+            tester.view.resetDevicePixelRatio();
+          });
+          final appeal = Appeal.fromJson({
+            ...appealJson,
+            'status': status,
+            'photos': [],
+            'response': {
+              'comment': 'Объяснение организации',
+              'at': '2026-10-30T09:00:00Z',
+              'photos': [],
+            },
+          });
+          final browser = MemoryBrowser();
+          final origin = Uri.parse('http://localhost/');
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: signalTheme(),
+              home: Scaffold(
+                body: SingleChildScrollView(
+                  child: SizedBox(
+                    width: desktop ? 480 : 390,
+                    child: desktop
+                        ? DesktopAppealCard(
+                            appeal: appeal,
+                            browser: browser,
+                            origin: origin,
+                          )
+                        : AppealCard(
+                            appeal: appeal,
+                            browser: browser,
+                            origin: origin,
+                          ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          expect(find.text(label), findsOneWidget);
+          expect(find.text('Объяснение организации'), findsOneWidget);
+          expect(find.text('Завершено'), findsNothing);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
   setUpAll(() async {
     for (final (family, asset) in [
       ('Roboto', 'assets/fonts/Roboto.ttf'),

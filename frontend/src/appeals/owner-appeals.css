@@ -1,19 +1,278 @@
-.owner-appeal-public{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:22px;margin-bottom:22px}.owner-appeal-public p{margin-bottom:0}.owner-appeal-toolbar{display:flex;align-items:end;justify-content:space-between;gap:18px;margin:20px 0}.owner-appeal-toolbar label{max-width:260px;width:100%}.owner-appeal-list{display:grid;gap:14px}.owner-appeal-card{width:100%;display:grid;grid-template-columns:130px 1fr;gap:22px;padding:18px;text-align:left;color:var(--text);background:var(--panel);align-items:start}.owner-appeal-card>img{width:130px;height:135px;object-fit:cover;border-radius:8px}.owner-appeal-card-top{display:flex;justify-content:space-between;gap:12px;align-items:center}.owner-appeal-card h3{font-size:16px;margin:10px 0 5px}.owner-appeal-card p{font-size:13px;margin:6px 0}.owner-appeal-card .owner-appeal-excerpt{color:var(--muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-weight:400}.owner-appeal-card small{display:flex;align-items:center;gap:18px;color:var(--muted);font-size:11px;margin-top:12px;font-weight:400}.owner-appeal-card small>span{display:flex;gap:4px;align-items:center}.appeal-status-NEW{background:#e9f0ff;color:#3264a8}.appeal-status-IN_REVIEW{background:#fff2d7;color:#946417}.appeal-status-RESOLVED{background:#e4f2e6;color:#3c7242}.appeal-status-SPAM{background:#ececee;color:#666}.owner-appeal-back{margin:0 0 20px}.owner-appeal-detail{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}.owner-appeal-detail>article{padding:26px}.owner-appeal-detail dl{margin-top:24px}.owner-appeal-detail dt{font-size:11px;color:var(--muted);margin:18px 0 6px}.owner-appeal-detail dd{margin:0;font-size:14px;overflow-wrap:anywhere}.owner-appeal-text{white-space:pre-wrap;line-height:1.8}.owner-appeal-edit{border-top:1px solid var(--border);margin-top:26px;padding-top:24px;display:grid;gap:16px}.owner-appeal-edit textarea{display:block;width:100%;font:inherit;border:1px solid var(--border);border-radius:8px;padding:12px;color:var(--text);background:var(--field);resize:vertical;margin-top:7px}.owner-appeal-edit .hint{margin:0}.owner-appeal-photos{display:grid;gap:20px}.owner-appeal-photos>article{overflow:hidden}.owner-appeal-photos img{display:block;width:100%;max-height:650px;object-fit:contain;background:#182019}.owner-appeal-photos>article>div{padding:18px}.owner-appeal-photos strong{font-size:13px}.owner-appeal-pagination{display:flex;justify-content:center;align-items:center;gap:18px;margin:24px 0}@media(max-width:760px){.owner-appeal-detail{grid-template-columns:1fr}.owner-appeal-public{flex-wrap:wrap}.owner-appeal-card{grid-template-columns:82px 1fr;gap:12px;padding:14px}.owner-appeal-card>img{width:82px;height:110px}.owner-appeal-card-top{flex-wrap:wrap}.owner-appeal-toolbar{align-items:center}.owner-appeal-detail>article{padding:20px}}
-
-.owner-appeal-card{background:var(--surface,#fff);color:var(--text,#273730)}
-.owner-appeal-edit textarea{background:var(--field,#fff)}
-.owner-appeal-search{display:flex;align-items:center;gap:10px;margin:0 0 20px;padding:0 12px;border:1px solid var(--border);border-radius:12px;background:var(--field,#fff);color:var(--muted)}.owner-appeal-search:focus-within{outline:2px solid var(--accent,var(--green));outline-offset:1px}.owner-appeal-search>svg{flex:none}.owner-appeal-search input{display:block;flex:1;width:100%;min-width:0;min-height:48px;margin:0;padding:11px 0;border:0;border-radius:0;background:transparent;color:var(--text);font:inherit;font-size:16px;outline:none}.owner-appeal-search input::-webkit-search-cancel-button{display:none}.owner-appeal-search button{display:grid;place-items:center;flex:none;min-width:40px;min-height:40px;padding:6px;border:0;background:transparent;color:var(--muted)}
-.appeal-workflow{margin-top:24px}.appeal-task{border-top:1px solid var(--border,#dfe4dc);padding-top:18px;margin-top:18px}.appeal-task label{display:block;margin:12px 0}.appeal-task textarea,.appeal-task select,.appeal-task input[type=file]{display:block;width:100%;margin-top:6px}.appeal-evidence{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.appeal-evidence img{width:110px;height:100px;object-fit:cover;border-radius:9px}.appeal-result-selection{display:flex;gap:10px;flex-wrap:wrap}.appeal-result-selection>strong{width:100%}.appeal-result-selection label{display:flex;align-items:center;gap:5px}.appeal-result-selection img{width:85px;height:80px;object-fit:cover;border-radius:8px}.appeal-result-selection input{width:auto}.appeal-address-settings{margin:18px 0}.appeal-address-settings ul{padding:0;list-style:none}.appeal-address-settings li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border,#dfe4dc)}.appeal-address-settings small{display:block;margin-top:4px}.appeal-address-settings form{display:grid;gap:12px}.appeal-address-settings label{display:block}.appeal-address-settings input,.appeal-address-settings select{display:block;width:100%;margin-top:5px}
-.appeal-status-ASSIGNED,.appeal-status-IN_PROGRESS{background:#e4edfa;color:#44649a}.appeal-status-COMPLETED{background:#f4ebcf;color:#82651e}.appeal-status-REJECTED{background:#f5e1dc;color:#955341}
-.owner-appeal-header-actions{display:flex;gap:10px;flex-wrap:wrap}.owner-appeal-source{display:inline-block;font-size:11px;color:var(--muted);margin:6px 0}.owner-appeal-source svg{vertical-align:middle;margin-right:4px}
-.appeal-folder-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:18px 0}.appeal-folder-tabs [aria-selected=true]{background:var(--accent,var(--green));color:#fff;border-color:transparent}
-.appeal-discussion{padding:0;overflow:hidden;min-width:0;background:var(--surface,#fff);border:1px solid var(--border);border-radius:12px}
-.appeal-discussion-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:16px 18px 7px}.appeal-discussion-toolbar>div{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.appeal-discussion-toolbar button{border:0;background:transparent;padding:6px 0;color:var(--muted);font-size:12px;min-height:32px}.appeal-discussion-toolbar [role=tab]:first-child{font-size:17px;font-weight:650}.appeal-discussion-toolbar [aria-selected=true]{color:var(--text,#273730)}.appeal-discussion-toolbar>button{padding:6px;flex-shrink:0}
-.appeal-discussion-privacy{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);padding:0 18px;margin:0 0 5px}.appeal-discussion>button{margin:10px 18px;font-size:11px}
-.appeal-event-list{display:flex;flex-direction:column;gap:20px;max-height:380px;overflow:auto;padding:20px 18px;margin:0;overscroll-behavior:contain}.appeal-event{display:flex;align-items:flex-start;gap:11px;min-width:0;border:0;padding:0;background:transparent}.appeal-message-avatar{display:grid;place-items:center;flex:0 0 34px;height:34px;border-radius:50%;background:#7770d326;color:#8780d8;font-size:11px;font-weight:700}.appeal-message-body{min-width:0;flex:1}.appeal-event header{display:flex;align-items:baseline;gap:5px 10px;flex-wrap:wrap;font-size:13px;line-height:1.5}.appeal-event header time{color:var(--muted);font-size:10px;white-space:nowrap}.appeal-event .owner-appeal-text{margin:5px 0 0;overflow-wrap:anywhere;font-size:13px;line-height:1.65}.appeal-event-kind{font-size:11px;margin:5px 0 0;color:var(--muted)}
-.appeal-discussion-compose{display:grid;grid-template-columns:minmax(0,1fr) 38px;gap:9px;align-items:end;border-top:1px solid var(--border);padding:14px 18px}.appeal-discussion .appeal-discussion-compose textarea{display:block;box-sizing:border-box;width:100%;font:inherit;font-size:13px;line-height:1.6;resize:vertical;padding:10px 12px;border:1px solid var(--border);border-radius:11px;background:var(--field,#fff);color:var(--text);margin:0;min-height:65px;max-height:180px}.appeal-discussion-compose>button{height:38px;width:38px;min-width:38px;padding:0;border-radius:10px}.appeal-discussion-compose>.hint{grid-column:1/-1;margin:0;order:2}.appeal-discussion>.error,.appeal-discussion-readonly{margin:12px 18px}.appeal-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-.appeal-confirm blockquote{margin:16px 0;padding:12px;border-left:3px solid var(--accent,var(--green));overflow-wrap:anywhere;background:var(--field,#f4f7fb)}.appeal-status-CANCELLED{background:#f5e1dc;color:#955341}
-.appeal-badges{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}.owner-appeals .appeal-badges .badge{display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:650;line-height:1.35;padding:9px 15px;min-height:38px;border-radius:10px;white-space:normal;text-align:center}.appeal-message-notification{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 12px;min-height:38px;border-radius:10px;background:#c53642;color:#fff;font-size:13px;font-weight:600;line-height:1.35}.appeal-message-notification svg{flex-shrink:0}.owner-appeal-detail .section-title{flex-wrap:wrap;gap:12px}.appeal-status-DECLINED{background:#f5e1dc;color:#955341}
-@media(max-width:760px){.appeal-badges{justify-content:flex-start}.owner-appeals .appeal-badges .badge{font-size:15px;padding:9px 14px}.appeal-message-notification{font-size:12px}}
-@media(max-width:760px){.appeal-discussion-compose{grid-template-columns:minmax(0,1fr) 44px;padding:14px}.appeal-discussion-compose>button{width:44px;height:44px}.appeal-discussion .appeal-discussion-compose textarea{font-size:16px}.appeal-event-list{padding:16px 14px}.appeal-discussion-toolbar{padding-left:14px;padding-right:14px}}
-.owner-signal-share{display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:flex-end}.owner-signal-share .appeal-share{margin:0;padding:0;border:0}.owner-signal-share .appeal-share-heading{font-size:11px;margin-bottom:5px}.owner-signal-share .appeal-share-heading>a{display:none}.owner-signal-share .appeal-share-actions>button{gap:7px;margin:0}.owner-signal-share .appeal-share-actions>a,.owner-signal-share .appeal-share-actions>button{background:var(--bg-soft);border-color:var(--border);color:var(--text)}
+/* Appeals share the application's theme and keep their own compact workspace. */
+.owner-appeals { --appeal-blue:var(--green,#245e4e); --appeal-link:var(--green,#245e4e); --appeal-soft:#edf4ec; --appeal-card:var(--surface,#fff); color:var(--text,#273730); }
+.owner-appeals [hidden] { display:none !important; }
+.owner-appeals .page-header { margin:25px 0 18px; }
+.owner-appeals .page-header h1 { font-size:34px; letter-spacing:-.8px; margin-bottom:3px; }
+.owner-appeals .page-header p { font-size:15px; color:var(--muted); }
+.owner-appeals .panel { background:var(--appeal-card); border-color:var(--border); box-shadow:none; }
+.owner-appeals :is(button,.button) { color:var(--text,#273730); }
+.owner-appeals .primary { background:var(--appeal-blue); border-color:var(--appeal-blue); color:white; }
+.owner-appeals .primary:hover { background:#174635; border-color:#174635; }
+.owner-appeals :is(input,select,textarea) { background:var(--field,#fff); color:var(--text,#273730); border:1px solid var(--border); border-radius:6px; font:inherit; font-size:12px; min-width:0; }
+.owner-appeals :is(input,select,textarea):focus-visible { outline:2px solid var(--appeal-link); outline-offset:2px; }
+.owner-appeals textarea { width:100%; resize:vertical; padding:10px 12px; line-height:1.6; }
+.owner-appeals label { color:var(--secondary,var(--text)); font-size:12px; line-height:1.5; }
+.owner-appeals .hint { color:var(--muted); }
+.owner-appeal-public { display:flex; align-items:center; gap:20px; padding:22px; margin-bottom:18px; min-height:105px; }
+.appeal-public-icon { color:var(--appeal-link); flex:none; }
+.appeal-public-copy { flex:1; min-width:200px; }
+.appeal-public-copy h2 { font-size:17px; margin:0 0 4px; }
+.appeal-public-copy p { margin:0; color:var(--muted); font-size:12px; line-height:1.6; max-width:480px; }
+.owner-signal-share { display:flex; align-items:center; justify-content:flex-end; gap:9px; flex-wrap:wrap; }
+.owner-signal-share>.button { min-height:42px; white-space:nowrap; font-size:12px; }
+.owner-signal-share .appeal-share { margin:0; padding:0; border:0; }
+.owner-signal-share .appeal-share-heading { display:none; }
+.owner-signal-share .appeal-share-actions { gap:7px; }
+.owner-signal-share .appeal-share-actions :is(a,button) { background:var(--field,#fff); color:var(--text); border-color:var(--border); border-radius:7px; min-height:42px; padding:8px 11px; font-size:11px; gap:7px; }
+.owner-signal-share .appeal-share-actions :is(a,button):hover { background:var(--surface-soft,#edf4fc); border-color:var(--appeal-link); }
+.appeal-network-icon { width:22px; height:22px; display:grid; place-items:center; flex:none; border-radius:50%; color:white; font-size:12px; font-weight:800; }
+.appeal-network-0 { background:#8654e7; }
+.appeal-network-1 { background:#20a5dc; }
+.appeal-network-2 { background:#2787ef; border-radius:6px; }
+.appeal-folder-tabs,.appeal-detail-tabs { display:flex; align-items:stretch; gap:15px; border-bottom:1px solid var(--border); margin:0 0 18px; }
+.appeal-folder-tabs [role=tab],.appeal-detail-tabs [role=tab] { position:relative; display:flex; gap:9px; align-items:center; min-height:46px; padding:9px 15px; background:transparent; border:0; border-radius:0; color:var(--muted); font-size:14px; }
+.appeal-folder-tabs [aria-selected=true],.appeal-detail-tabs [aria-selected=true] { background:transparent; color:var(--appeal-link); font-weight:600; }
+.owner-appeals :is(.appeal-folder-tabs,.appeal-detail-tabs) [role=tab] { background:transparent; }
+.appeal-folder-tabs [aria-selected=true]:after,.appeal-detail-tabs [aria-selected=true]:after { content:''; position:absolute; bottom:-1px; left:0; right:0; height:3px; background:var(--appeal-link); border-radius:3px 3px 0 0; }
+.appeal-folder-count { display:grid; place-items:center; min-width:23px; height:23px; border-radius:50%; padding:0 5px; background:var(--appeal-blue); color:white; font-size:12px; }
+.owner-appeal-toolbar { display:flex; align-items:center; gap:18px; margin:0 0 18px; }
+.owner-appeal-toolbar>label { display:flex; flex-direction:row; align-items:center; gap:16px; flex:none; color:var(--muted); font-size:13px; }
+.owner-appeal-toolbar select { min-width:220px; min-height:42px; font-size:13px; padding:10px 12px; }
+.owner-appeal-search { display:flex; align-items:center; gap:10px; flex:1; max-width:590px; min-width:160px; padding:0 13px; border:1px solid var(--border); border-radius:7px; background:var(--field,#fff); color:var(--muted); }
+.owner-appeal-search:focus-within { outline:2px solid var(--appeal-link); outline-offset:1px; }
+.owner-appeals .owner-appeal-search input { flex:1; width:100%; min-height:42px; padding:9px 0; margin:0; border:0; background:transparent; outline:0; font-size:13px; }
+.owner-appeal-search input::-webkit-search-cancel-button { display:none; }
+.owner-appeal-search>svg { flex:none; }
+.owner-appeal-search button { flex:none; width:30px; padding:4px; border:0; background:transparent; color:var(--muted); }
+.appeal-total { margin-left:auto; white-space:nowrap; font-size:13px; }
+.appeal-list-refresh { flex:none; width:44px; height:44px; padding:9px; }
+.appeal-list-hint { display:flex; align-items:center; gap:15px; padding:11px 15px; margin:0 0 15px; border:1px solid var(--border); border-radius:8px; background:var(--appeal-soft); color:var(--muted); font-size:12px; line-height:1.5; }
+.appeal-list-hint svg { flex:none; }
+.owner-appeal-list { display:grid; gap:10px; }
+.owner-appeals .owner-appeal-card { display:grid; grid-template-columns:165px minmax(0,1fr) auto 20px; gap:22px; align-items:center; width:100%; margin:0; padding:12px 15px; border-radius:10px; text-align:left; background:var(--appeal-card); color:var(--text); }
+.owner-appeals .owner-appeal-card:hover { border-color:var(--appeal-link); background:var(--surface-soft,#f5f8fc); }
+.appeal-list-photo { display:grid; place-items:center; height:96px; overflow:hidden; border-radius:7px; background:var(--appeal-soft); color:var(--muted); }
+.appeal-list-photo img { display:block; width:100%; height:100%; object-fit:cover; }
+.appeal-list-copy { display:block; min-width:0; }
+.owner-appeal-card-top { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px 24px; margin-bottom:9px; }
+.owner-appeal-card-top>strong { font-size:15px; font-weight:600; color:var(--appeal-link); white-space:nowrap; }
+.appeal-list-title { font-size:15px; font-weight:600; line-height:1.5; overflow-wrap:anywhere; }
+.appeal-list-meta { display:flex; flex-wrap:wrap; gap:8px 28px; color:var(--muted); font-size:12px; }
+.appeal-list-meta>span { display:flex; align-items:center; gap:9px; }
+.appeal-list-meta svg { flex:none; }
+.owner-appeal-excerpt { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin-top:9px; color:var(--muted); font-size:13px; line-height:1.55; font-weight:400; overflow-wrap:anywhere; }
+.appeal-card-chevron { color:var(--muted); }
+.appeal-badges { display:flex; flex-direction:column; align-items:center; gap:7px; flex:none; }
+.owner-appeals .appeal-badges .badge { display:inline-flex; align-items:center; justify-content:center; padding:6px 14px; min-width:90px; max-width:175px; border-radius:30px; font-size:12px; font-weight:500; line-height:1.35; white-space:normal; text-align:center; background:var(--appeal-state-bg,#85909b); color:var(--appeal-state-fg,white); }
+.appeal-status-NEW { --appeal-state-bg:#245e4e; }
+.appeal-status-IN_REVIEW { --appeal-state-bg:#b686f1; --appeal-state-fg:#161b26; }
+.appeal-status-ASSIGNED { --appeal-state-bg:#b9d9c5; --appeal-state-fg:#173b2c; }
+.appeal-status-IN_PROGRESS { --appeal-state-bg:#ffca3f; --appeal-state-fg:#201b08; }
+.appeal-status-COMPLETED { --appeal-state-bg:#54c9bc; --appeal-state-fg:#092a29; }
+.appeal-status-RESOLVED { --appeal-state-bg:#3cab80; }
+.appeal-status-REJECTED,.appeal-status-DECLINED { --appeal-state-bg:#d58989; --appeal-state-fg:#251315; }
+.appeal-status-CANCELLED,.appeal-status-SPAM { --appeal-state-bg:#758295; }
+.appeal-message-notification { display:flex; align-items:center; gap:5px; color:var(--appeal-link); font-size:11px; white-space:nowrap; }
+.appeal-message-copy { display:none; }
+.owner-appeal-pagination { display:flex; align-items:center; justify-content:center; gap:18px; margin:24px 0; }
+.owner-appeal-source { display:flex; align-items:center; gap:5px; font-size:11px; line-height:1.5; color:var(--muted); margin:7px 0 0; }
+.owner-appeal-header-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.appeal-detail-header { display:flex; align-items:center; gap:16px; margin:13px 0 0; min-height:48px; }
+.owner-appeal-back { flex:none; font-size:12px; padding:9px 13px; min-height:36px; }
+.appeal-detail-header h1 { margin:0; font-size:19px; letter-spacing:-.25px; line-height:1.4; overflow-wrap:anywhere; }
+.appeal-detail-header .appeal-badges { flex-direction:row; }
+.appeal-detail-header .badge { min-width:0 !important; padding:5px 12px !important; border-radius:7px !important; }
+.appeal-go-work { margin-left:auto; flex:none; font-size:12px; }
+.appeal-detail-tabs { margin-bottom:12px; gap:12px; }
+.appeal-detail-tabs [role=tab] { font-size:12px; min-height:43px; }
+.appeal-request-layout { display:grid; grid-template-columns:minmax(0,1.18fr) minmax(0,1fr); gap:12px; align-items:start; }
+.appeal-request-layout .panel { border-radius:8px; margin:0; padding:14px; }
+.appeal-request-copy,.owner-appeal-photos { display:grid; gap:10px; min-width:0; }
+.appeal-request-layout h3 { font-size:12px; margin:0 0 10px; }
+.appeal-subject-panel h3 { color:var(--muted); font-weight:500; }
+.appeal-subject-panel h2 { font-size:19px; line-height:1.45; margin:0; }
+.owner-appeal-text { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; }
+.appeal-description { font-size:13px; margin:0; }
+.appeal-description:not(.is-expanded) { display:-webkit-box; -webkit-line-clamp:7; -webkit-box-orient:vertical; overflow:hidden; }
+.appeal-description-toggle { display:flex; align-items:center; gap:7px; border:0; padding:5px 0; margin:8px 0 0; background:transparent; color:var(--appeal-link) !important; font-size:12px; }
+.appeal-description-toggle[aria-expanded=true] svg { transform:rotate(180deg); }
+.appeal-request-facts { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; padding-top:18px; margin:17px 0 0; border-top:1px solid var(--border); }
+.appeal-request-facts>div { min-width:0; }
+.appeal-request-facts dt { display:flex; align-items:center; gap:8px; font-size:10px; font-weight:400; color:var(--muted); }
+.appeal-request-facts dt svg { flex:none; }
+.appeal-request-facts dd { margin:6px 0 0 26px; font-size:11px; line-height:1.65; overflow-wrap:anywhere; }
+.appeal-request-facts dd small { display:block; margin-top:3px; color:var(--muted); }
+.appeal-resident-photo header h3 { margin-bottom:8px; }
+.appeal-resident-photo-image { position:relative; overflow:hidden; border-radius:5px; background:var(--field); }
+.appeal-resident-photo-image>a:first-child { display:block; }
+.appeal-resident-photo-image img { display:block; width:100%; height:clamp(160px,17vw,280px); object-fit:cover; }
+.owner-appeals .appeal-resident-photo-image>.button { position:absolute; top:10px; right:10px; min-height:30px; font-size:10px; background:#101b2de6; color:#fff; border-color:#6a7b8c; padding:7px 10px; }
+.appeal-photo-empty { text-align:center; padding:30px !important; color:var(--muted); }
+.appeal-photo-empty p { margin:8px 0 0; }
+.appeal-location-panel>header { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.appeal-location-panel>header a { color:var(--muted); }
+.appeal-location-view { position:relative; height:135px; border-radius:5px; overflow:hidden; }
+.appeal-location-map { width:100%; height:100%; }
+.appeal-location-placeholder { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:6px; background:var(--appeal-soft); color:var(--muted); font-size:12px; }
+.appeal-location-placeholder p { margin:0; }
+.appeal-location-placeholder a { color:var(--appeal-link); text-decoration:underline; }
+.appeal-location-placeholder button { padding:5px 9px; font-size:11px; }
+.appeal-location-empty { display:flex; align-items:center; justify-content:center; gap:10px; min-height:90px; margin:0; color:var(--muted); font-size:12px; }
+.appeal-work-context { display:flex; align-items:center; gap:24px; padding:8px 12px; margin-bottom:10px; border:1px solid var(--border); border-radius:6px; background:var(--appeal-card); font-size:11px; }
+.appeal-work-context>span { display:flex; align-items:center; gap:8px; min-width:0; }
+.appeal-work-context svg,.appeal-work-context small { color:var(--muted); flex:none; }
+.appeal-work-context>span+span { margin-left:30px; }
+.appeal-workflow-workspace { margin-top:0; }
+.appeal-processing-columns { display:grid; grid-template-columns:minmax(240px,1fr) minmax(300px,1.4fr) minmax(230px,.8fr); gap:12px; align-items:start; }
+.appeal-work-left,.appeal-work-right { display:grid; gap:10px; min-width:0; }
+.appeal-work-middle { min-width:0; }
+.appeal-processing-columns .appeal-task,.appeal-processing-columns .owner-appeal-edit { margin:0; padding:13px; background:var(--appeal-card); border:1px solid var(--border); border-radius:7px; }
+.appeal-processing-columns h3 { font-size:12px; margin:0 0 10px; }
+.appeal-edit-fields { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.owner-appeal-edit label { display:block; margin:9px 0; font-size:11px; }
+.owner-appeal-edit :is(select,textarea) { display:block; width:100%; margin-top:5px; }
+.owner-appeal-edit select { min-height:32px; padding:5px 8px; font-size:11px; }
+.owner-appeal-edit textarea { min-height:70px; font-size:11px; }
+.owner-appeal-edit footer { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.owner-appeal-edit footer .hint { font-size:9px; margin:0; line-height:1.5; }
+.owner-appeal-edit footer button { padding:7px 18px; font-size:11px; }
+.appeal-task { border-top:1px solid var(--border); padding-top:16px; margin-top:16px; }
+.appeal-task label { display:block; margin:12px 0; }
+.appeal-task :is(select,textarea,input[type=file]) { display:block; width:100%; margin-top:5px; }
+.appeal-task select { min-height:32px; padding:5px 8px; }
+.appeal-processing-columns .appeal-task :is(label,.hint,button) { font-size:11px; }
+.appeal-processing-columns .appeal-task .hint { font-size:10px; line-height:1.5; margin-bottom:10px; }
+.appeal-processing-columns .appeal-task textarea { min-height:70px; }
+.appeal-work-right .appeal-task textarea { min-height:135px; }
+.appeal-work-right .appeal-task>.primary { width:100%; margin-top:8px; min-height:38px; }
+.appeal-evidence { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; }
+.appeal-evidence img { width:95px; height:80px; object-fit:cover; border-radius:5px; }
+.appeal-result-selection { display:flex; gap:10px; flex-wrap:wrap; }
+.appeal-result-selection>strong { width:100%; font-size:11px; }
+.appeal-result-selection label { display:flex; align-items:center; gap:5px; }
+.appeal-result-selection img { width:75px; height:65px; object-fit:cover; border-radius:5px; }
+.appeal-result-selection input { width:auto; }
+.appeal-task input[type=file] { font-size:10px; padding:7px; }
+.appeal-discussion { padding:0 !important; margin:0 !important; min-width:0; overflow:hidden; border-radius:7px !important; }
+.appeal-discussion-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; border-bottom:1px solid var(--border); padding:0 11px; }
+.appeal-discussion-toolbar>div { display:flex; align-items:stretch; gap:7px; }
+.appeal-discussion-toolbar button { position:relative; border:0; background:transparent; padding:11px 8px; min-height:36px; color:var(--muted); font-size:10px; white-space:nowrap; }
+.appeal-discussion-toolbar [aria-selected=true] { color:var(--appeal-link); font-weight:600; }
+.owner-appeals .appeal-discussion-toolbar button { background:transparent; }
+.appeal-discussion-toolbar [aria-selected=true]:after { content:''; position:absolute; left:0; right:0; bottom:-1px; height:3px; background:var(--appeal-link); }
+.appeal-discussion-toolbar>button { flex:none; padding:5px; }
+.appeal-discussion-privacy { display:flex; align-items:center; gap:5px; font-size:9px; margin:8px 12px 0; color:var(--muted); }
+.appeal-discussion>button { margin:10px 14px; padding:5px 9px; font-size:10px; }
+.appeal-event-list { display:flex; flex-direction:column; gap:0; height:335px; overflow:auto; padding:5px 14px; overscroll-behavior:contain; }
+.appeal-event { display:flex; align-items:flex-start; gap:11px; padding:14px 0; border-bottom:1px solid var(--border); }
+.appeal-event:last-child { border:0; }
+.appeal-message-avatar { display:grid; place-items:center; flex:0 0 32px; height:32px; border-radius:50%; background:#4c8065; color:white; font-size:13px; font-weight:500; }
+.appeal-event:nth-child(3n+2) .appeal-message-avatar { background:#607d6b; }
+.appeal-event:nth-child(3n) .appeal-message-avatar { background:#357259; }
+.appeal-message-body { flex:1; min-width:0; }
+.appeal-event header { display:flex; align-items:baseline; gap:5px 9px; flex-wrap:wrap; font-size:11px; line-height:1.5; }
+.appeal-event time { font-size:9px; color:var(--muted); white-space:nowrap; }
+.appeal-event .owner-appeal-text { margin:3px 0 0; font-size:11px; line-height:1.7; }
+.appeal-event-kind { font-size:10px; color:var(--muted); margin:4px 0 0; }
+.appeal-discussion-compose { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:9px; align-items:end; padding:11px 13px; border-top:1px solid var(--border); }
+.appeal-discussion-compose textarea { display:block; width:100%; min-height:37px; max-height:150px; resize:vertical; margin:0; padding:8px 10px; font-size:11px; line-height:1.6; }
+.appeal-discussion-compose>button { min-height:37px; font-size:11px; padding:7px 11px; }
+.appeal-discussion-compose>button svg { width:16px; }
+.appeal-discussion-compose>.hint { grid-column:1/-1; margin:0; order:2; }
+.appeal-discussion-readonly,.appeal-discussion>.error { margin:12px 14px; font-size:11px; }
+.appeal-workflow-workspace>.error { margin-top:12px; }
+.appeal-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.appeal-confirm blockquote { margin:16px 0; padding:12px; border-left:3px solid var(--appeal-link,var(--accent)); overflow-wrap:anywhere; background:var(--field); }
+.appeal-address-settings { margin:18px 0; }
+.appeal-address-settings ul { padding:0; list-style:none; }
+.appeal-address-settings li { display:flex; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid var(--border); }
+.appeal-address-settings small { display:block; margin-top:4px; }
+.appeal-address-settings form { display:grid; gap:12px; }
+.appeal-address-settings label { display:block; }
+.appeal-address-settings :is(input,select) { display:block; width:100%; margin-top:5px; }
+.appeal-processing-columns:has(>.appeal-work-right:empty) { grid-template-columns:minmax(260px,1fr) minmax(300px,1.5fr); }
+.appeal-processing-columns>.appeal-work-right:empty,.appeal-processing-columns>.appeal-work-left:empty { display:none; }
+.appeal-processing-columns:has(>.appeal-work-left:empty) { grid-template-columns:minmax(300px,1.5fr) minmax(230px,1fr); }
+.appeal-processing-columns:has(>.appeal-work-left:empty):has(>.appeal-work-right:empty) { grid-template-columns:1fr; }
+:root[data-theme=dark] .owner-appeals { --appeal-blue:#087cff; --appeal-link:#9cc4ff; --appeal-card:var(--surface); --appeal-soft:var(--surface-soft); }
+:root[data-theme=dark] .appeal-status-NEW { --appeal-state-bg:#087cf6; }
+:root[data-theme=dark] .appeal-status-ASSIGNED { --appeal-state-bg:#60b7f5; --appeal-state-fg:#101c29; }
+:root[data-theme=dark] .owner-appeals :is(.panel,.owner-appeal-card) { background:var(--appeal-card); }
+:root[data-theme=dark] .owner-appeals .owner-appeal-card:hover { background:var(--surface-soft); }
+:root[data-theme=dark] .owner-appeals .primary { background:#087cff; border-color:#087cff; }
+:root[data-theme=dark] .owner-appeals .primary:hover { background:#006be0; }
+:root[data-theme=dark] .owner-appeals .appeal-description-toggle { background:transparent; }
+:root[data-theme=dark] .owner-appeals .appeal-location-map { filter:brightness(.68) saturate(.65); }
+@media(max-width:1400px) {
+  .owner-appeal-public { flex-wrap:wrap; gap:14px; }
+  .owner-signal-share { margin-left:auto; }
+  .owner-appeal-card-top { gap:7px 16px; }
+  .appeal-list-meta { gap:7px 17px; }
+  .owner-appeals .owner-appeal-card { grid-template-columns:140px minmax(0,1fr) auto 16px; gap:17px; }
+  .appeal-list-photo { height:90px; }
+}
+@media(max-width:1180px) {
+  .appeal-processing-columns,.appeal-processing-columns:has(>.appeal-work-right:empty) { grid-template-columns:minmax(240px,1fr) minmax(280px,1.35fr); }
+  .appeal-work-middle { grid-column:2; grid-row:1/span 2; }
+  .appeal-work-right { grid-column:1; }
+  .owner-appeal-toolbar { gap:12px; flex-wrap:wrap; }
+  .owner-appeal-toolbar select { min-width:180px; }
+  .owner-appeal-search { max-width:none; }
+  .appeal-request-facts { grid-template-columns:1fr 1fr; gap:15px; }
+  .appeal-detail-header { flex-wrap:wrap; gap:12px; }
+  .appeal-detail-header h1 { flex:1; font-size:17px; }
+  .appeal-detail-header .appeal-go-work { margin-left:auto; }
+}
+@media(max-width:900px) {
+  .owner-appeals .page-header h1 { font-size:28px; }
+  .appeal-request-layout { grid-template-columns:1fr; }
+  .appeal-processing-columns,.appeal-processing-columns:has(>.appeal-work-right:empty),.appeal-processing-columns:has(>.appeal-work-left:empty) { grid-template-columns:1fr; }
+  .appeal-work-middle,.appeal-work-right { grid-column:auto; grid-row:auto; }
+  .owner-appeals .owner-appeal-card { grid-template-columns:100px minmax(0,1fr) auto; gap:12px; }
+  .appeal-card-chevron { display:none; }
+  .appeal-list-photo { height:100%; min-height:100px; }
+  .appeal-list-meta { gap:8px 14px; }
+  .owner-appeal-card-top { flex-direction:column; gap:2px; }
+  .appeal-work-context { flex-direction:column; align-items:flex-start; gap:7px; }
+  .appeal-work-context>span+span { margin-left:0; }
+  .appeal-resident-photo-image img { height:auto; max-height:380px; object-fit:contain; }
+  .appeal-location-view { height:220px; }
+  .appeal-total { margin-left:0; }
+}
+@media(max-width:600px) {
+  .owner-appeals .page-header { margin-top:20px; }
+  .owner-appeal-public { padding:16px; gap:12px; }
+  .appeal-public-copy { min-width:0; }
+  .appeal-public-copy h2 { font-size:15px; }
+  .appeal-public-icon { width:28px; }
+  .owner-signal-share { width:100%; justify-content:flex-start; margin:0; }
+  .owner-signal-share>.button { width:100%; }
+  .owner-signal-share .appeal-share-actions { flex-wrap:wrap; }
+  .owner-appeal-toolbar>label { width:100%; justify-content:space-between; }
+  .owner-appeal-toolbar select { flex:1; }
+  .owner-appeal-search { order:3; flex-basis:100%; }
+  .appeal-list-refresh { margin-left:auto; }
+  .appeal-list-hint { font-size:11px; gap:10px; }
+  .owner-appeals .owner-appeal-card { grid-template-columns:70px minmax(0,1fr); padding:11px; gap:12px; }
+  .appeal-list-photo { grid-row:1/span 2; min-height:110px; }
+  .owner-appeal-card .appeal-badges { grid-column:2; align-items:flex-start; flex-direction:row; justify-content:space-between; }
+  .appeal-list-title { font-size:13px; }
+  .owner-appeal-card-top>strong { font-size:12px; }
+  .appeal-list-meta { font-size:10px; gap:5px; }
+  .appeal-list-meta>span { gap:5px; }
+  .appeal-list-meta svg { width:13px; height:13px; }
+  .owner-appeal-excerpt { font-size:11px; margin-top:7px; }
+  .appeal-detail-header h1 { order:-1; flex-basis:100%; font-size:17px; }
+  .appeal-detail-header .appeal-badges { flex-direction:row; }
+  .appeal-detail-header .appeal-go-work { font-size:10px; }
+  .appeal-detail-tabs { gap:5px; }
+  .appeal-detail-tabs [role=tab] { font-size:12px; padding:10px 8px; }
+  .appeal-request-facts dd { margin-left:0; }
+  .appeal-discussion-toolbar { padding:0 8px; }
+  .appeal-discussion-toolbar button { padding:10px 4px; font-size:10px; }
+  .appeal-discussion-compose { grid-template-columns:minmax(0,1fr) 38px; }
+  .appeal-discussion-compose>button { padding:7px; }
+  .appeal-discussion-compose>button span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
+  .appeal-discussion-compose textarea { font-size:16px; }
+}
+@media(prefers-reduced-motion:reduce) { .owner-appeals :is(button,.button) { transition:none; } }
