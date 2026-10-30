@@ -186,6 +186,8 @@ def main():
     setup.add_argument('--origin', type=local_url, default='http://127.0.0.1:5181')
     serve = sub.add_parser('serve')
     serve.add_argument('--port', type=int, default=8001)
+    serve.add_argument('--admin', action='store_true', help='Run the Metka API for local administrator previews')
+    serve.add_argument('--origin', type=local_url, help='Origin of the local frontend for CSRF validation')
     args = parser.parse_args()
     if args.command == 'setup':
         config = configure()
@@ -201,8 +203,12 @@ def main():
         if database.hostname not in {'127.0.0.1', 'localhost'} or database.path != '/' + DATABASE:
             raise ValueError('Refusing to run the development server on a non-local database')
         os.chdir(ROOT / 'backend')
-        os.execve(sys.executable, [sys.executable, '-m', 'uvicorn', 'app.appeals_public:app',
-                                  '--host', '127.0.0.1', '--port', str(args.port)], environment(config))
+        app = 'app.api:app' if args.admin else 'app.appeals_public:app'
+        env = environment(config)
+        if args.origin:
+            env['APP_ORIGIN'] = args.origin
+        os.execve(sys.executable, [sys.executable, '-m', 'uvicorn', app,
+                                  '--host', '127.0.0.1', '--port', str(args.port)], env)
 
 
 if __name__ == '__main__':
