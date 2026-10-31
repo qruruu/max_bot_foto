@@ -17,6 +17,7 @@ from pydantic import Field
 from sqlalchemy import Date, cast, delete, func, select, text, update
 from sqlalchemy.orm import Session
 
+from app import appeal_reporting as reporting
 from app.appeal_events import CommentInput, add_comment, event_page, record_event, unanswered_comments
 from app.appeal_search import appeal_search
 from app.appeal_statuses import AppealStatus, is_final
@@ -598,7 +599,9 @@ async def create_inspector_appeal(organization_id: UUID, request: Request, db: D
 @router.get("/organizations/{organization_id}/appeals")
 def appeals(organization_id: UUID, db: Db, user: InspectorUser, page: int = Query(default=1, ge=1),
             status: AppealStatus | None = None,
-            archived: bool = False, q: str = Query(default="", max_length=200)):
+            archived: bool = False, q: str = Query(default="", max_length=200),
+            category: str = Query(default="", max_length=60), operator: str = Query(default="", max_length=100),
+            deadline: reporting.DeadlineFilter = 'any'):
     authorized_organization(db, user, organization_id)
     condition = CitizenAppeal.organization_id == str(organization_id)
     condition = condition & (CitizenAppeal.archived_at.is_not(None) if archived else CitizenAppeal.archived_at.is_(None))
@@ -606,12 +609,23 @@ def appeals(organization_id: UUID, db: Db, user: InspectorUser, page: int = Quer
         condition = condition & (CitizenAppeal.status == status)
     for match in appeal_search(q):
         condition = condition & match
+    for match in reporting.filters(category, operator, deadline):
+        condition = condition & match
     rows = list(db.scalars(select(CitizenAppeal).where(condition)
                           .order_by(CitizenAppeal.id.desc()).offset((page - 1) * 20).limit(20)))
     messages = unanswered_comments(db, [appeal.id for appeal in rows], user, inspector=True)
+    tasks = reporting.task_summaries(db, rows)
     return {"total": db.scalar(select(func.count()).select_from(CitizenAppeal).where(condition)), "page": page, "page_size": 20,
             "yandex_maps_api_key": base_settings().yandex_maps_api_key,
-            "items": [{**restricted_appeal(db, a), "unanswered_comments": messages.get(a.id, 0)} for a in rows]}
+            "filter_options": reporting.options(db, [CitizenAppeal.organization_id == str(organization_id)]),
+            "items": [{**restricted_appeal(db, a), **tasks[a.id], "unanswered_comments": messages.get(a.id, 0)} for a in rows]}
+
+
+@router.get("/organizations/{organization_id}/appeals/statistics")
+def appeal_statistics(organization_id: UUID, db: Db, user: InspectorUser, start: date, end: date,
+                      category: str = Query(default="", max_length=60), operator: str = Query(default="", max_length=100)):
+    authorized_organization(db, user, organization_id)
+    return reporting.statistics(db, [CitizenAppeal.organization_id == str(organization_id)], start, end, category, operator)
 
 
 def restricted_appeal(db, appeal):
@@ -698,6 +712,7 @@ def inspector_appeal_status(organization_id: UUID, appeal_id: int, body: Inspect
         task = latest_task(db, appeal.id)
         if task:
             task.status = body.status
+            task.finished_at = now()
         appeal.status, appeal.updated_at = body.status, now()
         appeal.version += 1
         record_event(db, appeal, "STATUS", user, inspector=True)

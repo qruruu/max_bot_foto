@@ -1,7 +1,7 @@
 """Organization appeal inbox, receipt recovery and authenticated access boundaries."""
 
 import secrets
-from datetime import timedelta
+from datetime import date, timedelta
 from hashlib import sha256
 from typing import Annotated, Literal
 from uuid import UUID
@@ -12,6 +12,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
+from app import appeal_reporting as reporting
 from app.appeal_catalog import organization_catalog, public_organizations
 from app.appeal_events import unanswered_comments
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS
@@ -210,22 +211,35 @@ def photo_dict(photo):
 @owner_router.get("")
 @organization_router.get("")
 def list_appeals(user: AppealReader, status: AppealStatus | None = None, page: int = Query(default=1, ge=1), archived: bool = False,
-                 q: str = Query(default="", max_length=200)):
+                 q: str = Query(default="", max_length=200), category: str = Query(default="", max_length=60),
+                 operator: str = Query(default="", max_length=100), deadline: reporting.DeadlineFilter = 'any'):
     with control_session() as db:
         conditions = appeal_conditions(user) + ([CitizenAppeal.status == status] if status else [])
         conditions.append(CitizenAppeal.archived_at.is_not(None) if archived else CitizenAppeal.archived_at.is_(None))
         conditions.extend(appeal_search(q))
+        conditions.extend(reporting.filters(category, operator, deadline))
         total = db.scalar(select(func.count()).select_from(CitizenAppeal).where(*conditions))
         rows = db.execute(select(CitizenAppeal, AppealPhoto.id).outerjoin(AppealPhoto,
             (AppealPhoto.appeal_id == CitizenAppeal.id) & (AppealPhoto.position == 0)).where(*conditions)
             .order_by(CitizenAppeal.created_at.desc(), CitizenAppeal.id.desc()).offset((page - 1) * 20).limit(20)).all()
         messages = unanswered_comments(db, [appeal.id for appeal, _ in rows], user)
-        return {"items": [{**private_appeal_dict(appeal, user), "unanswered_comments": messages.get(appeal.id, 0), "preview_url":
+        tasks = reporting.task_summaries(db, [appeal for appeal, _ in rows])
+        return {"items": [{**private_appeal_dict(appeal, user), **tasks[appeal.id], "unanswered_comments": messages.get(appeal.id, 0), "preview_url":
             private_url(f"/{appeal.id}/photos/{photo_id}?variant=preview")} for appeal, photo_id in rows],
             "total": total, "page": page, "page_size": 20, "categories": CATEGORIES,
             "public_url": base_settings().public_appeals_origin.rstrip("/") or "/appeals",
             "yandex_maps_api_key": base_settings().yandex_maps_api_key,
+            "filter_options": reporting.options(db, appeal_conditions(user)),
             "can_manage": user.role == "ADMIN_OPERATOR", "can_execute": user.role == "OPERATOR"}
+
+
+@owner_router.get("/statistics")
+@organization_router.get("/statistics")
+def appeal_statistics(user: AppealReader, start: date, end: date, category: str = Query(default="", max_length=60),
+                      operator: str = Query(default="", max_length=100), organization: str = Query(default="", max_length=36)):
+    with control_session() as db:
+        return reporting.statistics(db, appeal_conditions(user), start, end, category, operator, organization,
+                                    task_operator_id=user.id if user.role == "OPERATOR" else None)
 
 
 @organization_router.get("/notifications")

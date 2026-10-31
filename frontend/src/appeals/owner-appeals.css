@@ -56,7 +56,7 @@
 .appeal-list-copy { display:block; min-width:0; }
 .owner-appeal-card-top { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px 24px; margin-bottom:9px; }
 .owner-appeal-card-top>strong { font-size:15px; font-weight:600; color:var(--appeal-link); white-space:nowrap; }
-.appeal-list-title { font-size:15px; font-weight:600; line-height:1.5; overflow-wrap:anywhere; }
+.appeal-list-title { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; font-size:15px; font-weight:600; line-height:1.5; overflow-wrap:anywhere; }
 .appeal-list-meta { display:flex; flex-wrap:wrap; gap:8px 28px; color:var(--muted); font-size:12px; }
 .appeal-list-meta>span { display:flex; align-items:center; gap:9px; }
 .appeal-list-meta svg { flex:none; }
@@ -276,3 +276,46 @@
   .appeal-discussion-compose textarea { font-size:16px; }
 }
 @media(prefers-reduced-motion:reduce) { .owner-appeals :is(button,.button) { transition:none; } }
+
+/* Staff assignment information is deliberately absent from the public wall. */
+.appeal-list-filters { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)) auto; align-items:end; gap:16px; margin:20px 0 16px; }
+.appeal-list-filters label { display:block; min-width:0; }
+.appeal-list-filters select { display:block; width:100%; margin-top:6px; min-height:36px; }
+.appeal-reset-filters { min-height:36px; }
+.owner-appeals .owner-appeal-search { max-width:none; }
+.appeal-list-columns,.owner-appeals .owner-appeal-card { display:grid; grid-template-columns:minmax(300px,2.5fr) minmax(90px,.8fr) minmax(110px,.9fr) minmax(110px,1fr) 145px 18px; gap:16px; }
+.appeal-list-columns { padding:12px 15px; margin-bottom:8px; border-radius:8px; background:var(--appeal-soft); color:var(--muted); font-size:12px; }
+.appeal-list-main { display:grid; grid-template-columns:115px minmax(0,1fr); align-items:center; gap:16px; min-width:0; }
+.appeal-list-field { display:flex; flex-direction:column; gap:6px; min-width:0; overflow-wrap:anywhere; font-size:12px; }
+.appeal-list-field>small { color:var(--muted); font-size:10px; }
+.appeal-list-field>span { display:flex; align-items:center; gap:6px; }
+.appeal-list-field svg { flex:none; }
+.appeal-list-field>b { font-size:10px; }
+.appeal-overdue { color:#bc4b3a; }
+:root[data-theme=dark] .appeal-overdue { color:#f1a38f; }
+.appeal-task-deadline { font-size:12px; line-height:1.6; }
+.appeal-deadline-form { padding:10px 0; margin:12px 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
+.appeal-deadline-form button { margin-right:8px; margin-top:6px; }
+.appeal-deadline-form input { display:block; width:100%; margin-top:6px; color:var(--text); background:var(--field,#fff); }
+@media(max-width:1450px) {
+  .appeal-list-columns,.owner-appeals .owner-appeal-card { grid-template-columns:minmax(235px,2fr) minmax(80px,.8fr) minmax(100px,.9fr) minmax(90px,1fr) 120px 16px; gap:12px; }
+  .appeal-list-main { grid-template-columns:80px minmax(0,1fr); gap:12px; }
+  .appeal-list-photo { height:85px; }
+}
+@media(max-width:1180px) {
+  .appeal-list-filters { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .appeal-list-columns { display:none; }
+  .owner-appeals .owner-appeal-card { grid-template-columns:repeat(3,minmax(0,1fr)) auto; }
+  .appeal-list-main { grid-column:1/-1; grid-template-columns:100px minmax(0,1fr); }
+  .owner-appeal-card>.appeal-badges { grid-column:4; grid-row:2; }
+  .owner-appeal-card>.appeal-card-chevron { display:none; }
+}
+@media(max-width:600px) {
+  .owner-appeals .owner-appeal-card { grid-template-columns:repeat(2,minmax(0,1fr)); gap:15px; }
+  .appeal-list-main { grid-template-columns:75px minmax(0,1fr); }
+  .owner-appeal-card>.appeal-badges { grid-column:2; grid-row:3; align-self:end; }
+  .appeal-list-filters { gap:10px; }
+  .appeal-list-filters select { font-size:11px; }
+  .owner-appeals .appeal-list-main>.appeal-list-photo { grid-row:auto; grid-column:auto; width:auto; height:85px; }
+  .owner-appeals .owner-appeal-card .appeal-list-copy { grid-column:auto; grid-row:auto; }
+}

@@ -1,9 +1,10 @@
 """Public map intake and wall; private organization assignments and evidence."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 from hashlib import sha256
 from typing import Literal
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
@@ -32,6 +33,7 @@ from app.appeals import (
     rate_limit,
     receipt,
 )
+from app.config import base_settings
 from app.db import database_engine
 from app.domain import audit, now
 from app.models import (
@@ -100,6 +102,11 @@ class AssignmentInput(StrictModel):
     expected_version: int = Field(ge=1)
 
 
+class DeadlineInput(StrictModel):
+    due_date: date | None
+    expected_version: int = Field(ge=1)
+
+
 class ResultInput(StrictModel):
     status: Literal["COMPLETED", "REJECTED", "CANCELLED"]
     comment: str = Field(min_length=1, max_length=4000)
@@ -158,7 +165,7 @@ def workflow_detail(db, appeal, url, *, private, operator_id=None):
                                   .order_by(AppealAttachment.created_at, AppealAttachment.id)))
     def task_dict(task):
         result = {key: getattr(task, key) for key in (
-            "id", "operator_id", "operator_name", "status", "result_comment", "created_at", "updated_at")}
+            "id", "operator_id", "operator_name", "status", "result_comment", "created_at", "updated_at", "due_date", "finished_at")}
         if private:
             result["instruction"] = task.instruction
         result["photos"] = [{"id": photo.id, "url": url(f"/{appeal.id}/attachments/{photo.id}"),
@@ -436,6 +443,9 @@ def assign(appeal_id: int, body: AssignmentInput, user: AppealReader):
             operator = tenant.get(User, body.operator_id)
             if not operator or not operator.active or operator.role != "OPERATOR":
                 raise HTTPException(422, "Выберите действующего оператора этой организации")
+            previous = latest_task(db, appeal.id)
+            if previous and previous.status in {"ASSIGNED", "IN_PROGRESS"}:
+                previous.status, previous.finished_at = "CANCELLED", now()
             db.add(AppealTask(appeal_id=appeal.id, operator_id=operator.id, operator_name=operator.name,
                              instruction=body.instruction, status="ASSIGNED", result_comment=""))
         appeal.status = "ASSIGNED"
@@ -444,6 +454,28 @@ def assign(appeal_id: int, body: AssignmentInput, user: AppealReader):
             record_event(db, appeal, "INSTRUCTION", user, comment=body.instruction.strip(),
                          visibility="TASK", operator_id=operator.id)
         changed(db, appeal, user, "APPEAL_ASSIGNED")
+        db.commit()
+        return {"ok": True, "version": appeal.version}
+
+
+@owner_router.post("/{appeal_id}/deadline")
+@organization_router.post("/{appeal_id}/deadline")
+def set_deadline(appeal_id: int, body: DeadlineInput, user: AppealReader):
+    manager(user)
+    with control_session() as db:
+        appeal = find_appeal(db, appeal_id, lock=True, user=user)
+        versioned(appeal, body.expected_version)
+        task = latest_task(db, appeal.id)
+        if (appeal.archived_at or is_final(appeal) or not task or task.status not in {"ASSIGNED", "IN_PROGRESS"}
+                or appeal.status not in {"ASSIGNED", "IN_PROGRESS"}):
+            raise HTTPException(409, "Срок можно назначить только действующей задаче после назначения исполнителя")
+        if body.due_date and body.due_date < now().astimezone(ZoneInfo(base_settings().app_timezone)).date():
+            raise HTTPException(422, "Срок не может быть раньше сегодняшней даты")
+        if task.due_date != body.due_date:
+            task.due_date = body.due_date
+            record_event(db, appeal, "DEADLINE", user,
+                         comment="Срок исполнения: " + (body.due_date.strftime("%d.%m.%Y") if body.due_date else "не установлен"))
+            changed(db, appeal, user, "APPEAL_DEADLINE_CHANGED")
         db.commit()
         return {"ok": True, "version": appeal.version}
 
@@ -490,6 +522,7 @@ def save_result(appeal_id, body, photos, user):
         if not body.comment.strip():
             raise HTTPException(422, "Напишите комментарий к результату")
         task.status = appeal.status = body.status
+        task.finished_at = now()
         task.result_comment = body.comment.strip()
         record_event(db, appeal, "RESULT", user, comment=task.result_comment)
         for photo in photos:
@@ -534,6 +567,7 @@ def save_close(appeal_id, body, photos, user):
                 preview=photo["preview"], width=photo["width"], height=photo["height"], published=True))
         if body.status != "RESOLVED" and task and task.status in {"ASSIGNED", "IN_PROGRESS"}:
             task.status = "CANCELLED"
+            task.finished_at = now()
         appeal.status, appeal.public_response, appeal.resolved_at = body.status, body.comment.strip(), now()
         record_event(db, appeal, "CLOSED", user, comment=appeal.public_response)
         changed(db, appeal, user, "APPEAL_CLOSED")

@@ -128,7 +128,7 @@ it.each([
   }
   await act(async () => {element.querySelectorAll<HTMLButtonElement>('[role=tab]')[1].click(); await tick();});
   await act(async () => {
-    const status = element.querySelector<HTMLSelectElement>('.owner-appeal-toolbar select')!;
+    const status = element.querySelector<HTMLSelectElement>('.appeal-list-filters select')!;
     status.value = 'SPAM'; status.dispatchEvent(new Event('change', {bubbles: true})); await tick();
   });
   expect(Object.fromEntries(new URLSearchParams(lastSearch().split('?')[1]))).toMatchObject({q: 'ОБ-000042', archived: 'true', status: 'SPAM', page: '1'});

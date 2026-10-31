@@ -6,6 +6,8 @@ import AppealActions from './AppealActions';
 import type { WorkflowAppeal } from './AppealActions';
 import AppealDiscussion from './AppealDiscussion';
 import AppealLocation from './AppealLocation';
+import AppealStatistics from './AppealStatistics';
+import type { AppealFilterOptions } from './AppealStatistics';
 import { SignalShare } from './AppealShare';
 import { appealStatuses } from './Wall';
 import './owner-appeals.css';
@@ -14,10 +16,11 @@ type Status = 'NEW' | 'IN_REVIEW' | 'ASSIGNED' | 'IN_PROGRESS' | 'COMPLETED' | '
 type Appeal = {id: number; number: string; city: string; address: string; place: string; category: string; subject?: string; description: string;
   organization_id: string | null; organization_name: string; work_type_name: string;
   organization_hint: string; contact: string; photo_count: number; status: Status; owner_note: string; version: number;
-  created_at: string; updated_at: string; preview_url: string; submitted_by_inspector_name?: string; unanswered_comments?: number};
+  created_at: string; updated_at: string; preview_url: string; submitted_by_inspector_name?: string; unanswered_comments?: number;
+  due_date?: string | null; operator_name?: string; overdue?: boolean};
 type Photo = {id: string; url: string; preview_url: string; original_url: string; captured_at: string; latitude: number; longitude: number; accuracy: number};
 type Detail = Appeal & WorkflowAppeal & {photos: Photo[]; latitude?: number; longitude?: number};
-type Page = {items: Appeal[]; total: number; page: number; page_size: number; categories: Record<string, string>; public_url: string; yandex_maps_api_key?: string; can_manage?: boolean; can_execute?: boolean};
+type Page = {items: Appeal[]; total: number; page: number; page_size: number; categories: Record<string, string>; public_url: string; yandex_maps_api_key?: string; can_manage?: boolean; can_execute?: boolean; filter_options?: AppealFilterOptions};
 type WorkType = {code: string; name: string};
 const statuses = appealStatuses;
 const moment = (value: string) => new Date(value).toLocaleString('ru-RU', {dateStyle: 'short', timeStyle: 'short'});
@@ -33,6 +36,8 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
   const [workTypesError, setWorkTypesError] = useState('');
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [revision, setRevision] = useState(0);
   const [archived, setArchived] = useState(false);
+  const [showStatistics, setShowStatistics] = useState(false), [categoryFilter, setCategoryFilter] = useState(''), [operatorFilter, setOperatorFilter] = useState(''), [deadlineFilter, setDeadlineFilter] = useState('any');
+  const [filterOptions, setFilterOptions] = useState<AppealFilterOptions | null>(null);
   const [detailTab, setDetailTab] = useState<'request' | 'work'>('request');
   const [descriptionOpen, setDescriptionOpen] = useState(false);
   useEffect(() => {setDetailTab('request'); setDescriptionOpen(false);}, [selected, endpoint]);
@@ -53,11 +58,14 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
         if (status) params.set('status', status);
         if (archived) params.set('archived', 'true');
         if (query) params.set('q', query);
+        if (categoryFilter) params.set('category', categoryFilter);
+        if (operatorFilter) params.set('operator', operatorFilter);
+        if (deadlineFilter !== 'any') params.set('deadline', deadlineFilter);
         const result = await api<Page>(`${endpoint}?${params}`, 'GET', undefined, controller.signal);
         if (controller.signal.aborted) return;
         const lastPage = Math.max(1, Math.ceil(result.total / result.page_size));
         if (page > lastPage) setPage(lastPage);
-        else setData(result);
+        else {setData(result); if (result.filter_options) setFilterOptions(result.filter_options);}
       } catch (error) {if (!controller.signal.aborted && initial) setError((error as Error).message);}
       finally {refreshing = false;}
     }
@@ -65,8 +73,8 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
     const changed = () => {void refresh();}, timer = window.setInterval(changed, 10_000);
     for (const event of ['focus', 'online', 'appeal-discussion-changed']) window.addEventListener(event, changed);
     return () => {controller.abort(); window.clearInterval(timer); for (const event of ['focus', 'online', 'appeal-discussion-changed']) window.removeEventListener(event, changed);};
-  }, [page, status, archived, query, revision, endpoint, refreshKey]);
-  useEffect(() => {setSelected(null); setPage(1); setSearch(''); setQuery('');}, [endpoint]);
+  }, [page, status, archived, query, revision, endpoint, refreshKey, categoryFilter, operatorFilter, deadlineFilter]);
+  useEffect(() => {setSelected(null); setPage(1); setSearch(''); setQuery(''); setCategoryFilter(''); setOperatorFilter(''); setDeadlineFilter('any'); setFilterOptions(null); setShowStatistics(false);}, [endpoint]);
   useEffect(() => {
     const refresh = () => {setSelected(null); setStatus(''); setSearch(''); setQuery(''); setPage(1); setRevision(value => value + 1);};
     window.addEventListener('refresh-appeals', refresh);
@@ -115,7 +123,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
     <footer><p className="hint">Только для администраторов и владельца сервиса.</p><button className="primary" disabled={busy || (nextStatus === detail.status && note === detail.owner_note && workType === detail.category)} onClick={() => void save()}>{busy ? 'Сохраняем…' : 'Сохранить'}</button></footer>
   </section> : null;
   return <section className="owner-appeals">
-    {selected === null && <header className="page-header"><div><h1>Обращения</h1><p>Обращения жителей и проверяющих</p></div>
+    {selected === null && <header className="page-header"><div><h1>{showStatistics ? 'Статистика обращений' : 'Обращения'}</h1><p>{showStatistics ? 'Нагрузка, сроки и результаты работы' : 'Обращения жителей и проверяющих'}</p></div>
       {onCreate && <button className="primary" onClick={onCreate}><Plus size={17}/>Написать жалобу</button>}</header>}
     {composer}
     {error && <p className="error" role="alert">{error}</p>}
@@ -167,13 +175,20 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
         </div>
       </>}
     </> : <>
-      {data && data.public_url && !readOnly && data.can_manage !== false && !data.can_execute && <section className="panel owner-appeal-public">
+      {!showStatistics && data && data.public_url && !readOnly && data.can_manage !== false && !data.can_execute && <section className="panel owner-appeal-public">
         <Users className="appeal-public-icon" size={36}/><div className="appeal-public-copy"><h2>Страница для жителей</h2><p>Откройте форму подачи обращений для жителей. Скопируйте ссылку или поделитесь в социальных сетях.</p></div>
         <div className="owner-signal-share"><a className="button primary" href={data.public_url} target="_blank" rel="noreferrer"><ArrowUpRight size={17}/>Открыть форму</a><SignalShare url={data.public_url}/></div>
       </section>}
-      <div className="appeal-folder-tabs" role="tablist" aria-label="Раздел обращений">{[false, true].map(value => <button key={String(value)} role="tab" aria-selected={archived === value} onClick={() => {setArchived(value); setPage(1); setStatus('');}}>{value ? 'Архив' : 'Рабочий список'}{data && archived === value && <span className="appeal-folder-count">{data.total}</span>}</button>)}</div>
-      <div className="owner-appeal-toolbar">
+      <div className="appeal-folder-tabs" role="tablist" aria-label="Раздел обращений">{[false, true].map(value => <button key={String(value)} role="tab" aria-selected={!showStatistics && archived === value} onClick={() => {setShowStatistics(false); setArchived(value); setPage(1); setStatus('');}}>{value ? 'Архив' : 'Рабочий список'}{data && archived === value && <span className="appeal-folder-count">{data.total}</span>}</button>)}<button role="tab" aria-selected={showStatistics} onClick={() => setShowStatistics(true)}>Статистика</button></div>
+      {showStatistics ? <AppealStatistics key={endpoint} endpoint={endpoint}/> : <>
+      <div className="appeal-list-filters">
         <label>Состояние<select value={status} onChange={event => {setStatus(event.target.value); setPage(1);}}><option value="">Все обращения</option>{Object.entries(statuses).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+        <label>Вид работ<select value={categoryFilter} onChange={event => {setCategoryFilter(event.target.value); setPage(1);}}><option value="">Все виды</option>{filterOptions?.work_types.map(w => <option key={w.code} value={w.code}>{w.name}</option>)}</select></label>
+        <label>Исполнитель<select value={operatorFilter} onChange={event => {setOperatorFilter(event.target.value); setPage(1);}}><option value="">Все исполнители</option>{filterOptions?.operators.map(o => <option key={o.value} value={o.value}>{o.name}</option>)}</select></label>
+        <label>Срок исполнения<select value={deadlineFilter} onChange={event => {setDeadlineFilter(event.target.value); setPage(1);}}><option value="any">Любой срок</option><option value="none">Не установлен</option><option value="overdue">Просрочено</option><option value="today">Сегодня</option><option value="week">Ближайшие 7 дней</option></select></label>
+        <button className="appeal-reset-filters" onClick={() => {setStatus(''); setCategoryFilter(''); setOperatorFilter(''); setDeadlineFilter('any'); setSearch(''); setQuery(''); setPage(1);}}><RefreshCw size={16}/>Сбросить фильтры</button>
+      </div>
+      <div className="owner-appeal-toolbar">
         <form className="owner-appeal-search" role="search" onSubmit={event => {event.preventDefault(); setQuery(search.trim()); setPage(1);}}>
           <Search size={20} aria-hidden="true"/><input type="search" aria-label="Поиск обращений" maxLength={200} value={search} onChange={event => setSearch(event.target.value)} placeholder="Поиск по тексту, номеру или дате"/>
           {search && <button type="button" aria-label="Очистить поиск" onClick={() => {setSearch(''); setQuery(''); setPage(1);}}><X size={18}/></button>}
@@ -181,17 +196,24 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
         <span className="appeal-total hint">{data ? appealCount(data.total) : 'Загружаем…'}</span><button className="appeal-list-refresh" disabled={busy} aria-label="Обновить обращения" onClick={() => setRevision(value => value + 1)}><RefreshCw size={20}/></button>
       </div>
       <p className="appeal-list-hint"><Info size={18}/>Откройте обращение, чтобы увидеть заявку и работу по нему.</p>
+      <div className="appeal-list-columns" aria-hidden="true"><span>Обращение</span><span>Вид работ</span><span>Срок исполнения</span><span>Исполнитель</span><span>Состояние</span><span/></div>
       {!data ? !error && <p className="loading">Загружаем обращения…</p> : !data.items.length ? <div className="panel empty"><Inbox size={32}/><h3>{query ? 'Ничего не найдено' : 'Обращений пока нет'}</h3><p>{query ? 'Попробуйте другие слова, адрес, номер или дату.' : 'Новые анкеты жителей появятся здесь.'}</p></div> : <div className="owner-appeal-list">{data.items.map(item => <button className="panel owner-appeal-card owner-appeal-card-open" key={item.id} onClick={() => setSelected(item.id)}>
+        <span className="appeal-list-main">
         <span className="appeal-list-photo">{item.preview_url ? <img src={item.preview_url} alt="" loading="lazy"/> : <Camera size={26}/>}</span>
         <span className="appeal-list-copy"><span className="owner-appeal-card-top"><strong>{item.number}</strong><span className="appeal-list-title">{appealTitle(item)}</span></span>
           <span className="appeal-list-meta"><span><MapPin size={17}/>{item.address}</span><span><CalendarDays size={17}/>{moment(item.created_at)}</span><span><Building2 size={17}/>{item.organization_name || 'Без назначенной организации'}</span></span>
           {item.submitted_by_inspector_name && <span className="owner-appeal-source"><LockKeyhole size={13}/>От проверяющего · Только в «Метке»</span>}
           <span className="owner-appeal-excerpt">{item.description}</span>
         </span>
+        </span>
+        <span className="appeal-list-field"><small>Вид работ</small>{item.work_type_name || 'Не указан'}</span>
+        <span className={'appeal-list-field' + (item.overdue ? ' appeal-overdue' : '')}><small>Срок исполнения</small><span><CalendarDays size={16}/>{item.due_date ? new Date(item.due_date + 'T00:00:00').toLocaleDateString('ru-RU') : 'Не установлен'}</span>{item.overdue && <b>Просрочено</b>}</span>
+        <span className="appeal-list-field"><small>Исполнитель</small><span><UserRound size={16}/>{item.operator_name || 'Не назначен'}</span></span>
         <AppealBadges status={item.status} messages={item.unanswered_comments}/><ChevronRight className="appeal-card-chevron" size={22}/>
       </button>)}</div>}
       {data && data.total > data.page_size && <div className="owner-appeal-pagination"><button aria-label="Предыдущая страница обращений" disabled={page <= 1} onClick={() => setPage(value => value - 1)}><ChevronLeft size={17}/></button>
         <span>{page} / {Math.ceil(data.total / data.page_size)}</span><button aria-label="Следующая страница обращений" disabled={page * data.page_size >= data.total} onClick={() => setPage(value => value + 1)}><ChevronRight size={17}/></button></div>}
+      </>}
     </>}
   </section>;
 }

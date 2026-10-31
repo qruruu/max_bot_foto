@@ -6,7 +6,7 @@ import { galleryPhoto } from './gallery';
 
 export type ResultPhoto = {id: string; url: string; preview_url: string};
 export type AppealTask = {id: number; operator_id: number; operator_name: string; instruction?: string;
-  status: string; result_comment: string; photos: ResultPhoto[]; created_at: string};
+  status: string; result_comment: string; photos: ResultPhoto[]; created_at: string; due_date?: string | null; finished_at?: string | null};
 export type WorkflowAppeal = {id: number; status: string; version: number; can_manage?: boolean; can_execute?: boolean;
   is_public?: boolean; is_final?: boolean; resolved_at?: string | null; archived_at?: string | null; can_set_task_status?: boolean;
   task?: AppealTask | null; task_history?: AppealTask[]; public_response?: string; response_photos?: ResultPhoto[]};
@@ -16,6 +16,7 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
 }) {
   const [operators, setOperators] = useState<{id: number; name: string}[]>([]), [operator, setOperator] = useState('');
   const [instruction, setInstruction] = useState(''), [result, setResult] = useState(appeal.status), [comment, setComment] = useState('');
+  const [dueDate, setDueDate] = useState(appeal.task?.due_date || '');
   const [files, setFiles] = useState<File[]>([]), [answer, setAnswer] = useState(''), [selectedPhotos, setSelectedPhotos] = useState<string[]>([]);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [preparing, setPreparing] = useState(false), sending = useRef(false);
@@ -59,6 +60,13 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
   const reportable = ['ASSIGNED', 'IN_PROGRESS'].includes(appeal.status);
   const tasks = <>
     {appeal.task && <section className="appeal-task"><h3>Исполнитель: {appeal.task.operator_name}</h3><p className="hint">{appealStatuses[appeal.task.status]}</p>
+      <p className="appeal-task-deadline">Срок исполнения: <strong>{appeal.task.due_date ? new Date(appeal.task.due_date + 'T00:00:00').toLocaleDateString('ru-RU') : 'Не установлен'}</strong></p>
+      {manage && !appeal.archived_at && !isFinalAppeal(appeal) && reportable && ['ASSIGNED', 'IN_PROGRESS'].includes(appeal.task.status) && <form className="appeal-deadline-form" onSubmit={event => {event.preventDefault(); void send('/deadline', {due_date: dueDate || null, expected_version: appeal.version});}}>
+        <label>Срок исполнения<input type="date" value={dueDate} disabled={busy} onChange={event => setDueDate(event.target.value)}/></label>
+        <p className="hint">До конца выбранного дня по времени организации. В «Сигнале» срок не показывается.</p>
+        <button className="primary" disabled={busy || dueDate === (appeal.task.due_date || '')}>Сохранить срок</button>
+        {dueDate && <button type="button" disabled={busy} onClick={() => setDueDate('')}>Убрать дату</button>}
+      </form>}
       {appeal.task.instruction && <><strong>Комментарий к задаче</strong><p className="owner-appeal-text">{appeal.task.instruction}</p><small className="hint">Виден администратору и исполнителю.</small></>}
       {appeal.task.result_comment && <><h4>Результат исполнителя</h4><p className="owner-appeal-text">{appeal.task.result_comment}</p></>}
       <div className="appeal-evidence">{appeal.task.photos.map(photo => <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Фото результата исполнителя"/></a>)}</div>
@@ -86,7 +94,7 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
         <button disabled={busy || !operator} onClick={() => void send('/assign', {operator_id: Number(operator), instruction, expected_version: appeal.version})}>Назначить</button>
       </section>
     </>}
-    {manage && !!appeal.task_history?.length && <details><summary>История назначений ({appeal.task_history.length})</summary>{appeal.task_history.map(task => <section className="appeal-task" key={task.id}><strong>{task.operator_name} · {appealStatuses[task.status]}</strong><p className="owner-appeal-text">{task.instruction}</p><p className="owner-appeal-text">{task.result_comment}</p></section>)}</details>}
+    {manage && !!appeal.task_history?.length && <details><summary>История назначений ({appeal.task_history.length})</summary>{appeal.task_history.map(task => <section className="appeal-task" key={task.id}><strong>{task.operator_name} · {appealStatuses[task.status]}</strong>{task.due_date && <p>Срок: {new Date(task.due_date + 'T00:00:00').toLocaleDateString('ru-RU')}</p>}<p className="owner-appeal-text">{task.instruction}</p><p className="owner-appeal-text">{task.result_comment}</p></section>)}</details>}
   </>;
   const decisions = <>
     {manage && !isFinalAppeal(appeal) && <>

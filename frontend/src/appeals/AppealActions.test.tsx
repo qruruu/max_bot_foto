@@ -168,3 +168,24 @@ it.each(['CANCELLED', 'REJECTED'])('allows the administrator to finalize task re
   const decision = [...element.querySelectorAll('select')].find(select => [...select.options].some(option => option.value === 'DECLINED'))!;
   expect([...decision.options].map(option => option.text)).toEqual(['Закрыть обращение', 'Отказ', 'Задача отменена', 'Исполнитель отклонил']);
 });
+
+it('offers a deadline only after assigning an active task, saves and clears it with version checks', async () => {
+  await mount({...appeal,status:'NEW',task:null});
+  expect(element.querySelector('input[type=date]')).toBeNull();
+  await mount({...appeal,status:'ASSIGNED',task:{...appeal.task!,status:'ASSIGNED',due_date:null}});
+  const field = element.querySelector<HTMLInputElement>('input[type=date]')!;
+  await act(async()=>{
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(field,'2030-12-15');
+    field.dispatchEvent(new Event('input',{bubbles:true}));
+  });
+  await act(async()=>{element.querySelector('.appeal-deadline-form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();});
+  expect(api).toHaveBeenCalledWith('/appeals/42/deadline','POST',{due_date:'2030-12-15',expected_version:3});
+  await mount({...appeal,status:'ASSIGNED',version:4,task:{...appeal.task!,status:'ASSIGNED',due_date:'2030-12-15'}});
+  await click(byText('Убрать дату'));
+  await act(async()=>{element.querySelector('.appeal-deadline-form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();});
+  expect(api).toHaveBeenCalledWith('/appeals/42/deadline','POST',{due_date:null,expected_version:4});
+});
+it.each(['operator','inspector'])('shows deadlines to %s without granting deadline editing',async role=>{
+  await mount({...appeal,status:'ASSIGNED',can_manage:false,can_execute:role==='operator',task:{...appeal.task!,status:'ASSIGNED',due_date:'2030-12-15'}},role==='inspector');
+  expect(element.textContent).toContain('15.12.2030');expect(element.querySelector('input[type=date]')).toBeNull();
+});

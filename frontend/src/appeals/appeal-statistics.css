@@ -1,0 +1,46 @@
+.appeal-statistics>header h2 { font-size:26px; margin:0 0 6px; }
+.appeal-report-filters { display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap; padding:16px; margin:18px 0 12px; }
+.appeal-report-filters label { flex:1; min-width:150px; }
+.appeal-report-filters label :is(select,input) { display:block; width:100%; margin-top:6px; min-height:36px; }
+.appeal-report-filters button { min-height:36px; }
+.appeal-report-metrics { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:12px; margin:12px 0; }
+.appeal-report-metrics .panel { padding:17px; margin:0; min-height:112px; }
+.appeal-report-metrics span { color:var(--muted); display:block; font-size:12px; min-height:32px; }
+.appeal-report-metrics strong { display:block; font-size:25px; margin-top:8px; overflow-wrap:anywhere; }
+.appeal-report-metrics strong.appeal-report-unknown { font-size:18px; }
+.appeal-report-grid { display:grid; grid-template-columns:1.2fr 1fr; gap:12px; }
+.appeal-report-grid>.panel { margin:0; padding:18px; min-width:0; }
+.appeal-report-grid h3,.appeal-report-statuses h3 { font-size:16px; margin-bottom:18px; }
+.appeal-chart-legend { display:flex; flex-wrap:wrap; gap:12px; color:var(--muted); font-size:11px; margin:12px 0; }
+.appeal-chart-legend>span { display:flex; align-items:center; gap:5px; }
+.appeal-chart-legend i,.appeal-status-legend i { display:inline-block; width:10px; height:10px; flex:none; border-radius:3px; }
+.appeal-chart-legend :is(.done,.active,.late,.other):before { content:''; width:10px; height:10px; border-radius:3px; }
+.appeal-chart-legend .done:before,.appeal-bar-stack .completed { background:#35765b; }
+.appeal-chart-legend .active:before,.appeal-bar-stack .active { background:#76a891; }
+.appeal-chart-legend .late:before,.appeal-bar-stack .overdue { background:#c5644d; }
+.appeal-chart-legend .other:before,.appeal-bar-stack .other { background:#929b96; }
+.appeal-bar-row { display:grid; grid-template-columns:minmax(100px,145px) minmax(0,1fr) 30px; align-items:center; gap:10px; margin:15px 0; font-size:12px; }
+.appeal-bar-row>span { overflow-wrap:anywhere; }
+.appeal-bar-track { background:var(--appeal-soft); border-radius:3px; overflow:hidden; height:25px; }
+.appeal-bar-stack { display:flex; height:100%; }
+.appeal-bar-stack>span { min-width:1px; display:grid; place-items:center; color:#fff; font-size:10px; overflow:hidden; }
+.appeal-work-bar { height:100%; background:var(--appeal-link); border-radius:3px; }
+.appeal-donut-layout { display:flex; align-items:center; gap:22px; min-height:230px; }
+.appeal-donut { width:190px; height:190px; border-radius:50%; display:grid; place-items:center; flex:none; }
+.appeal-donut>span { display:flex; flex-direction:column; justify-content:center; align-items:center; background:var(--surface,#fff); width:125px; height:125px; border-radius:50%; }
+.appeal-donut strong { font-size:29px; margin-top:6px; }
+.appeal-donut small { color:var(--muted); }
+.appeal-status-legend { flex:1; list-style:none; padding:0; margin:0; font-size:11px; }
+.appeal-status-legend li { display:flex; gap:8px; align-items:center; margin:10px 0; }
+.appeal-status-legend li>span { flex:1; }
+.appeal-status-legend small { color:var(--muted); }
+.appeal-report-table table { width:100%; font-size:12px; }
+.appeal-report-table th button { border:0; background:transparent; padding:0; text-align:left; color:inherit; font:inherit; white-space:nowrap; }
+.appeal-report-table td small { display:block; color:var(--muted); margin-top:4px; }
+.appeal-report-statuses { margin-top:12px; padding:18px; }
+.appeal-status-track { display:flex; height:15px; border-radius:6px; overflow:hidden; background:var(--border); }
+.appeal-status-track>span { height:100%; }
+.appeal-report-method { margin-top:16px; max-width:1100px; }
+@media(max-width:1400px) { .appeal-report-metrics { grid-template-columns:repeat(3,minmax(0,1fr)); } .appeal-donut-layout { flex-wrap:wrap; } }
+@media(max-width:1000px) { .appeal-report-grid { grid-template-columns:1fr; } }
+@media(max-width:600px) { .appeal-report-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .appeal-report-metrics strong { font-size:22px; } .appeal-report-filters label { min-width:120px; } .appeal-bar-row { grid-template-columns:110px minmax(0,1fr) 25px; gap:6px; } .appeal-donut-layout { justify-content:center; } }
