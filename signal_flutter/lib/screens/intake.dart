@@ -12,6 +12,36 @@ class IntakeScreen extends StatefulWidget {
 
 class _IntakeScreenState extends State<IntakeScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _subjectAnchor = GlobalKey(),
+      _descriptionAnchor = GlobalKey(),
+      _photosAnchor = GlobalKey();
+  bool _attempted = false;
+
+  void _submit(SignalController c) {
+    if (c.pending) {
+      c.submit();
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() => _attempted = true);
+    final valid = _formKey.currentState?.validate() ?? false;
+    GlobalKey? target;
+    if (c.form.subject.trim().isEmpty) {
+      target = _subjectAnchor;
+    } else if (c.form.description.trim().isEmpty) {
+      target = _descriptionAnchor;
+    } else if (c.photos.isEmpty) {
+      target = _photosAnchor;
+    }
+    if (target != null) {
+      _reveal(target);
+    } else if (!c.form.located) {
+      c.backStep();
+    } else if (valid) {
+      c.submit();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
@@ -129,7 +159,7 @@ class _IntakeScreenState extends State<IntakeScreen> {
           'Сначала выберите территорию и отметьте место на карте.',
           error: true,
         ),
-      const FieldLabel('Тема обращения', required: true),
+      FieldLabel('Тема обращения', key: _subjectAnchor, required: true),
       TextFormField(
         key: const ValueKey('subject'),
         initialValue: c.form.subject,
@@ -152,7 +182,7 @@ class _IntakeScreenState extends State<IntakeScreen> {
             : 'Укажите тему обращения',
       ),
       const SizedBox(height: 15),
-      const FieldLabel('Описание', required: true),
+      FieldLabel('Описание', key: _descriptionAnchor, required: true),
       TextFormField(
         key: const ValueKey('description'),
         initialValue: c.form.description,
@@ -189,6 +219,7 @@ class _IntakeScreenState extends State<IntakeScreen> {
       ),
       SizedBox(height: desktop ? 14 : 21),
       Row(
+        key: _photosAnchor,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
@@ -205,17 +236,21 @@ class _IntakeScreenState extends State<IntakeScreen> {
         ],
       ),
       SizedBox(height: desktop ? 8 : 10),
-      if (desktop)
-        c.browser.photoDropTarget(
-          remaining: 3 - c.photos.length,
-          enabled: !c.locked && c.photos.length < 3,
-          onStart: c.beginPhotoDrop,
-          onPhotos: c.finishPhotoDrop,
-          onError: c.failPhotoDrop,
-          child: _Photos(controller: c, desktop: true),
-        )
-      else
-        _Photos(controller: c),
+      _ValidationHighlight(
+        error: _attempted && c.photos.isEmpty
+            ? 'Добавьте хотя бы одну фотографию'
+            : null,
+        child: desktop
+            ? c.browser.photoDropTarget(
+                remaining: 3 - c.photos.length,
+                enabled: !c.locked && c.photos.length < 3,
+                onStart: c.beginPhotoDrop,
+                onPhotos: c.finishPhotoDrop,
+                onError: c.failPhotoDrop,
+                child: _Photos(controller: c, desktop: true),
+              )
+            : _Photos(controller: c),
+      ),
       SizedBox(height: desktop ? 14 : 20),
       const FieldLabel('Телефон или электронная почта', optional: true),
       TextFormField(
@@ -265,17 +300,7 @@ class _IntakeScreenState extends State<IntakeScreen> {
           style: desktop
               ? FilledButton.styleFrom(minimumSize: const Size(0, 40))
               : null,
-          onPressed:
-              c.busy ||
-                  c.preparing ||
-                  (!c.pending && (!c.form.located || c.photos.isEmpty))
-              ? null
-              : () {
-                  if (c.pending ||
-                      (_formKey.currentState?.validate() ?? false)) {
-                    c.submit();
-                  }
-                },
+          onPressed: c.busy || c.preparing ? null : () => _submit(c),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -304,6 +329,9 @@ class _IntakeScreenState extends State<IntakeScreen> {
     ];
     final form = Form(
       key: _formKey,
+      autovalidateMode: _attempted
+          ? AutovalidateMode.onUserInteraction
+          : AutovalidateMode.disabled,
       child: desktop
           ? Row(
               key: const ValueKey('desktop-description-columns'),
@@ -376,35 +404,52 @@ class _IntakeScreenState extends State<IntakeScreen> {
   }
 }
 
-class _PlaceStep extends StatelessWidget {
+class _PlaceStep extends StatefulWidget {
   const _PlaceStep({required this.controller});
   final SignalController controller;
   @override
+  State<_PlaceStep> createState() => _PlaceStepState();
+}
+
+class _PlaceStepState extends State<_PlaceStep> {
+  bool _attempted = false;
+  final _organization = GlobalKey(),
+      _territory = GlobalKey(),
+      _map = GlobalKey();
+  @override
   Widget build(BuildContext context) {
-    final c = controller, recipient = c.recipient;
+    final c = widget.controller, recipient = c.recipient;
     final desktop = isDesktop(context);
     final selection = <Widget>[
-      ChoiceField(
-        label: 'Организация',
-        options: c.organizations.map((o) => (o.id, o.name)).toList(),
-        value: c.form.organizationId,
-        enabled: !c.locked,
-        compact: desktop,
-        placeholder: 'Выберите организацию',
-        onChanged: c.selectOrganization,
+      _ValidationHighlight(
+        key: _organization,
+        error: _attempted && recipient == null ? 'Выберите организацию' : null,
+        child: ChoiceField(
+          label: 'Организация',
+          options: c.organizations.map((o) => (o.id, o.name)).toList(),
+          value: c.form.organizationId,
+          enabled: !c.locked,
+          compact: desktop,
+          placeholder: 'Выберите организацию',
+          onChanged: c.selectOrganization,
+        ),
       ),
       if (recipient != null) ...[
         const SizedBox(height: 17),
-        ChoiceField(
-          label: 'Территория',
-          options: recipient.addresses
-              .map((a) => (a['id'] as String, a['label'] as String))
-              .toList(),
-          value: c.form.addressId,
-          enabled: !c.locked,
-          compact: desktop,
-          placeholder: 'Выберите территорию',
-          onChanged: c.selectAddress,
+        _ValidationHighlight(
+          key: _territory,
+          error: _attempted && c.address == null ? 'Выберите территорию' : null,
+          child: ChoiceField(
+            label: 'Территория',
+            options: recipient.addresses
+                .map((a) => (a['id'] as String, a['label'] as String))
+                .toList(),
+            value: c.form.addressId,
+            enabled: !c.locked,
+            compact: desktop,
+            placeholder: 'Выберите территорию',
+            onChanged: c.selectAddress,
+          ),
         ),
         const SizedBox(height: 12),
         Row(
@@ -448,7 +493,22 @@ class _PlaceStep extends StatelessWidget {
         style: desktop
             ? FilledButton.styleFrom(minimumSize: const Size(0, 40))
             : null,
-        onPressed: c.form.located && !c.locked ? c.nextStep : null,
+        onPressed: c.locked
+            ? null
+            : () {
+                if (c.form.located) {
+                  c.nextStep();
+                  return;
+                }
+                setState(() => _attempted = true);
+                _reveal(
+                  recipient == null
+                      ? _organization
+                      : c.address == null
+                      ? _territory
+                      : _map,
+                );
+              },
         child: const Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -474,7 +534,16 @@ class _PlaceStep extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 14),
-          Expanded(flex: 58, child: _PlaceMap(controller: c, desktop: true)),
+          Expanded(
+            flex: 58,
+            child: _ValidationHighlight(
+              key: _map,
+              error: _attempted && c.address != null && !c.form.located
+                  ? 'Отметьте место проблемы на карте'
+                  : null,
+              child: _PlaceMap(controller: c, desktop: true),
+            ),
+          ),
         ],
       );
     }
@@ -485,12 +554,64 @@ class _PlaceStep extends StatelessWidget {
           ...selection,
           if (recipient != null && c.address != null) ...[
             const SizedBox(height: 15),
-            _PlaceMap(controller: c),
+            _ValidationHighlight(
+              key: _map,
+              error: _attempted && !c.form.located
+                  ? 'Отметьте место проблемы на карте'
+                  : null,
+              child: _PlaceMap(controller: c),
+            ),
           ],
           const SizedBox(height: 20),
           next,
         ],
       ),
+    );
+  }
+}
+
+void _reveal(GlobalKey key) {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    final context = key.currentContext;
+    if (context != null && context.mounted) {
+      Scrollable.ensureVisible(
+        context,
+        alignment: .12,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+  });
+}
+
+class _ValidationHighlight extends StatelessWidget {
+  const _ValidationHighlight({super.key, required this.child, this.error});
+  final Widget child;
+  final String? error;
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.error;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            border: error == null ? null : Border.all(color: color, width: 1.5),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          padding: error == null ? EdgeInsets.zero : const EdgeInsets.all(5),
+          child: child,
+        ),
+        if (error != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Semantics(
+              liveRegion: true,
+              child: Text(error!, style: TextStyle(color: color, fontSize: 12)),
+            ),
+          ),
+      ],
     );
   }
 }

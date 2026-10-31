@@ -81,6 +81,83 @@ void main() {
       },
     );
   }
+  testWidgets(
+    'incomplete intake highlights fields and scrolls to the first missing item',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+      final requests = <String>[];
+      final browser = MemoryBrowser();
+      final c = SignalController(
+        browser: browser,
+        api: SignalApi(
+          origin: browser.location,
+          client: MockClient((request) async {
+            requests.add(request.url.path);
+            return responses.json(
+              request.url.path.endsWith('/catalog') ? catalogJson : emptyWall,
+            );
+          }),
+        ),
+      );
+      await tester.pumpWidget(SignalApp(controller: c));
+      await tester.pumpAndSettle();
+      c.newAppeal();
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Далее'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Далее'));
+      await tester.pumpAndSettle();
+      expect(c.step, 1);
+      expect(find.text('Отметьте место проблемы на карте'), findsOneWidget);
+      c.selectPoint(72.6, 61.1);
+      c.nextStep();
+      await tester.pumpAndSettle();
+      final submit = find.widgetWithText(FilledButton, 'Отправить обращение');
+      await tester.ensureVisible(submit);
+      await tester.pumpAndSettle();
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(find.text('Укажите тему обращения'), findsOneWidget);
+      expect(find.text('Опишите проблему'), findsOneWidget);
+      expect(
+        tester.getRect(find.byKey(const ValueKey('subject'))).top,
+        greaterThanOrEqualTo(0),
+      );
+      expect(
+        tester.getRect(find.byKey(const ValueKey('subject'))).top,
+        lessThan(400),
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('subject')),
+        'Не убрана площадка',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('description')),
+        'Много листьев',
+      );
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(submit);
+      await tester.pumpAndSettle();
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(find.text('Добавьте хотя бы одну фотографию'), findsOneWidget);
+      expect(
+        tester.getRect(find.text('Фотографии')).top,
+        greaterThanOrEqualTo(0),
+      );
+      expect(tester.getRect(find.text('Фотографии')).top, lessThan(400));
+      expect(requests.any((path) => path.endsWith('/submissions')), isFalse);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    },
+  );
   for (final width in [320.0, 390.0, 480.0]) {
     testWidgets('full wall fits a $width logical pixel viewport', (
       tester,
