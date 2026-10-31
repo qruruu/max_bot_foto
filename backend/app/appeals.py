@@ -80,6 +80,9 @@ def appeal_conditions(user=None):
     if user and user.role == "OPERATOR":
         from app.models import AppealTask
         latest = select(func.max(AppealTask.id)).where(AppealTask.appeal_id == CitizenAppeal.id).correlate(CitizenAppeal).scalar_subquery()
+        from sqlalchemy.orm import aliased
+        child = aliased(CitizenAppeal)
+        conditions.append(~select(child.id).where(child.parent_id == CitizenAppeal.id).exists())
         conditions.append(CitizenAppeal.id.in_(select(AppealTask.appeal_id).where(
             AppealTask.id == latest, AppealTask.operator_id == user.id)))
     return conditions
@@ -87,6 +90,11 @@ def appeal_conditions(user=None):
 
 def find_appeal(db, id, *, lock=False, user=None):
     query = select(CitizenAppeal).where(CitizenAppeal.id == id, *appeal_conditions(user))
+    if lock:
+        # All writes to a child serialize against parent deadline/closure changes.
+        parent_id = db.scalar(select(CitizenAppeal.parent_id).where(CitizenAppeal.id == id, *appeal_conditions(user)))
+        if parent_id:
+            db.get(CitizenAppeal, parent_id, with_for_update=True)
     appeal = db.scalar(query.with_for_update() if lock else query)
     if not appeal:
         raise HTTPException(404, "Обращение не найдено")
@@ -198,7 +206,7 @@ def appeal_dict(appeal):
                 "organization_id", "organization_name", "work_type_name",
                 "organization_hint", "contact", "photo_count", "status", "owner_note", "version",
                 "created_at", "updated_at", "latitude", "longitude", "is_public", "public_response", "resolved_at",
-                "submitted_by_inspector_id", "submitted_by_inspector_name", "archived_at")}}
+                "submitted_by_inspector_id", "submitted_by_inspector_name", "archived_at", "inspector_due_date", "parent_id")}}
 
 
 def photo_dict(photo):
@@ -212,12 +220,12 @@ def photo_dict(photo):
 @organization_router.get("")
 def list_appeals(user: AppealReader, status: AppealStatus | None = None, page: int = Query(default=1, ge=1), archived: bool = False,
                  q: str = Query(default="", max_length=200), category: str = Query(default="", max_length=60),
-                 operator: str = Query(default="", max_length=100), deadline: reporting.DeadlineFilter = 'any'):
+                 operator: str = Query(default="", max_length=100), deadline: reporting.DeadlineFilter = 'any', source: reporting.SourceFilter = 'all'):
     with control_session() as db:
         conditions = appeal_conditions(user) + ([CitizenAppeal.status == status] if status else [])
         conditions.append(CitizenAppeal.archived_at.is_not(None) if archived else CitizenAppeal.archived_at.is_(None))
         conditions.extend(appeal_search(q))
-        conditions.extend(reporting.filters(category, operator, deadline))
+        conditions.extend(reporting.filters(category, operator, deadline, source=source))
         total = db.scalar(select(func.count()).select_from(CitizenAppeal).where(*conditions))
         rows = db.execute(select(CitizenAppeal, AppealPhoto.id).outerjoin(AppealPhoto,
             (AppealPhoto.appeal_id == CitizenAppeal.id) & (AppealPhoto.position == 0)).where(*conditions)
@@ -225,7 +233,7 @@ def list_appeals(user: AppealReader, status: AppealStatus | None = None, page: i
         messages = unanswered_comments(db, [appeal.id for appeal, _ in rows], user)
         tasks = reporting.task_summaries(db, [appeal for appeal, _ in rows])
         return {"items": [{**private_appeal_dict(appeal, user), **tasks[appeal.id], "unanswered_comments": messages.get(appeal.id, 0), "preview_url":
-            private_url(f"/{appeal.id}/photos/{photo_id}?variant=preview")} for appeal, photo_id in rows],
+            private_url(f"/{appeal.id}/photos/{photo_id}?variant=preview") if photo_id else None} for appeal, photo_id in rows],
             "total": total, "page": page, "page_size": 20, "categories": CATEGORIES,
             "public_url": base_settings().public_appeals_origin.rstrip("/") or "/appeals",
             "yandex_maps_api_key": base_settings().yandex_maps_api_key,
@@ -236,10 +244,10 @@ def list_appeals(user: AppealReader, status: AppealStatus | None = None, page: i
 @owner_router.get("/statistics")
 @organization_router.get("/statistics")
 def appeal_statistics(user: AppealReader, start: date, end: date, category: str = Query(default="", max_length=60),
-                      operator: str = Query(default="", max_length=100), organization: str = Query(default="", max_length=36)):
+                      operator: str = Query(default="", max_length=100), organization: str = Query(default="", max_length=36), source: reporting.SourceFilter = 'all'):
     with control_session() as db:
         return reporting.statistics(db, appeal_conditions(user), start, end, category, operator, organization,
-                                    task_operator_id=user.id if user.role == "OPERATOR" else None)
+                                    task_operator_id=user.id if user.role == "OPERATOR" else None, source=source)
 
 
 @organization_router.get("/notifications")
@@ -301,6 +309,18 @@ def edit_appeal(appeal_id: int, body: OwnerEdit, user: AppealReader):
             raise HTTPException(409, "Сначала верните обращение из архива")
         if appeal.version != body.expected_version:
             raise HTTPException(409, "Обращение изменилось. Обновите карточку перед сохранением.")
+        if appeal.parent_id and body.status != appeal.status:
+            parent = db.get(CitizenAppeal, appeal.parent_id)
+            if is_final(parent):
+                raise HTTPException(409, "Сначала верните родительскую задачу на рассмотрение")
+            if body.status in {"NEW", "IN_REVIEW"}:
+                parent.status = "IN_PROGRESS"
+                parent.version += 1
+                parent.updated_at = now()
+        if body.status != appeal.status and body.status in {"NEW", "IN_REVIEW", "SPAM"}:
+            children = list(db.scalars(select(CitizenAppeal).where(CitizenAppeal.parent_id == appeal.id)))
+            if any(not is_final(child) for child in children):
+                raise HTTPException(409, "Родительская задача остаётся в работе до завершения подзадач")
         before = {"status": appeal.status, "owner_note": appeal.owner_note,
                   "category": appeal.category, "work_type_name": appeal.work_type_name}
         if body.category is not None and body.category != appeal.category:

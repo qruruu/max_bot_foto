@@ -339,7 +339,7 @@ def test_reassignment_preserves_history_rejects_stale_results_and_allows_admin_p
         id = owner.get(endpoint).json()['items'][0]['id']
         assignment = {'operator_id': operator_ids[0], 'instruction': 'Первая задача', 'expected_version': 1}
         assert owner.post(endpoint + f'/{id}/assign', json=assignment).status_code == 200
-        assert multipart(owner, endpoint + f'/{id}/close', {'comment': 'Закрываем', 'expected_version': 2}).status_code == 409
+        assert multipart(owner, endpoint + f'/{id}/close', {'comment': ' ', 'expected_version': 2}).status_code == 422
         assert operators[0].post(endpoint + f'/{id}/start?expected_version=2').status_code == 200
         assert multipart(operators[0], endpoint + f'/{id}/result', {'status': 'REJECTED', 'comment': 'Нужна другая техника', 'expected_version': 3}).status_code == 200
         first = owner.get(endpoint + f'/{id}').json()['task']
@@ -377,7 +377,7 @@ def test_inspector_can_create_only_private_appeals_in_accessible_organization(wo
     assert multipart(inspectors[0], endpoint, {**body, 'submitted_by_inspector_id': 999}).status_code == 422
     assert multipart(inspectors[0], endpoint, {**body, 'organization_id': scopes[1].id}).status_code == 422
     assert multipart(inspectors[0], endpoint, {**body, 'longitude': 70}).status_code == 422
-    assert multipart(inspectors[0], endpoint, body, False).status_code == 422
+    assert multipart(inspectors[0], endpoint, {**body, 'client_id': str(uuid4()), 'category': 'INVALID'}, False).status_code == 422
     created = multipart(inspectors[0], endpoint, body)
     assert created.status_code == 201, created.text
     assert created.json()['is_public'] is False

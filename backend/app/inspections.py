@@ -565,7 +565,7 @@ def resume_appeal_submission(organization_id: UUID, client_id: UUID, db: Db, use
     return inspector_appeal_receipt(appeal)
 
 
-def save_inspector_appeal(organization_id, inspector_id, body, photos):
+def save_inspector_appeal(organization_id, inspector_id, body, photos, documents=None):
     from app.appeal_workflow import create_appeal
     with control_session() as db:
         # One inspector/client UUID creates one appeal, including simultaneous retries.
@@ -582,6 +582,8 @@ def save_inspector_appeal(organization_id, inspector_id, body, photos):
         if str(body.organization_id) != str(organization_id):
             raise HTTPException(422, "Выберите текущую организацию")
         appeal = create_appeal(db, body, photos, is_public=False, inspector=actor)
+        from app.appeal_files import store_files
+        store_files(db, appeal, documents or [])
         audit(db, None, "INSPECTOR_APPEAL_CREATED", "citizen_appeal", appeal.id, None,
               {"inspector_id": actor.id, "inspector_name": actor.name, "organization_id": appeal.organization_id})
         db.commit()
@@ -592,8 +594,9 @@ def save_inspector_appeal(organization_id, inspector_id, body, photos):
 async def create_inspector_appeal(organization_id: UUID, request: Request, db: Db, user: InspectorUser):
     from app.appeal_workflow import InspectorAppealInput, multipart
     authorized_organization(db, user, organization_id)
-    body, photos = await multipart(request, InspectorAppealInput)
-    return await run_in_threadpool(save_inspector_appeal, organization_id, user.id, body, photos)
+    documents = []
+    body, photos = await multipart(request, InspectorAppealInput, require_photos=False, documents=documents)
+    return await run_in_threadpool(save_inspector_appeal, organization_id, user.id, body, photos, documents)
 
 
 @router.get("/organizations/{organization_id}/appeals")
@@ -601,7 +604,7 @@ def appeals(organization_id: UUID, db: Db, user: InspectorUser, page: int = Quer
             status: AppealStatus | None = None,
             archived: bool = False, q: str = Query(default="", max_length=200),
             category: str = Query(default="", max_length=60), operator: str = Query(default="", max_length=100),
-            deadline: reporting.DeadlineFilter = 'any'):
+            deadline: reporting.DeadlineFilter = 'any', source: reporting.SourceFilter = 'all'):
     authorized_organization(db, user, organization_id)
     condition = CitizenAppeal.organization_id == str(organization_id)
     condition = condition & (CitizenAppeal.archived_at.is_not(None) if archived else CitizenAppeal.archived_at.is_(None))
@@ -609,7 +612,7 @@ def appeals(organization_id: UUID, db: Db, user: InspectorUser, page: int = Quer
         condition = condition & (CitizenAppeal.status == status)
     for match in appeal_search(q):
         condition = condition & match
-    for match in reporting.filters(category, operator, deadline):
+    for match in reporting.filters(category, operator, deadline, source=source):
         condition = condition & match
     rows = list(db.scalars(select(CitizenAppeal).where(condition)
                           .order_by(CitizenAppeal.id.desc()).offset((page - 1) * 20).limit(20)))
@@ -617,15 +620,17 @@ def appeals(organization_id: UUID, db: Db, user: InspectorUser, page: int = Quer
     tasks = reporting.task_summaries(db, rows)
     return {"total": db.scalar(select(func.count()).select_from(CitizenAppeal).where(condition)), "page": page, "page_size": 20,
             "yandex_maps_api_key": base_settings().yandex_maps_api_key,
+            "public_url": base_settings().public_appeals_origin.rstrip("/") or "/appeals",
             "filter_options": reporting.options(db, [CitizenAppeal.organization_id == str(organization_id)]),
             "items": [{**restricted_appeal(db, a), **tasks[a.id], "unanswered_comments": messages.get(a.id, 0)} for a in rows]}
 
 
 @router.get("/organizations/{organization_id}/appeals/statistics")
 def appeal_statistics(organization_id: UUID, db: Db, user: InspectorUser, start: date, end: date,
-                      category: str = Query(default="", max_length=60), operator: str = Query(default="", max_length=100)):
+                      category: str = Query(default="", max_length=60), operator: str = Query(default="", max_length=100),
+                      source: reporting.SourceFilter = 'all'):
     authorized_organization(db, user, organization_id)
-    return reporting.statistics(db, [CitizenAppeal.organization_id == str(organization_id)], start, end, category, operator)
+    return reporting.statistics(db, [CitizenAppeal.organization_id == str(organization_id)], start, end, category, operator, source=source)
 
 
 def restricted_appeal(db, appeal):
@@ -638,7 +643,9 @@ def restricted_appeal(db, appeal):
         "number": f"ОБ-{appeal.id:06d}", "photo_count": appeal.photo_count,
         "can_manage": False, "can_execute": False,
         "is_final": is_final(appeal),
-        "can_set_task_status": not appeal.archived_at and not is_final(appeal),
+        "can_set_task_status": bool(appeal.submitted_by_inspector_id) and not appeal.archived_at and not is_final(appeal)
+            and not db.scalar(select(CitizenAppeal.id).where(CitizenAppeal.parent_id == appeal.id).limit(1)),
+        "can_set_inspector_deadline": bool(appeal.submitted_by_inspector_id) and not appeal.parent_id,
         "preview_url": f"/api/inspection/organizations/{appeal.organization_id}/appeals/{appeal.id}/photos/{first}?variant=preview" if first else None,
         "photos": [{"id": p.id, "url": f"/api/inspection/organizations/{appeal.organization_id}/appeals/{appeal.id}/photos/{p.id}",
                     "preview_url": f"/api/inspection/organizations/{appeal.organization_id}/appeals/{appeal.id}/photos/{p.id}?variant=preview",
@@ -663,12 +670,18 @@ def appeal_events(organization_id: UUID, appeal_id: int, db: Db, user: Inspector
     appeal = db.get(CitizenAppeal, appeal_id)
     if not appeal or appeal.organization_id != str(organization_id):
         raise HTTPException(404, "Обращение не найдено")
-    return event_page(db, appeal, inspector=True, before=before, after=after)
+    if not appeal.submitted_by_inspector_id:
+        raise HTTPException(403, "Обращения граждан доступны только для просмотра")
+    return event_page(db, appeal, user=user, inspector=True, before=before, after=after)
 
 
 @router.post("/organizations/{organization_id}/appeals/{appeal_id}/comments", status_code=201)
 def appeal_comment(organization_id: UUID, appeal_id: int, body: CommentInput, db: Db, user: InspectorUser):
     authorized_organization(db, user, organization_id)
+    parent_id = db.scalar(select(CitizenAppeal.parent_id).where(CitizenAppeal.id == appeal_id,
+                          CitizenAppeal.organization_id == str(organization_id)))
+    if parent_id:
+        db.get(CitizenAppeal, parent_id, with_for_update=True)
     appeal = db.get(CitizenAppeal, appeal_id, with_for_update=True)
     if not appeal or appeal.organization_id != str(organization_id):
         raise HTTPException(404, "Обращение не найдено")
@@ -701,10 +714,18 @@ def appeal_detail(organization_id: UUID, appeal_id: int, db: Db, user: Inspector
 def inspector_appeal_status(organization_id: UUID, appeal_id: int, body: InspectorAppealStatusInput, db: Db, user: InspectorUser):
     from app.appeal_workflow import latest_task, versioned
     authorized_organization(db, user, organization_id)
+    parent_id = db.scalar(select(CitizenAppeal.parent_id).where(CitizenAppeal.id == appeal_id,
+                          CitizenAppeal.organization_id == str(organization_id)))
+    if parent_id:
+        db.get(CitizenAppeal, parent_id, with_for_update=True)
     appeal = db.get(CitizenAppeal, appeal_id, with_for_update=True)
     if not appeal or appeal.organization_id != str(organization_id):
         raise HTTPException(404, "Обращение не найдено")
     versioned(appeal, body.expected_version)
+    if not appeal.submitted_by_inspector_id:
+        raise HTTPException(403, "Обращения граждан доступны только для просмотра")
+    if db.scalar(select(CitizenAppeal.id).where(CitizenAppeal.parent_id == appeal.id).limit(1)):
+        raise HTTPException(409, "Статус родительской задачи определяется работой с подзадачами")
     if appeal.archived_at or is_final(appeal):
         raise HTTPException(409, "Статус закрытого обращения или спама изменить нельзя")
     if appeal.status != body.status:
@@ -731,3 +752,58 @@ def appeal_photo(organization_id: UUID, appeal_id: int, photo_id: UUID, db: Db, 
     if not appeal or appeal.organization_id != str(organization_id) or not photo or photo.appeal_id != appeal.id:
         raise HTTPException(404, "Фотография не найдена")
     return Response(getattr(photo, variant), media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
+
+
+@router.get("/organizations/{organization_id}/appeals/{appeal_id}/files/{file_id}")
+def appeal_file(organization_id: UUID, appeal_id: int, file_id: UUID, db: Db, user: InspectorUser):
+    from app.appeal_files import file_response
+    authorized_organization(db, user, organization_id)
+    appeal = db.get(CitizenAppeal, appeal_id)
+    if not appeal or appeal.organization_id != str(organization_id):
+        raise HTTPException(404)
+    return file_response(db, appeal, file_id, inspector=True)
+
+
+@router.post("/organizations/{organization_id}/appeals/{appeal_id}/deadline")
+def inspector_deadline(organization_id: UUID, appeal_id: int, request_body: dict, db: Db, user: InspectorUser):
+    from pydantic import ValidationError
+
+    from app.appeal_workflow import DeadlineInput, validate_due_date, versioned
+    from app.models import AppealTask
+    try:
+        body = DeadlineInput.model_validate(request_body)
+    except ValidationError as exc:
+        raise HTTPException(422, "Проверьте дату и версию задачи") from exc
+    authorized_organization(db, user, organization_id)
+    parent_id = db.scalar(select(CitizenAppeal.parent_id).where(CitizenAppeal.id == appeal_id,
+                          CitizenAppeal.organization_id == str(organization_id)))
+    if parent_id:
+        db.get(CitizenAppeal, parent_id, with_for_update=True)
+    appeal = db.get(CitizenAppeal, appeal_id, with_for_update=True)
+    if not appeal or appeal.organization_id != str(organization_id):
+        raise HTTPException(404)
+    if not appeal.submitted_by_inspector_id or appeal.parent_id:
+        raise HTTPException(403, "Срок проверяющего доступен только у его родительской задачи")
+    versioned(appeal, body.expected_version)
+    if appeal.archived_at or is_final(appeal):
+        raise HTTPException(409, "Задача закрыта или находится в архиве")
+    validate_due_date(body.due_date)
+    children = list(db.scalars(select(CitizenAppeal).where(CitizenAppeal.parent_id == appeal.id)))
+    active = list(db.scalars(select(AppealTask).where(AppealTask.appeal_id.in_([appeal.id] + [c.id for c in children]),
+                            AppealTask.status.in_(["ASSIGNED", "IN_PROGRESS"]))))
+    if body.due_date and any(task.due_date and task.due_date > body.due_date for task in active):
+        raise HTTPException(422, "Сначала сократите сроки исполнителей и подзадач у администратора")
+    if appeal.inspector_due_date != body.due_date:
+        appeal.inspector_due_date = body.due_date
+        for task in active:
+            if body.due_date and task.due_date is None:
+                task.due_date = body.due_date
+        appeal.version += 1
+        appeal.updated_at = now()
+        # Child forms must refresh when their inherited deadline changes.
+        for child in children:
+            child.version += 1
+        record_event(db, appeal, "DEADLINE", user, inspector=True,
+                     comment="Срок проверяющего: " + (str(body.due_date) if body.due_date else "не установлен"))
+    db.commit()
+    return {"ok": True, "version": appeal.version}

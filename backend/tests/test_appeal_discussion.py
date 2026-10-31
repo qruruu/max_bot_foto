@@ -51,16 +51,18 @@ def test_discussion_history_and_operator_status_access(workflow):
     assert 'secret-admin-note' not in json.dumps(operator_events)
     inspector_events = inspectors[0].get(inspection_endpoint + '/events').json()
     assert 'secret-' not in json.dumps(inspector_events)
-    assert len([event for event in inspector_events['items'] if event['kind'] == 'COMMENT']) == 2
-    assert 'Ответ оператора' in json.dumps(inspector_events, ensure_ascii=False)
+    assert len([event for event in inspector_events['items'] if event['kind'] == 'COMMENT']) == 1
+    assert 'Ответ оператора' not in json.dumps(inspector_events, ensure_ascii=False)
     assert operators[0].post(endpoint + '/task-status', json={'status': 'IN_PROGRESS', 'expected_version': 3}).status_code == 200
     assert operators[0].post(endpoint + '/task-status', json={'status': 'ASSIGNED', 'expected_version': 4}).status_code == 200
     assert operators[0].post(endpoint + '/task-status', json={'status': 'IN_PROGRESS', 'expected_version': 4}).status_code == 409
     reported = multipart(operators[0], endpoint + '/result', {'status': 'CANCELLED', 'comment': 'Нужна другая техника', 'expected_version': 5})
     assert reported.status_code == 200, reported.text
     events = inspectors[0].get(inspection_endpoint + '/events').json()['items']
-    assert events[-1]['kind'] == 'RESULT' and events[-1]['status'] == 'CANCELLED'
-    assert events[-1]['comment'] == 'Нужна другая техника'
+    assert all(event['kind'] != 'RESULT' for event in events)
+    assert 'Нужна другая техника' not in json.dumps(events, ensure_ascii=False)
+    operator_result = operators[0].get(endpoint + '/events').json()['items'][-1]
+    assert operator_result['kind'] == 'RESULT' and operator_result['status'] == 'CANCELLED'
     cursor = events[-2]['id']
     assert [event['id'] for event in inspectors[0].get(inspection_endpoint + '/events', params={'after': cursor}).json()['items']] == [events[-1]['id']]
     assert all(event['id'] < cursor for event in inspectors[0].get(inspection_endpoint + '/events', params={'before': cursor}).json()['items'])
@@ -165,23 +167,23 @@ def test_message_notifications_are_personal_and_clear_only_after_reply(workflow)
         assert detail['unanswered_comments'] == listing['unanswered_comments']
         return listing['unanswered_comments']
     assert count(inspectors[0], inspection) == 0
-    assert count(owner, inbox) == count(operators[0], inbox) == 1
+    assert count(owner, inbox) == 1 and count(operators[0], inbox) == 0
     # Merely reading the card, history and pictures must not clear the notification.
     assert owner.get(endpoint + '/events').status_code == 200
     assert count(owner, inbox) == 1
     admin_message = {'client_id': str(uuid4()), 'comment': 'Приняли в работу'}
     assert owner.post(endpoint + '/comments', json=admin_message).status_code == 201
     assert count(owner, inbox) == 0
-    assert count(inspectors[0], inspection) == 1 and count(operators[0], inbox) == 2
+    assert count(inspectors[0], inspection) == 1 and count(operators[0], inbox) == 0
     assert operators[0].post(endpoint + '/comments', json={'client_id': str(uuid4()), 'comment': 'Выезжаю'}).status_code == 201
     assert count(operators[0], inbox) == 0 and count(owner, inbox) == 1
-    assert count(inspectors[0], inspection) == 2
+    assert count(inspectors[0], inspection) == 1
     # An idempotent retry of an older reply does not acknowledge newer messages.
     assert owner.post(endpoint + '/comments', json=admin_message).status_code == 201
     assert count(owner, inbox) == 1
     assert inspectors[0].post(checked + '/comments', json={'client_id': str(uuid4()), 'comment': 'Жду результат'}).status_code == 201
     assert count(inspectors[0], inspection) == 0
-    assert count(owner, inbox) == 2 and count(operators[0], inbox) == 1
+    assert count(owner, inbox) == 2 and count(operators[0], inbox) == 0
     assert inspectors[1].get(inspection).status_code == 404
 
 
@@ -269,7 +271,7 @@ def test_final_cancel_or_reject_stops_task_preserves_visibility_and_can_reopen(w
         assert owner.get(inbox, params={'status': status, 'q': 'Уникальное объяснение'}).json()['total'] == 1
         assert inspectors[0].get(inspection, params={'status': status}).json()['total'] == 1
         assert not inspectors[0].get(checked).json()['can_set_task_status']
-        assert inspectors[0].post(checked + '/task-status', json={'status': 'COMPLETED', 'expected_version': 3}).status_code == 409
+        assert inspectors[0].post(checked + '/task-status', json={'status': 'COMPLETED', 'expected_version': 3}).status_code == (403 if public else 409)
         assert multipart(operators[0], endpoint + '/result', {'status': 'COMPLETED', 'comment': 'Поздний отчёт', 'expected_version': 3}).status_code == 409
         assert owner.post(endpoint + '/assign', json={'operator_id': operator_ids[0], 'expected_version': 3}).status_code == 409
         assert multipart(owner, endpoint + '/close', {**decision, 'expected_version': 3}, False).status_code == 409

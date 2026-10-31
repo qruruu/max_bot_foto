@@ -36,7 +36,7 @@ def test_deadline_permissions_version_history_reassignment_and_public_privacy(wo
         assert owner.post(endpoint + '/assign', json={'operator_id': ids[0], 'expected_version': 1}).status_code == 200
         body['expected_version'] = 2
         assert operators[0].post(endpoint + '/deadline', json=body).status_code == 403
-        assert inspectors[0].post(f'/api/inspection/organizations/{scopes[0].id}/appeals/{id}/deadline', json=body).status_code in (404, 405)
+        assert inspectors[0].post(f'/api/inspection/organizations/{scopes[0].id}/appeals/{id}/deadline', json=body).status_code == 403
         past = {**body, 'due_date': (today() - timedelta(days=1)).isoformat()}
         assert owner.post(endpoint + '/deadline', json=past).status_code == 422
         assert owner.post(endpoint + '/deadline', json=body).status_code == 200

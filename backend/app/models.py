@@ -60,11 +60,13 @@ class CitizenAppeal(Timestamps, Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     submitted_by_inspector_id: Mapped[int | None] = mapped_column(ForeignKey("inspectors.id"))
     submitted_by_inspector_name: Mapped[str] = mapped_column(String(150), default="", server_default="")
+    inspector_due_date: Mapped[date | None] = mapped_column(Date)
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("citizen_appeals.id"), index=True)
     inspector_submission_id: Mapped[str | None] = mapped_column(String(36))
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     __table_args__ = (
         CheckConstraint("status IN ('NEW', 'IN_REVIEW', 'ASSIGNED', 'IN_PROGRESS', 'COMPLETED', 'REJECTED', 'CANCELLED', 'RESOLVED', 'DECLINED', 'SPAM')"),
-        CheckConstraint("photo_count BETWEEN 1 AND 3"),
+        CheckConstraint("photo_count BETWEEN 0 AND 3", name="ck_appeal_photo_count"),
         CheckConstraint("submitted_by_inspector_id IS NULL OR is_public = false", name="ck_inspector_appeal_private"),
         UniqueConstraint("submitted_by_inspector_id", "inspector_submission_id", name="uq_inspector_appeal_submission"),
     )
@@ -110,7 +112,7 @@ class AppealEvent(Base):
     client_id: Mapped[str | None] = mapped_column(String(36))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (
-        CheckConstraint("visibility IN ('STAFF', 'ADMIN', 'TASK')"),
+        CheckConstraint("visibility IN ('STAFF', 'ADMIN', 'TASK', 'INSPECTOR')"),
         UniqueConstraint("appeal_id", "actor_type", "actor_id", "client_id", name="uq_appeal_event_client"),
         Index("ix_appeal_events_order", "appeal_id", "id"),
     )
@@ -129,6 +131,16 @@ class AppealAttachment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class AppealFile(Base):
+    __tablename__ = "appeal_files"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    appeal_id: Mapped[int] = mapped_column(ForeignKey("citizen_appeals.id"), index=True)
+    event_id: Mapped[int | None] = mapped_column(ForeignKey("appeal_events.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    media_type: Mapped[str] = mapped_column(String(100))
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+
+
 class AppealPhoto(Base):
     __tablename__ = "appeal_photos"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -140,8 +152,8 @@ class AppealPhoto(Base):
     width: Mapped[int] = mapped_column(Integer)
     height: Mapped[int] = mapped_column(Integer)
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    latitude: Mapped[float] = mapped_column(Float)
-    longitude: Mapped[float] = mapped_column(Float)
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
     accuracy: Mapped[float] = mapped_column(Float)
     position_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     __table_args__ = (UniqueConstraint("appeal_id", "position"),)

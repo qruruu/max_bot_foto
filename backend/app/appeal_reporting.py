@@ -14,6 +14,7 @@ from app.domain import now
 from app.models import AppealTask, CitizenAppeal
 
 DeadlineFilter = Literal['any', 'none', 'overdue', 'today', 'week']
+SourceFilter = Literal['all', 'inspector', 'signal']
 
 
 def today():
@@ -25,8 +26,12 @@ def latest_id():
     return select(func.max(other.id)).where(other.appeal_id == CitizenAppeal.id).correlate(CitizenAppeal).scalar_subquery()
 
 
-def filters(category='', operator='', deadline='any', organization=''):
+def filters(category='', operator='', deadline='any', organization='', source='all'):
     conditions = []
+    if source == 'inspector':
+        conditions.append(CitizenAppeal.submitted_by_inspector_id.is_not(None))
+    elif source == 'signal':
+        conditions.append(CitizenAppeal.submitted_by_inspector_id.is_(None))
     if category:
         conditions.append(CitizenAppeal.category == ('' if category == '__none__' else category))
     if organization:
@@ -72,10 +77,17 @@ def options(db, conditions):
 def task_summaries(db, appeals):
     ids = [a.id for a in appeals]
     tasks = {t.appeal_id: t for t in db.scalars(select(AppealTask).where(AppealTask.appeal_id.in_(ids)).order_by(AppealTask.id))} if ids else {}
+    children = dict(db.execute(select(CitizenAppeal.parent_id, func.count()).where(
+        CitizenAppeal.parent_id.in_(ids)).group_by(CitizenAppeal.parent_id)).all()) if ids else {}
+    parent_ids = [a.parent_id for a in appeals if a.parent_id]
+    ceilings = dict(db.execute(select(CitizenAppeal.id, CitizenAppeal.inspector_due_date).where(
+        CitizenAppeal.id.in_(parent_ids))).all()) if parent_ids else {}
     result = {}
     for a in appeals:
-        task = tasks.get(a.id)
-        result[a.id] = {'operator_name': task.operator_name if task else '', 'operator_id': task.operator_id if task else None,
+        task = tasks.get(a.id) if not children.get(a.id) else None
+        result[a.id] = {'child_count': children.get(a.id, 0),
+                        'inspector_due_date': ceilings.get(a.parent_id) if a.parent_id else a.inspector_due_date,
+                        'operator_name': task.operator_name if task else '', 'operator_id': task.operator_id if task else None,
                         'due_date': task.due_date if task else None,
                         'overdue': bool(task and task.due_date and task.due_date < today() and task.status in ('ASSIGNED', 'IN_PROGRESS')
                                         and a.status in ('ASSIGNED', 'IN_PROGRESS')
@@ -83,13 +95,13 @@ def task_summaries(db, appeals):
     return result
 
 
-def statistics(db, conditions, start: date, end: date, category='', operator='', organization='', task_operator_id=None):
+def statistics(db, conditions, start: date, end: date, category='', operator='', organization='', task_operator_id=None, source='all'):
     if start > end or end == date.max or (end - start).days > 1096:
         raise HTTPException(422, 'Выберите период до трёх лет с корректными датами')
     zone = ZoneInfo(base_settings().app_timezone)
     bounds = [CitizenAppeal.created_at >= datetime.combine(start, time.min, zone),
               CitizenAppeal.created_at < datetime.combine(end + timedelta(days=1), time.min, zone)]
-    scope = [*conditions, *bounds, *filters(category, operator, organization=organization)]
+    scope = [*conditions, *bounds, *filters(category, operator, organization=organization, source=source)]
     # Select only reporting columns; never load image bytes, contacts or private notes.
     fields = (CitizenAppeal.id, CitizenAppeal.organization_id, CitizenAppeal.organization_name, CitizenAppeal.status,
               CitizenAppeal.resolved_at, CitizenAppeal.created_at, CitizenAppeal.archived_at,
