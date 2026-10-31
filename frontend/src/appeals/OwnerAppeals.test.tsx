@@ -128,7 +128,7 @@ it.each([
   }
   await act(async () => {element.querySelectorAll<HTMLButtonElement>('[role=tab]')[1].click(); await tick();});
   await act(async () => {
-    const status = element.querySelector<HTMLSelectElement>('.appeal-list-filters select')!;
+    const status = element.querySelector<HTMLSelectElement>('.appeal-list-filters select[name=status]')!;
     status.value = 'SPAM'; status.dispatchEvent(new Event('change', {bubbles: true})); await tick();
   });
   expect(Object.fromEntries(new URLSearchParams(lastSearch().split('?')[1]))).toMatchObject({q: 'ОБ-000042', archived: 'true', status: 'SPAM', page: '1'});
@@ -161,7 +161,72 @@ it('keeps the request separate from processing and retains all drafts when switc
   });
   await act(async () => {element.querySelector<HTMLButtonElement>('#appeal-tab-request')!.click();});
   expect(request.hidden).toBe(false); expect(work.hidden).toBe(true);
-  await act(async () => {element.querySelector<HTMLButtonElement>('#appeal-tab-work')!.click();});
+  await act(async () => {element.querySelector<HTMLButtonElement>('#appeal-tab-executor')!.click();});
   for (const [field, text] of fields) {expect(field.isConnected).toBe(true); expect(field.value).toBe(text);}
   expect(vi.mocked(api).mock.calls.filter(([, method]) => method === 'POST')).toHaveLength(0);
+});
+
+it('shows citizen requests and the final answer to inspectors without processing controls or chat', async () => {
+  Object.assign(current, {status: 'RESOLVED', public_response: 'Площадку убрали, работу приняли.', is_final: true});
+  await act(async () => {root.render(<OwnerAppeals organization endpoint="/inspection/organizations/one/appeals" readOnly/>); await tick();});
+  await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
+  expect(element.textContent).toContain('Итоговый ответ администратора');
+  expect(element.textContent).toContain('Площадку убрали, работу приняли.');
+  expect(element.querySelector('#appeal-tab-executor')).toBeNull();
+  expect(element.querySelector('#appeal-tab-inspector')).toBeNull();
+  expect(element.querySelector('.appeal-discussion')).toBeNull();
+  expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('/events'))).toBe(false);
+});
+
+it('keeps separate inspector and executor chats and preserves both drafts when switching workspaces', async () => {
+  Object.assign(current, {submitted_by_inspector_name: 'Проверяющий', is_public: false, status: 'ASSIGNED', task: {id:1, operator_id:2, operator_name:'Оператор', status:'ASSIGNED', result_comment:'', photos:[], created_at:current.created_at}});
+  await act(async () => {root.render(<OwnerAppeals organization endpoint="/appeals"/>); await tick();});
+  await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
+  await act(async () => {element.querySelector<HTMLButtonElement>('#appeal-tab-executor')!.click();});
+  const checking = element.querySelector<HTMLTextAreaElement>('[aria-label="Переписка с проверяющим"] textarea')!;
+  const executor = element.querySelector<HTMLTextAreaElement>('[aria-label="Переписка с исполнителем"] textarea')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(checking, 'Уточнение проверяющему');
+    checking.dispatchEvent(new Event('input', {bubbles:true}));
+  });
+  await act(async () => {[...element.querySelectorAll<HTMLButtonElement>('[role=tab]')].find(button => button.textContent === 'Работа с исполнителем')!.click();});
+  expect(checking.isConnected).toBe(true);
+  expect(checking.value).toBe('Уточнение проверяющему');
+  expect(executor.disabled).toBe(false);
+  expect(vi.mocked(api).mock.calls.some(([path]) => path === '/appeals/42/events?channel=inspector')).toBe(true);
+  expect(vi.mocked(api).mock.calls.some(([path]) => path === '/appeals/42/events?channel=executor')).toBe(true);
+});
+
+it('puts separate chat badges on the top tabs and clears only the answered channel', async () => {
+  Object.assign(current, {submitted_by_inspector_name:'Проверяющий', is_public:false, task:{id:1,operator_id:2,operator_name:'Оператор',status:'ASSIGNED',result_comment:'',photos:[]}});
+  const original = vi.mocked(api).getMockImplementation()!;
+  const counts = {inspector:2,executor:3};
+  vi.mocked(api).mockImplementation(async (path, method, body, ...args) => {
+    if (path.includes('/events?')) return {items:[], has_more:false, can_comment:true, unanswered_comments:counts[path.includes('channel=inspector') ? 'inspector' : 'executor']};
+    if (path.endsWith('/comments') && method === 'POST') counts[(body as {channel:'inspector'|'executor'}).channel] = 0;
+    return original(path,method,body,...args);
+  });
+  await act(async () => {root.render(<OwnerAppeals organization endpoint="/appeals"/>); await tick();});
+  await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
+  expect(element.querySelector('#appeal-tab-inspector .appeal-tab-count')?.textContent).toBe('2');
+  expect(element.querySelector('#appeal-tab-executor .appeal-tab-count')?.textContent).toBe('3');
+  expect(element.textContent).not.toContain('Работа с обращением');
+  await act(async () => {element.querySelector<HTMLButtonElement>('#appeal-tab-inspector')!.click();});
+  const text = element.querySelector<HTMLTextAreaElement>('[aria-label="Переписка с проверяющим"] textarea')!;
+  await act(async () => {Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!.set!.call(text,'Приняли'); text.dispatchEvent(new Event('input',{bubbles:true}));});
+  await act(async () => {element.querySelector<HTMLButtonElement>('[aria-label="Переписка с проверяющим"] form button[type=submit], [aria-label="Переписка с проверяющим"] form button.primary')!.click(); await tick();});
+  expect(element.querySelector('#appeal-tab-inspector .appeal-tab-count')).toBeNull();
+  expect(element.querySelector('#appeal-tab-executor .appeal-tab-count')?.textContent).toBe('3');
+});
+
+it.each(['operator','inspector','administrator'])('shares the citizen page and preserves the source filter in the archive for %s', async role => {
+  Object.assign(current, {can_manage:role === 'administrator',can_execute:role === 'operator'});
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async (...args) => {const result = await original(...args); return args[0].includes('?page=') ? {...result as object,public_url:'https://signal.example/'} : result;});
+  await act(async () => {root.render(<OwnerAppeals organization endpoint="/appeals" readOnly={role === 'inspector'}/>); await tick();});
+  expect(element.querySelector('a[href="https://signal.example/"]')).not.toBeNull();
+  await act(async () => {const select = element.querySelector<HTMLSelectElement>('select[name=source]')!; select.value='inspector'; select.dispatchEvent(new Event('change',{bubbles:true})); await tick();});
+  await act(async () => {[...element.querySelectorAll<HTMLButtonElement>('[role=tab]')].find(button => button.textContent === 'Архив')!.click(); await tick();});
+  const query = vi.mocked(api).mock.calls.filter(([path]) => path.includes('?page=')).at(-1)![0];
+  expect(Object.fromEntries(new URLSearchParams(query.split('?')[1]))).toMatchObject({source:'inspector',archived:'true'});
 });

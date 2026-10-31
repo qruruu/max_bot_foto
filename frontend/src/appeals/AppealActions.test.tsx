@@ -189,3 +189,21 @@ it.each(['operator','inspector'])('shows deadlines to %s without granting deadli
   await mount({...appeal,status:'ASSIGNED',can_manage:false,can_execute:role==='operator',task:{...appeal.task!,status:'ASSIGNED',due_date:'2030-12-15'}},role==='inspector');
   expect(element.textContent).toContain('15.12.2030');expect(element.querySelector('input[type=date]')).toBeNull();
 });
+
+it('submits the chosen subtask deadline with its operator and retains the parent version', async () => {
+  vi.mocked(api).mockResolvedValue([{id:7, name:'Исполнитель'}]);
+  await mount({...appeal, status:'NEW', task:null, submitted_by_inspector_name:'Проверяющий', inspector_due_date:'2026-11-10'});
+  const panel = element.querySelector('details')!;
+  const inputs = panel.querySelectorAll<HTMLInputElement>('input');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(inputs[0], 'Уборка участка');
+    inputs[0].dispatchEvent(new Event('input', {bubbles:true}));
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(panel.querySelector('textarea'), 'Убрать мусор у входа');
+    panel.querySelector('textarea')!.dispatchEvent(new Event('input', {bubbles:true}));
+    panel.querySelector('select')!.value = '7'; panel.querySelector('select')!.dispatchEvent(new Event('change', {bubbles:true}));
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(inputs[1], '2026-11-06');
+    inputs[1].dispatchEvent(new Event('input', {bubbles:true}));
+  });
+  await click(byText('Создать подзадачу и назначить'));
+  expect(vi.mocked(api).mock.calls.find(([path]) => path.endsWith('/subtasks'))?.[2]).toMatchObject({subject:'Уборка участка', description:'Убрать мусор у входа', operator_id:7, due_date:'2026-11-06', expected_version:3});
+});

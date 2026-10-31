@@ -34,3 +34,9 @@ it('shows zero results and unknown timing instead of inventing performance data'
   expect(element.textContent).toContain('Назначений пока нет');
   expect([...element.querySelectorAll('.appeal-report-metrics strong')].map(e=>e.textContent)).toEqual(['0','0','0','0','Нет данных','Нет данных']);
 });
+
+it('filters statistics by the source of the appeal',async()=>{
+  await act(async()=>{root.render(<AppealStatistics endpoint="/appeals"/>);await tick();});
+  await act(async()=>{const select=element.querySelector<HTMLSelectElement>('select[name=source]')!;select.value='signal';select.dispatchEvent(new Event('change',{bubbles:true}));await tick();});
+  expect(new URLSearchParams(vi.mocked(api).mock.calls.at(-1)![0].split('?')[1]).get('source')).toBe('signal');
+});

@@ -5,7 +5,7 @@ export type AppealForm = {city: string; organization_id: string; address: string
 export const EMPTY_FORM: AppealForm = {city: '', organization_id: '', address: '', address_id: '', latitude: null, longitude: null,
   place: '', category: '', subject: '', description: '', contact: '', website: ''};
 export type StoredPhoto = {id: string; blob: Blob; preview: Blob; capture?: CaptureMetadata};
-export type AppealDraft = {form: AppealForm; photos: StoredPhoto[]; token: string | null; pending: boolean; savedAt: number; receipt?: string; clientId?: string};
+export type AppealDraft = {form: AppealForm; photos: StoredPhoto[]; token: string | null; pending: boolean; savedAt: number; receipt?: string; clientId?: string; documents?: File[]; inspectorDueDate?: string};
 const DATABASE = 'citizen-appeal-drafts', STORE = 'drafts', KEY = 'current';
 const MAX_AGE = 24 * 60 * 60 * 1000;
 

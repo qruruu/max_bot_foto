@@ -40,17 +40,23 @@ beforeEach(() => {
 });
 afterEach(async () => {await act(async () => root.unmount()); element.remove(); vi.restoreAllMocks();});
 
-it('requires an allowed address and map point and keeps inspector drafts separate from public drafts', async () => {
+it('lets an inspector write without territory, work type or photos and keeps drafts separate', async () => {
   await mount();
   expect(loadDraft).toHaveBeenCalledWith(storageKey);
   expect(element.textContent).toContain('Только в «Метке»');
   expect(element.textContent).toContain('На стене «Сигнала» они не появятся');
-  expect(element.textContent).not.toContain('Контакт для уточнений');
-  expect(element.querySelectorAll('fieldset')[1].disabled).toBe(true); expect(send().disabled).toBe(true);
-  expect(element.querySelector('[data-field="address_id"]')!.textContent).toContain('11А мкр');
-  await click(element.querySelector<HTMLButtonElement>('[data-map]')!);
   expect(element.querySelectorAll('fieldset')[1].disabled).toBe(false);
-  expect(vi.mocked(saveDraft).mock.calls.at(-1)![1]).toBe(storageKey);
+  expect(element.querySelector<HTMLSelectElement>('select')!.value).toBe('');
+  const description = element.querySelector('textarea')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(description, 'Проверить подготовку отчёта');
+    description.dispatchEvent(new Event('input', {bubbles:true}));
+  });
+  expect(send().disabled).toBe(false);
+  await click(send());
+  const data = vi.mocked(api).mock.calls.find(([,method]) => method === 'POST')![2] as FormData;
+  expect(JSON.parse(data.get('metadata') as string)).toMatchObject({address_id:null, category:'', latitude:null, longitude:null});
+  expect(data.getAll('photos')).toHaveLength(0);
 });
 
 it('submits the same workflow fields through the authenticated private endpoint and leaves the receipt open', async () => {
