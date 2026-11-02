@@ -16,7 +16,7 @@ from app.organization_context import current_organization
 from app.security_telemetry import identify
 from app.session_details import client_address
 
-INSPECTION_MENU = ["/inspectors", "/", "/photos", "/photo-map", "/districts", "/appeals", "/messages", "/users"]
+INSPECTION_MENU = ["/inspectors", "/photos", "/photo-map", "/districts", "/appeals", "/messages", "/users"]
 
 
 def lock_inspector(db, id):
@@ -28,7 +28,7 @@ def inspector_dict(account, agency):
             "active": account.active, "agency_id": agency.id, "agency_name": agency.name,
             "can_create_accounts": account.can_create_accounts, "created_by": account.created_by,
             "is_platform_owner": False, "organization": None, "permissions": [],
-            "sidebar_order": account.sidebar_order or INSPECTION_MENU,
+            "sidebar_order": [key for key in account.sidebar_order or [] if key in INSPECTION_MENU] or INSPECTION_MENU,
             "avatar_url": f"/api/inspection/avatar?v={hashlib.sha256(account.avatar_image).hexdigest()[:16]}"
             if account.avatar_image else None, "allowed_chat_ids": []}
 

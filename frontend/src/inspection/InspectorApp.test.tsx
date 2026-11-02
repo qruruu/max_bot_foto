@@ -35,7 +35,7 @@ beforeEach(()=>{
     if(path==='/inspection/contacts')return [];
     if(path==='/inspection/unread')return {unread:2};
     if(path==='/inspection/sessions')return {session_hours:12,items:[{id:'current',current:true,device:'Mac',device_type:'desktop',browser:'Safari',os:'macOS',ip_address:null,created_at:null,last_seen_at:null,expires_at:'2026-10-27T12:00:00Z'}]};
-    if(path==='/inspection/sidebar-order')return {sidebar_order:['/photos','/districts','/']};
+    if(path==='/inspection/sidebar-order')return {sidebar_order:['/photos','/districts']};
     throw new Error('Unexpected '+path);
   });
 });
@@ -166,5 +166,18 @@ it('ignores a legacy work-type filter and removes work-type selection from the i
   const requests=vi.mocked(api).mock.calls.filter(([path])=>path.includes('/photos?'));
   expect(requests.length).toBeGreaterThan(0);
   expect(requests.every(([path])=>!path.includes('work_type='))).toBe(true);
-  expect(element.querySelector('.export')?.getAttribute('href')).not.toContain('work_type=');
+  expect(element.querySelector('.export')).toBeNull();
+});
+
+it('opens photos for a legacy reports URL and never exposes inspector reports or Excel',async()=>{
+  await mount('/inspection?org=company&tab=reports&date_from=2026-10-18&date_to=2026-10-18');
+  expect(element.querySelector('a[aria-label="Отчёты"]')).toBeNull();
+  expect(element.querySelector('.export')).toBeNull();
+  expect(element.querySelector('.inspection-photo-table')).not.toBeNull();
+  expect(element.querySelector('input[type="date"]')?.getAttribute('value')).toBe('2026-10-18');
+  expect(element.textContent).not.toContain('Скачать Excel');
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.includes('/reports')||path.includes('export.xlsx'))).toBe(false);
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.includes('/photos?date_from=2026-10-18&date_to=2026-10-18'))).toBe(true);
+  await act(async()=>{element.querySelector<HTMLButtonElement>('button[aria-label="Изменить порядок меню"]')!.click();await tick();});
+  expect(element.querySelector('button[aria-label*=«Отчёты»]')).toBeNull();
 });

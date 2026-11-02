@@ -4,7 +4,6 @@ import json
 import secrets
 from contextlib import contextmanager
 from datetime import date, timedelta
-from io import BytesIO
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
@@ -12,7 +11,6 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
-from openpyxl import Workbook
 from pydantic import Field
 from sqlalchemy import Date, cast, delete, func, select, text, update
 from sqlalchemy.orm import Session
@@ -46,7 +44,6 @@ from app.organization_context import current_organization, organization_scope
 from app.organization_registry import control_session, scope_for
 from app.organizations import Owner
 from app.photo_ordering import photo_order, photo_position, sort_keys
-from app.reports import literal
 from app.schemas import StrictModel
 from app.work_types import work_catalog
 
@@ -469,59 +466,6 @@ def original(organization_id: UUID, photo_id: int, db: Db, user: InspectorUser):
         except (httpx.HTTPError, ValueError, KeyError, RuntimeError, OSError) as exc:
             raise HTTPException(502, "Оригинал временно недоступен. Повторите позже.") from exc
         return Response(bytes(content), media_type=photo.mime_type or "application/octet-stream", headers=headers)
-
-
-def inspection_report(tenant, filters):
-    source = visible_photos(filters).subquery()
-    from app.catalog import work_type_label
-    catalog = work_catalog(tenant)
-    districts = [{"id": did or 0, "name": name or "Не определён", "count": count} for did, name, count in tenant.execute(
-        select(source.c.district_id, District.name, func.count()).outerjoin(District, District.id == source.c.district_id)
-        .group_by(source.c.district_id, District.name).order_by(func.count().desc()))]
-    works = [{"id": code or "NONE", "name": work_type_label(code, catalog=catalog) or "Не определён", "count": count}
-             for code, count in tenant.execute(select(source.c.work_type, func.count()).group_by(source.c.work_type)
-                                              .order_by(func.count().desc()))]
-    matrix = [{"work_type": code or "NONE", "district_id": district or 0, "count": count} for code, district, count in tenant.execute(
-        select(source.c.work_type, source.c.district_id, func.count()).group_by(source.c.work_type, source.c.district_id))]
-    return {"total": tenant.scalar(select(func.count()).select_from(source)), "districts": districts, "work_district_matrix": matrix,
-            "work_types": works, "defects": tenant.scalar(select(func.count()).select_from(source).where(source.c.is_defect))}
-
-
-@router.get("/organizations/{organization_id}/reports")
-def reports(organization_id: UUID, db: Db, user: InspectorUser, filters: Annotated[InspectionFilters, Query()]):
-    with tenant_reader(db, user, organization_id) as tenant:
-        return inspection_report(tenant, filters)
-
-
-@router.get("/organizations/{organization_id}/export.xlsx")
-def export(organization_id: UUID, db: Db, user: InspectorUser, filters: Annotated[InspectionFilters, Query()]):
-    with tenant_reader(db, user, organization_id) as tenant:
-        districts = dict(tenant.execute(select(District.id, District.name)).all())
-        catalog = work_catalog(tenant)
-        wb = Workbook(write_only=True)
-        sheet = wb.create_sheet("Фотографии")
-        sheet.append(["ID", "Дата", "Время", "Микрорайон", "Вид работы", "Широта", "Долгота", "Адрес", "Город", "Дефект"])
-        for photo in tenant.scalars(visible_photos(filters).order_by(Photo.photo_date, Photo.photo_time, Photo.id)
-                                    .execution_options(yield_per=500)):
-            p = restricted_photo(photo, districts, catalog, str(organization_id))
-            sheet.append([literal(p[k]) for k in ("id", "photo_date", "photo_time", "district_name", "work_type_name",
-                                                  "latitude", "longitude", "detected_address", "detected_city", "is_defect")])
-        report = inspection_report(tenant, filters)
-        for key, title in (("districts", "По микрорайонам"), ("work_types", "По видам работ")):
-            sheet = wb.create_sheet(title)
-            sheet.append(["Название", "Количество"])
-            for row in report[key]:
-                sheet.append([literal(row["name"]), row["count"]])
-        sheet = wb.create_sheet("Работы и микрорайоны")
-        sheet.append(["Вид работы"] + [literal(d["name"]) for d in report["districts"]] + ["Всего"])
-        matrix = {(r["work_type"], r["district_id"]): r["count"] for r in report["work_district_matrix"]}
-        for work in report["work_types"]:
-            sheet.append([literal(work["name"])] + [matrix.get((work["id"], district["id"]), 0)
-                                                    for district in report["districts"]] + [work["count"]])
-        buf = BytesIO()
-        wb.save(buf)
-        return Response(buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        headers={"Cache-Control": "private, no-store", "Content-Disposition": 'attachment; filename="inspection.xlsx"'})
 
 
 @router.get("/appeals/notifications")

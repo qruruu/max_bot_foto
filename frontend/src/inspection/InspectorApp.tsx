@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { Building2, Camera, ChartNoAxesCombined, ChevronLeft, ChevronRight, Layers, LogOut, Map, MapPin, MessageSquare, QrCode, RefreshCw, Users } from 'lucide-react';
+import { Building2, Camera, ChevronLeft, ChevronRight, Layers, LogOut, Map, MapPin, MessageSquare, QrCode, RefreshCw, Users } from 'lucide-react';
 import { api } from '../api';
 import Login, { signInDestination } from '../Login';
 import type { Meta, User } from '../types';
@@ -21,17 +21,16 @@ import InspectionPhotoTable from './PhotoTable';
 import PhotoNumberSearch from '../PhotoNumberSearch';
 import InspectionPhotoMap from './Maps';
 import InspectionFilters, { inspectionFilterKeys } from './FilterBar';
-import InspectionOverview from './Report';
 import Avatar from '../Avatar';
 import { invitationToken, QRScanner } from './QR';
-import type { InspectionMeta, InspectionReport, Inspector, Organization, PhotoPage } from './types';
+import type { InspectionMeta, Inspector, Organization, PhotoPage } from './types';
 import './inspection.css';
 
-const tabs=[{id:'photos',label:'Фотографии',Icon:Camera},{id:'reports',label:'Отчёты',Icon:ChartNoAxesCombined},
+const tabs=[{id:'photos',label:'Фотографии',Icon:Camera},
   {id:'photo-map',label:'Карта фотографий',Icon:MapPin},{id:'districts',label:'Микрорайоны',Icon:Map},
   {id:'appeals',label:'Обращения',Icon:MessageSquare},{id:'messages',label:'Чаты',Icon:MessageSquare}];
-const menuOrder=['/inspectors','/','/photos','/photo-map','/districts','/appeals','/messages','/users'];
-const menuKeys:Record<string,string>={reports:'/',photos:'/photos','photo-map':'/photo-map',districts:'/districts',appeals:'/appeals',messages:'/messages',accounts:'/users'};
+const menuOrder=['/inspectors','/photos','/photo-map','/districts','/appeals','/messages','/users'];
+const menuKeys:Record<string,string>={photos:'/photos','photo-map':'/photo-map',districts:'/districts',appeals:'/appeals',messages:'/messages',accounts:'/users'};
 const emptyMeta:InspectionMeta={districts:[],work_types:[],today:new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Yekaterinburg',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),timezone:'Asia/Yekaterinburg',yandex_maps_api_key:''};
 
 export default function InspectorApp() {
@@ -39,20 +38,20 @@ export default function InspectorApp() {
   const sidebar=useSidebar();
   const [organizations,setOrganizations]=useState<Organization[]>([]),[scanner,setScanner]=useState(false),[busy,setBusy]=useState(false);
   const [params,setParams]=useSearchParams(),navigate=useNavigate();
-  const [photos,setPhotos]=useState<PhotoPage>({items:[],total:0,page:1,page_size:40}),[report,setReport]=useState<InspectionReport|null>(null);
+  const [photos,setPhotos]=useState<PhotoPage>({items:[],total:0,page:1,page_size:40});
   const [meta,setMeta]=useState<InspectionMeta>(emptyMeta);
   const [revision,setRevision]=useState(0),[dataLoading,setDataLoading]=useState(false);
   const invitation=useRef<string|null>(null),redeeming=useRef(false),openedHere=useRef(false);
   const location=useLocation(),photoPosition=useRef<InspectionPhotoPosition|null>(null);
   const pathPhoto=location.pathname.match(/^\/inspection\/photos\/([1-9]\d*)$/)?.[1];
-  const org=params.get('org') || '',tab=params.get('tab') || 'photos',photoId=Number(pathPhoto||params.get('photo'));
+  const org=params.get('org') || '',tab=params.get('tab')==='reports'?'photos':params.get('tab') || 'photos',photoId=Number(pathPhoto||params.get('photo'));
   const viewingPhoto=!!org&&Number.isSafeInteger(photoId)&&photoId>0;
   const page=Math.max(1,Number(params.get('page'))||1),orgInfo=organizations.find(o=>o.id===org);
   const filters=new URLSearchParams();for(const key of inspectionFilterKeys){const value=params.get(key);if(value)filters.set(key,value);}
   const filterQuery=filters.toString(),base='/inspection/organizations/'+org;
   const appealOrganization = org || organizations[0]?.id || '';
   const appeals = useAppealNotifications(!!user && organizations.length > 0, user?.id, '/inspection/appeals/notifications');
-  useEffect(()=>{if(params.has('work_type'))setParams(previous=>{const next=new URLSearchParams(previous);next.delete('work_type');return next;},{replace:true});},[params,setParams]);
+  useEffect(()=>{if(params.has('work_type')||params.get('tab')==='reports')setParams(previous=>{const next=new URLSearchParams(previous);next.delete('work_type');if(next.get('tab')==='reports')next.set('tab','photos');return next;},{replace:true});},[params,setParams]);
   useLayoutEffect(()=>{if(!viewingPhoto&&photoPosition.current){const previous=photoPosition.current;photoPosition.current=null;window.scrollTo(0,previous.scrollY);const log=document.querySelector<HTMLElement>('.operator-message-list'),table=document.querySelector<HTMLElement>('.inspection-photos .table-scroll');if(log&&previous.chatScrollTop!==undefined)log.scrollTop=previous.chatScrollTop;if(table&&previous.tableScrollLeft!==undefined)table.scrollLeft=previous.tableScrollLeft;if(previous.focus?.isConnected)previous.focus.focus({preventScroll:true});}},[viewingPhoto]);
   function signedIn(account: User) {if(account.role==='INSPECTOR')setUser(account as Inspector);else window.location.replace(signInDestination(account));}
   async function loadOrganizations(){const list=await api<Organization[]>('/inspection/organizations');setOrganizations(list);return list;}
@@ -61,7 +60,7 @@ export default function InspectorApp() {
     if(token){try{invitation.current=invitationToken(token);sessionStorage.setItem('inspection-pending-invite',invitation.current);}catch{}window.history.replaceState(window.history.state,'',window.location.pathname+window.location.search);}
     else invitation.current=sessionStorage.getItem('inspection-pending-invite');
     api<Inspector>('/inspection/me').then(setUser).catch(e=>{if(e.status!==401)setError(e.message);}).finally(()=>setLoading(false));
-    const expired=()=>{setUser(null);setOrganizations([]);setPhotos({items:[],total:0,page:1,page_size:40});setReport(null);};
+    const expired=()=>{setUser(null);setOrganizations([]);setPhotos({items:[],total:0,page:1,page_size:40});};
     window.addEventListener('session-expired',expired);return()=>window.removeEventListener('session-expired',expired);
   },[]);
   async function redeem(token: string) {
@@ -74,12 +73,11 @@ export default function InspectorApp() {
     const abort=new AbortController();api<InspectionMeta>(base+'/meta','GET',undefined,abort.signal).then(value=>setMeta({...emptyMeta,...value})).catch(e=>{if(!abort.signal.aborted)setError(e.message);});return()=>abort.abort();
   },[user?.id,org,revision]);
   useEffect(()=>{
-    setPhotos({items:[],total:0,page:1,page_size:40});setReport(null);setDataLoading(false);
-    if(!user||!org||!['photos','reports'].includes(tab))return;
+    setPhotos({items:[],total:0,page:1,page_size:40});setDataLoading(false);
+    if(!user||!org||tab!=='photos')return;
     const abort=new AbortController();setDataLoading(true);setError('');
     const suffix='?'+filterQuery+(filterQuery?'&':'')+'page='+page;
-    const request=tab==='photos'?api<PhotoPage>(base+'/photos'+suffix,'GET',undefined,abort.signal).then(setPhotos):
-      api<InspectionReport>(base+'/reports'+suffix,'GET',undefined,abort.signal).then(setReport);
+    const request=api<PhotoPage>(base+'/photos'+suffix,'GET',undefined,abort.signal).then(setPhotos);
     request.catch(e=>{if(!abort.signal.aborted)setError(e.message);}).finally(()=>{if(!abort.signal.aborted)setDataLoading(false);});return()=>abort.abort();
   },[user?.id,org,tab,filterQuery,page,revision]);
   useEffect(()=>{const refresh=()=>setRevision(v=>v+1);window.addEventListener('refresh-photo-list',refresh);return()=>window.removeEventListener('refresh-photo-list',refresh);},[]);
@@ -134,8 +132,8 @@ export default function InspectorApp() {
         {notice&&<div className="organization-notice" role="status">{notice}<button className="text-button" aria-label="Закрыть уведомление" onClick={()=>setNotice('')}>×</button></div>}
         {appeals.notice > 0 && <div className="organization-notice" role="status">Новых обращений: {appeals.notice}. <Link to={sectionLink('appeals', {org: appeals.organizationId || appealOrganization})} onClick={appeals.dismiss}>Открыть обращения</Link><button onClick={appeals.dismiss} aria-label="Закрыть уведомление об обращениях">×</button></div>}
         <div hidden={viewingPhoto}>
-        {tab!=='settings'&&(!org||!['districts','appeals'].includes(tab))&&<header className="page-header"><div><span className="eyebrow">{tab==='photos'&&org?'АРХИВ ФОТОГРАФИЙ':tab==='reports'?'ЕЖЕДНЕВНЫЙ ОТЧЁТ':'КАБИНЕТ ПРОВЕРЯЮЩЕГО'}</span><h1>{title}</h1>
-          <p>{tab==='photos'&&org?'Фотографии выполненных работ после закрытия дня в Метке.':tab==='reports'?'Выполненные работы в цифрах и фотографиях.':tab==='photo-map'?'География снимков за выбранный период.':tab==='messages'?'Личные переписки с администраторами организаций и коллегами.':tab==='accounts'?'Сотрудники вашей администрации.':'Выберите организацию или отсканируйте QR для получения доступа.'}</p></div>
+        {tab!=='settings'&&(!org||!['districts','appeals'].includes(tab))&&<header className="page-header"><div><span className="eyebrow">{tab==='photos'&&org?'АРХИВ ФОТОГРАФИЙ':'КАБИНЕТ ПРОВЕРЯЮЩЕГО'}</span><h1>{title}</h1>
+          <p>{tab==='photos'&&org?'Фотографии выполненных работ после закрытия дня в Метке.':tab==='photo-map'?'География снимков за выбранный период.':tab==='messages'?'Личные переписки с администраторами организаций и коллегами.':tab==='accounts'?'Сотрудники вашей администрации.':'Выберите организацию или отсканируйте QR для получения доступа.'}</p></div>
           <div className="inspection-actions"><button disabled={busy||dataLoading} onClick={()=>{setRevision(v=>v+1);void loadOrganizations().catch(e=>setError(e.message));}}><RefreshCw size={17}/>Обновить</button>
             {tab==='photos'&&org&&<button onClick={()=>change({tab:'photo-map'})}><MapPin size={17}/>На карте</button>}
             <button className={!org?'primary':''} disabled={busy} onClick={()=>setScanner(v=>!v)}><QrCode size={18}/>Сканировать QR</button></div></header>}
@@ -150,7 +148,7 @@ export default function InspectorApp() {
         tab==='appeals'?<InspectionAppeals key={org} organizationId={org} inspectorId={user.id} refreshKey={revision}/>:
         <>
           {tab==='photos'&&<PhotoNumberSearch owner={false} endpoint={base+'/photos'} open={openPhoto} description="Поиск среди фотографий закрытых дней этой организации, независимо от даты и фильтров."/>}
-          {['photos','reports','photo-map'].includes(tab)&&<InspectionFilters meta={meta} filters={Object.fromEntries(filters)} base={base} change={change}/>}
+          {['photos','photo-map'].includes(tab)&&<InspectionFilters meta={meta} filters={Object.fromEntries(filters)} change={change}/>}
           {dataLoading&&<p className="loading">Загружаем данные…</p>}
           {tab==='photos'&&<>
             <section className="panel photo-panel inspection-photos"><div className="section-title"><h2>Все фотографии <span className="count-pill appeal-count">{photos.total}</span></h2><span>Закрытые дни</span></div>
@@ -158,7 +156,6 @@ export default function InspectorApp() {
               {!photos.items.length&&!dataLoading&&<p className="empty">За выбранный период нет фотографий закрытых дней.</p>}
               {photos.total>0&&<div className="pagination"><span>Страница {photos.page} из {Math.max(1,Math.ceil(photos.total/photos.page_size))}</span><button disabled={photos.page<=1} onClick={()=>update('page',String(photos.page-1))}><ChevronLeft size={16}/>Назад</button><button disabled={photos.page*photos.page_size>=photos.total} onClick={()=>update('page',String(photos.page+1))}>Далее<ChevronRight size={16}/></button></div>}
             </section></>}
-          {tab==='reports'&&report&&<InspectionOverview report={report} meta={meta} filters={Object.fromEntries(filters)} open={values=>change({...values,tab:'photos'})}/>}
           {tab==='photo-map'&&<InspectionPhotoMap key={org} base={base} filters={filterQuery} meta={meta} revision={revision} openPhoto={openPhoto} photoLink={id=>sectionLink('photo-map',{photo:String(id)})} showList={()=>change({tab:'photos'})}/>}
         </>}
         </div>

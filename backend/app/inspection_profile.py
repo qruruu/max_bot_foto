@@ -10,7 +10,7 @@ from app.auth import Db, hasher, verify_password
 from app.avatars import MAX_AVATAR_BYTES, normalize_avatar
 from app.config import base_settings
 from app.domain import audit, now
-from app.inspection_auth import InspectorUser, inspector_dict, lock_inspector
+from app.inspection_auth import INSPECTION_MENU, InspectorUser, inspector_dict, lock_inspector
 from app.inspections import router
 from app.models import InspectionSession
 from app.schemas import PasswordInput, SidebarOrderInput
@@ -50,7 +50,7 @@ def remove_avatar(db: Db, user: InspectorUser):
 
 @router.put("/sidebar-order")
 def sidebar_order(body: SidebarOrderInput, db: Db, user: InspectorUser):
-    user.sidebar_order = body.sidebar_order
+    user.sidebar_order = [key for key in body.sidebar_order if key in INSPECTION_MENU]
     db.commit()
     return {"sidebar_order": user.sidebar_order}
 

@@ -8,7 +8,6 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from test_organizations import companies as companies
@@ -122,14 +121,15 @@ def test_single_use_qr_is_personal_replaced_expired_and_atomic(inspection):
     assert clients[winner].post("/api/inspection/redeem", json={"token": token}).status_code == 409
 
 
-def test_closure_gates_every_photo_route_and_report_and_safe_export(inspection):
+def test_closure_gates_every_photo_route_and_reports_are_unavailable(inspection):
     owner, scopes, _, _, accounts, clients = inspection
     scope, client = scopes[0], clients[0]
     grant(owner, client, scope)
     seed_photos(scope)
     base = f"/api/inspection/organizations/{scope.id}"
     assert client.get(base + "/photos").json()["total"] == 0
-    assert client.get(base + "/reports").json()["total"] == 0
+    assert client.get(base + "/reports").status_code == 404
+    assert client.get(base + "/export.xlsx").status_code == 404
     assert client.get(base + "/photos/map").json()["summary"]["total"] == 0
     assert client.get(base + "/photos/arrivals").json() == {"photo_ids": []}
     for suffix in ("", "/preview", "/original", "/navigation"):
@@ -140,7 +140,7 @@ def test_closure_gates_every_photo_route_and_report_and_safe_export(inspection):
     assert client.get(base + "/photos/10/preview").content == b"safe preview"
     serialized = json.dumps(result) + client.get(base + "/photos/10").text + client.get(base + "/meta").text
     assert not any(secret in serialized for secret in ("chat", "sender", "operator", "source", "ai_", "ocr", "filename", "disk", "secret"))
-    assert client.get(base + "/reports").json()["total"] == 2
+    assert client.get(base + "/reports").status_code == 404
     points = client.get(base + "/photos/map").json()
     assert points["summary"] == {"total": 2, "located": 2, "without_coordinates": 0}
     assert [p["id"] for p in points["items"]] == [10, 20]
@@ -157,11 +157,8 @@ def test_closure_gates_every_photo_route_and_report_and_safe_export(inspection):
         media_path(10).write_bytes(b"private-original")
     original = client.get(base + "/photos/10/original")
     assert original.content == b"private-original" and "secret" not in str(original.headers)
-    response = client.get(base + "/export.xlsx")
-    assert response.status_code == 200
-    workbook = load_workbook(BytesIO(response.content))
-    exported = str([[row for row in sheet.values] for sheet in workbook])
-    assert not any(secret in exported for secret in ("Секретный", "Нейросеть", "Источник", "Оператор", "secret", "987654321"))
+    assert client.get(base + "/export.xlsx").status_code == 404
+    assert client.get(scope.prefix + "/api/reports").status_code == 401
     with organization_scope(scope), Session(engine()) as db:
         db.get(Photo, 10).is_defect = True
         db.commit()
@@ -500,8 +497,14 @@ def test_inspector_avatar_sidebar_and_device_sessions_are_personal(inspection):
     assert other.get(avatar_url).status_code == 404
     assert client.put('/api/inspection/avatar', content=b'invalid').status_code == 422
     assert client.put('/api/inspection/sidebar-order', json={'sidebar_order': ['/photos', '/districts', '/']}).status_code == 200
-    assert client.get('/api/inspection/me').json()['sidebar_order'] == ['/photos', '/districts', '/']
-    assert other.get('/api/inspection/me').json()['sidebar_order'] != ['/photos', '/districts', '/']
+    assert client.get('/api/inspection/me').json()['sidebar_order'] == ['/photos', '/districts']
+    assert other.get('/api/inspection/me').json()['sidebar_order'] != ['/photos', '/districts']
+    assert '/' not in other.get('/api/inspection/me').json()['sidebar_order']
+    with control_session() as db:
+        account = db.get(Inspector, client.get('/api/inspection/me').json()['id'])
+        account.sidebar_order = ['/', '/photos', '/districts']
+        db.commit()
+    assert client.get('/api/inspection/me').json()['sidebar_order'] == ['/photos', '/districts']
     assert client.put('/api/inspection/sidebar-order', json={'sidebar_order': ['/forbidden']}).status_code == 422
     with TestClient(app) as second:
         assert second.post('/api/auth/login', json={'login': 'inspector0', 'password': PASSWORD},

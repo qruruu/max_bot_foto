@@ -9,9 +9,6 @@ export type InspectionPhoto = {id: number; photo_date: string | null; photo_time
   detected_address: string | null; detected_city: string | null; preview_url: string};
 export type PhotoPage = {items: InspectionPhoto[]; total: number; page: number; page_size: number};
 export type InspectionMeta = Pick<Meta, 'districts' | 'work_types' | 'today' | 'timezone' | 'yandex_maps_api_key'>;
-export type InspectionReport = {total: number; defects: number; districts: Breakdown[]; work_types: Breakdown[];
-  work_district_matrix: {work_type: string; district_id: number; count: number}[]};
-export type Breakdown = {id: string | number; name: string; count: number};
 export type Appeal = {id: number; organization_name: string; address: string; place: string; description: string;
   work_type_name: string; category: string; status: string; created_at: string; photos: {id: string; url: string}[]};
 export type Contact = {key: string; name: string; kind: string; organization_name: string | null; avatar_url: string | null;
