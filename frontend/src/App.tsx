@@ -39,6 +39,7 @@ import './organizations.css';
 import { workspacePrefix } from './workspace';
 import Login, { SignInRedirect } from './Login';
 import { AppealNotice, useAppealNotifications } from './appeals/notifications';
+const PhotoRoutes = lazy(() => import('./photo-routes/PhotoRoutes'));
 const OwnerAppeals = lazy(() => import('./appeals/OwnerAppeals'));
 const InspectionAdministration = lazy(() => import('./inspection/Administration'));
 const DailyReports = lazy(() => import('./daily-reports/DailyReports'));
@@ -70,6 +71,7 @@ export default function App() {
     {to:'/news', label:'Новости', Icon:Newspaper, allowed:hasPermission(user,'news_view')},
     {to:'/photos', label:'Фотографии', Icon:Camera, allowed:hasPermission(user,'photos_view')},
     {to:'/photo-map', label:'Карта фотографий', Icon:MapPin, allowed:hasPermission(user,'photos_view')},
+    {to:'/photo-routes', label:'Маршруты по фото', Icon:Map, allowed:hasPermission(user,'photos_view')},
     {to:'/review', label:'Требуют проверки', Icon:ClipboardCheck, allowed:hasPermission(user,'photos_edit')},
     {to:'/days', label:'Проверка дней', Icon:CheckCheck, allowed:hasPermission(user,'days_review')},
     {to:'/daily-reports', label:'Ежедневные отчёты', Icon:ClipboardCheck, allowed:hasPermission(user,'daily_reports_view')},
@@ -116,6 +118,7 @@ export default function App() {
           <Route path="/news/:slug" element={protectedPage('news_view',<News owner={!!user.is_platform_owner}/>)}/>
           <Route path="/photos" element={protectedPage('photos_view',<PhotoList/>)}/>
           <Route path="/photo-map" element={protectedPage('photos_view',<PhotoMap/>)}/>
+          <Route path="/photo-routes" element={protectedPage('photos_view',<Suspense fallback={<p>Открываем маршруты…</p>}><PhotoRoutes/></Suspense>)}/>
           <Route path="/review" element={protectedPage('photos_edit',<PhotoList review/>)}/>
           <Route path="/days" element={protectedPage('days_review',<DayReviews/>)}/>
           <Route path="/daily-reports" element={protectedPage('daily_reports_view',<Suspense fallback={<p className="loading">Открываем отчётность…</p>}><DailyReports/></Suspense>)}/>

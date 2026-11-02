@@ -100,6 +100,7 @@ from app.permissions import (
 from app.photo_ordering import apply_sort_permission, photo_order, photo_position
 from app.photo_promotion import production_duplicate
 from app.photo_promotion import router as photo_promotion_router
+from app.photo_routes import router as photo_routes_router
 from app.photo_scope import active_cohort, active_cohort_condition
 from app.receiver import connection_status, received
 from app.reports import export_excel, filtered, photo_dict, photo_list_position, summarize
@@ -128,6 +129,7 @@ app = FastAPI(
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
 )
+app.include_router(photo_routes_router)
 app.include_router(auth_router)
 app.include_router(inspection_router)
 app.include_router(inspection_owner_router)
@@ -221,7 +223,7 @@ def meta(db: Db, user: CurrentUser):
         "statuses": list(Status),
         "timezone": settings().app_timezone,
         "yandex_maps_api_key": settings().yandex_maps_api_key
-        if has_permission(user, Permission.DISTRICTS_VIEW)
+        if has_permission(user, Permission.DISTRICTS_VIEW) or has_permission(user, Permission.PHOTOS_VIEW)
         else "",
         "permission_catalog": permission_catalog(),
         "today": now().astimezone(ZoneInfo(settings().app_timezone)).date(),

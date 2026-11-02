@@ -3,6 +3,7 @@ import type { MultiPolygon, Polygon, Position } from 'geojson';
 export type Coordinates = number[][][];
 export interface YMapEvent { get(name: string): unknown }
 export interface YMarker { geometry: {setCoordinates(coordinates: number[]): void} }
+export interface YPolyline { geometry: {setCoordinates(coordinates: number[][]): void} }
 export interface YPolygon {
   geometry: { getCoordinates(): Coordinates; getBounds(): number[][] | null };
   editor: { startDrawing(): void; stopDrawing(): void; startEditing(): void; stopEditing(): void };
@@ -10,7 +11,7 @@ export interface YPolygon {
 }
 export interface YMap {
   container?: {fitToViewport(): void};
-  geoObjects: { add(object: YPolygon | YObjectManager | YMarker): void; remove(object: YPolygon | YObjectManager | YMarker): void; getBounds(): number[][] | null };
+  geoObjects: { add(object: YPolygon | YObjectManager | YMarker | YPolyline): void; remove(object: YPolygon | YObjectManager | YMarker | YPolyline): void; getBounds(): number[][] | null };
   events?: {add(name: string, callback: (event: YMapEvent) => void): void};
   setBounds(bounds: number[][], options?: Record<string, unknown>): void;
   destroy(): void;
@@ -39,6 +40,7 @@ export interface YMaps {
   ready(callback: () => void): void;
   Map: new (container: HTMLElement, state: Record<string, unknown>, options?: Record<string, unknown>) => YMap;
   Polygon: new (coordinates: Coordinates, properties?: Record<string, unknown>, options?: Record<string, unknown>) => YPolygon;
+  Polyline?: new (coordinates: number[][], properties?: Record<string, unknown>, options?: Record<string, unknown>) => YPolyline;
   Placemark?: new (coordinates: number[], properties?: Record<string, unknown>, options?: Record<string, unknown>) => YMarker;
   ObjectManager: new (options?: Record<string, unknown>) => YObjectManager;
   templateLayoutFactory: {

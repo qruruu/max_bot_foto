@@ -565,6 +565,19 @@ class District(Timestamps, Base):
     geometry: Mapped[object] = mapped_column(Geometry("MULTIPOLYGON", srid=4326, spatial_index=True))
 
 
+class PhotoRoutePlan(Timestamps, Base):
+    __tablename__ = "photo_route_plans"
+    district_id: Mapped[int] = mapped_column(ForeignKey("districts.id"), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    chat_ids: Mapped[list] = mapped_column(JSONB, default=list)
+    paths: Mapped[list] = mapped_column(JSONB, default=list)
+    buildings: Mapped[list] = mapped_column(JSONB, default=list)
+    buildings_source: Mapped[str] = mapped_column(String(100), default="manual")
+    snap_m: Mapped[int] = mapped_column(Integer, default=25)
+    max_gap_minutes: Mapped[int] = mapped_column(Integer, default=45)
+
+
 class Inbox(Base):
     __tablename__ = "inbox"
     id: Mapped[int] = mapped_column(primary_key=True)

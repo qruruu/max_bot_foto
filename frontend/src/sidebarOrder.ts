@@ -1,5 +1,5 @@
 export const defaultSidebarOrder = [
-  '/', '/news', '/photos', '/photo-map', '/review', '/days', '/spam', '/districts', '/appeals', '/messages',
+  '/', '/news', '/photos', '/photo-map', '/photo-routes', '/review', '/days', '/spam', '/districts', '/appeals', '/messages',
   '/chats', '/work-types', '/users', '/audit', '/jobs', '/exchange', '/learning', '/daily-reports', '/inspectors',
 ] as const;
 
