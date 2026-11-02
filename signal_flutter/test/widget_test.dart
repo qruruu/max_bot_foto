@@ -91,7 +91,7 @@ void main() {
         tester.view.resetDevicePixelRatio();
       });
       final requests = <String>[];
-      final browser = MemoryBrowser();
+      final browser = PickingBrowser();
       final c = SignalController(
         browser: browser,
         api: SignalApi(
@@ -108,14 +108,15 @@ void main() {
       await tester.pumpAndSettle();
       c.newAppeal();
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Далее'));
+      await tester.ensureVisible(find.text('Выбрать место на карте'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Далее'));
+      await tester.tap(find.text('Выбрать место на карте'));
       await tester.pumpAndSettle();
       expect(c.step, 1);
-      expect(find.text('Отметьте место проблемы на карте'), findsOneWidget);
-      c.selectPoint(72.6, 61.1);
-      c.nextStep();
+      expect(find.text('Подтвердить место'), findsOneWidget);
+      browser.pickPoint!(72.6, 61.1);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Подтвердить место'));
       await tester.pumpAndSettle();
       final submit = find.widgetWithText(FilledButton, 'Отправить обращение');
       await tester.ensureVisible(submit);
@@ -179,7 +180,7 @@ void main() {
             );
       debugNetworkImageHttpClientProvider = () =>
           ImageHttpOverrides(image).createHttpClient(null);
-      final browser = MemoryBrowser();
+      final browser = PickingBrowser();
       final client = MockClient(
         (request) async => responses.json(
           request.url.path.endsWith('/catalog')
@@ -256,12 +257,14 @@ void main() {
       await tester.tap(find.text('Сообщить о проблеме'));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      expect(find.text('Далее'), findsOneWidget);
-      c.selectPoint(72.6, 61.1);
+      expect(find.text('Выбрать место на карте'), findsOneWidget);
+      await tester.ensureVisible(find.text('Выбрать место на карте'));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Далее'));
+      await tester.tap(find.text('Выбрать место на карте'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Далее'));
+      browser.pickPoint!(72.6, 61.1);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Подтвердить место'));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.text('Тема обращения'), findsOneWidget);
@@ -484,7 +487,7 @@ void main() {
       c.selectPoint(72.6, 61.1);
       await tester.tap(find.text('Сообщить о проблеме'));
       await tester.pumpAndSettle();
-      expect(find.text('Карта территории'), findsOneWidget);
+      expect(find.text('Карта территории'), findsNothing);
       await tester.tap(find.text('12 мкр'));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -500,6 +503,8 @@ void main() {
       expect(c.form.longitude, isNull);
       expect(find.byType(BottomSheet), findsNothing);
       expect(find.text('Карта территории'), findsOneWidget);
+      await tester.tap(find.byTooltip('Назад к территории'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('1 мкр'));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
@@ -516,12 +521,16 @@ void main() {
       await tester.pumpAndSettle();
       expect(c.form.address, 'СУ-62');
       expect(c.form.addressId, 'area-17');
+      await tester.tap(find.byTooltip('Назад к территории'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('СУ-62'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ListTile, '11А мкр'));
       await tester.pumpAndSettle();
       expect(c.form.addressId, 'area-0');
       for (var i = 0; i < names.length; i++) {
+        await tester.tap(find.byTooltip('Назад к территории'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text(c.form.address));
         await tester.pumpAndSettle();
         await tester.enterText(
@@ -602,6 +611,7 @@ class _MapBrowser extends MemoryBrowser {
     double? latitude,
     void Function(double longitude, double latitude)? onPoint,
     ValueChanged<String>? onOrganization,
+    ValueChanged<bool>? onReady,
   }) {
     this.overview = overview;
     organization = organizationId;
@@ -629,6 +639,7 @@ class _ScrollMapBrowser extends MemoryBrowser {
     double? latitude,
     void Function(double longitude, double latitude)? onPoint,
     ValueChanged<String>? onOrganization,
+    ValueChanged<bool>? onReady,
   }) => _MapLifetime(browser: this);
 }
 

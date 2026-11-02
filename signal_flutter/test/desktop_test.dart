@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:signal_citizens/api.dart';
 import 'package:signal_citizens/app.dart';
-import 'package:signal_citizens/browser_stub.dart';
 import 'package:signal_citizens/controller.dart';
 import 'package:signal_citizens/models.dart';
 import 'package:signal_citizens/widgets/desktop_appeal_card.dart';
@@ -46,7 +45,7 @@ void main() {
               );
         debugNetworkImageHttpClientProvider = () =>
             ImageHttpOverrides(bytes).createHttpClient(null);
-        final browser = MemoryBrowser()
+        final browser = PickingBrowser()
           ..draft = AppealDraft(
             form: AppealForm(city: 'Нефтеюганск'),
             photos: [],
@@ -169,14 +168,8 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('Сообщить о проблеме'));
         await tester.pumpAndSettle();
-        expect(
-          find.byKey(const ValueKey('desktop-place-columns')),
-          findsOneWidget,
-        );
-        expect(
-          find.text('Выберите территорию,\nчтобы открыть карту'),
-          findsOneWidget,
-        );
+        expect(find.text('Выбрать место на карте'), findsOneWidget);
+        expect(find.text('Карта территории'), findsNothing);
         expect(tester.takeException(), isNull);
         if (width == 1024 &&
             Platform.environment['SIGNAL_WRITE_PREVIEWS'] == '1') {
@@ -189,9 +182,9 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.widgetWithText(ListTile, '12 мкр'));
         await tester.pumpAndSettle();
-        c.selectPoint(72.6, 61.1);
+        browser.pickPoint!(72.6, 61.1);
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Далее'));
+        await tester.tap(find.text('Подтвердить место'));
         await tester.pumpAndSettle();
         expect(
           find.byKey(const ValueKey('desktop-description-columns')),

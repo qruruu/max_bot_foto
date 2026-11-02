@@ -129,29 +129,32 @@ void main() {
     },
   );
 
-  test('a subject-only draft survives and opens the questionnaire', () async {
-    final browser = MemoryBrowser()
-      ..draft = AppealDraft(
-        form: AppealForm(subject: 'Сломана скамейка'),
-        photos: [],
-      );
-    final c = SignalController(
-      api: SignalApi(
-        origin: browser.location,
-        client: MockClient(
-          (request) async => json(
-            request.url.path.endsWith('/catalog') ? catalogJson : emptyWall,
+  test(
+    'a subject-only draft survives and first requires a confirmed place',
+    () async {
+      final browser = MemoryBrowser()
+        ..draft = AppealDraft(
+          form: AppealForm(subject: 'Сломана скамейка'),
+          photos: [],
+        );
+      final c = SignalController(
+        api: SignalApi(
+          origin: browser.location,
+          client: MockClient(
+            (request) async => json(
+              request.url.path.endsWith('/catalog') ? catalogJson : emptyWall,
+            ),
           ),
         ),
-      ),
-      browser: browser,
-    );
-    await c.initialize();
-    expect(c.form.subject, 'Сломана скамейка');
-    expect(c.tab, 1);
-    expect(c.step, 2);
-    c.dispose();
-  });
+        browser: browser,
+      );
+      await c.initialize();
+      expect(c.form.subject, 'Сломана скамейка');
+      expect(c.tab, 1);
+      expect(c.step, 1);
+      c.dispose();
+    },
+  );
 
   test(
     'subject and photos are submitted once and an uncertain receipt is recovered without a duplicate',

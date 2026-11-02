@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../controller.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import 'place_picker.dart';
 
 class IntakeScreen extends StatefulWidget {
   const IntakeScreen({super.key, required this.controller});
@@ -95,7 +96,7 @@ class _IntakeScreenState extends State<IntakeScreen> {
             color: const Color(0xffeaf3eb),
             borderRadius: BorderRadius.circular(10),
             child: InkWell(
-              onTap: c.locked ? null : c.backStep,
+              onTap: c.locked ? null : () => pickAppealPlace(context, c),
               borderRadius: BorderRadius.circular(10),
               child: Padding(
                 padding: EdgeInsets.symmetric(
@@ -413,9 +414,7 @@ class _PlaceStep extends StatefulWidget {
 
 class _PlaceStepState extends State<_PlaceStep> {
   bool _attempted = false;
-  final _organization = GlobalKey(),
-      _territory = GlobalKey(),
-      _map = GlobalKey();
+  final _organization = GlobalKey(), _territory = GlobalKey();
   @override
   Widget build(BuildContext context) {
     final c = widget.controller, recipient = c.recipient;
@@ -431,7 +430,10 @@ class _PlaceStepState extends State<_PlaceStep> {
           enabled: !c.locked,
           compact: desktop,
           placeholder: 'Выберите организацию',
-          onChanged: c.selectOrganization,
+          onChanged: (value) {
+            c.selectOrganization(value);
+            if (c.address != null) pickAppealPlace(context, c);
+          },
         ),
       ),
       if (recipient != null) ...[
@@ -448,7 +450,10 @@ class _PlaceStepState extends State<_PlaceStep> {
             enabled: !c.locked,
             compact: desktop,
             placeholder: 'Выберите территорию',
-            onChanged: c.selectAddress,
+            onChanged: (value) {
+              c.selectAddress(value);
+              pickAppealPlace(context, c);
+            },
           ),
         ),
         const SizedBox(height: 12),
@@ -496,75 +501,38 @@ class _PlaceStepState extends State<_PlaceStep> {
         onPressed: c.locked
             ? null
             : () {
-                if (c.form.located) {
-                  c.nextStep();
+                if (c.address != null) {
+                  pickAppealPlace(context, c);
                   return;
                 }
                 setState(() => _attempted = true);
-                _reveal(
-                  recipient == null
-                      ? _organization
-                      : c.address == null
-                      ? _territory
-                      : _map,
-                );
+                _reveal(recipient == null ? _organization : _territory);
               },
         child: const Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text('Далее'),
+            Flexible(
+              child: Text(
+                'Выбрать место на карте',
+                textAlign: TextAlign.center,
+              ),
+            ),
             SizedBox(width: 9),
             Icon(Icons.arrow_forward, size: 18),
           ],
         ),
       ),
     );
-    if (desktop) {
-      return Row(
-        key: const ValueKey('desktop-place-columns'),
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            flex: 42,
-            child: SectionCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [...selection, const SizedBox(height: 28), next],
-              ),
-            ),
+    return Align(
+      alignment: Alignment.topLeft,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: desktop ? 640 : double.infinity),
+        child: SectionCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [...selection, const SizedBox(height: 20), next],
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            flex: 58,
-            child: _ValidationHighlight(
-              key: _map,
-              error: _attempted && c.address != null && !c.form.located
-                  ? 'Отметьте место проблемы на карте'
-                  : null,
-              child: _PlaceMap(controller: c, desktop: true),
-            ),
-          ),
-        ],
-      );
-    }
-    return SectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ...selection,
-          if (recipient != null && c.address != null) ...[
-            const SizedBox(height: 15),
-            _ValidationHighlight(
-              key: _map,
-              error: _attempted && !c.form.located
-                  ? 'Отметьте место проблемы на карте'
-                  : null,
-              child: _PlaceMap(controller: c),
-            ),
-          ],
-          const SizedBox(height: 20),
-          next,
-        ],
+        ),
       ),
     );
   }
@@ -611,116 +579,6 @@ class _ValidationHighlight extends StatelessWidget {
               child: Text(error!, style: TextStyle(color: color, fontSize: 12)),
             ),
           ),
-      ],
-    );
-  }
-}
-
-class _PlaceMap extends StatelessWidget {
-  const _PlaceMap({required this.controller, this.desktop = false});
-  final SignalController controller;
-  final bool desktop;
-  @override
-  Widget build(BuildContext context) {
-    final c = controller, address = controller.address;
-    final waiting = address == null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          height: desktop ? 284 : 300,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: IgnorePointer(
-                    ignoring: c.locked || waiting,
-                    child: c.browser.map(
-                      apiKey: c.catalog?.mapKey ?? '',
-                      organizations: c.organizations,
-                      organizationId: c.recipient?.id ?? '',
-                      overview: waiting,
-                      districtId: address?['district_id'] as int?,
-                      longitude: c.form.longitude,
-                      latitude: c.form.latitude,
-                      onPoint: waiting ? null : c.selectPoint,
-                    ),
-                  ),
-                ),
-                if (waiting)
-                  Positioned.fill(
-                    child: MapSafe(
-                      child: ColoredBox(
-                        color: const Color(0xb8f6f9f7),
-                        child: const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(24),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.location_on_outlined,
-                                  size: 34,
-                                  color: Color(0xff63737b),
-                                ),
-                                SizedBox(height: 12),
-                                Text(
-                                  'Выберите территорию,\nчтобы открыть карту',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: desktopInk,
-                                  ),
-                                ),
-                                SizedBox(height: 8),
-                                Text(
-                                  'После выбора территории здесь отобразится карта с границами\nи возможностью отметить место проблемы.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    height: 1.5,
-                                    color: muted,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        if (!waiting) ...[
-          const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                Icons.location_on,
-                size: 19,
-                color: c.form.located ? green : const Color(0xff8a805c),
-              ),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  c.form.located
-                      ? 'Место отмечено. Можно описать проблему.'
-                      : 'Отметьте место проблемы на карте.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: c.form.located ? green : const Color(0xff758271),
-                    height: 1.5,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
       ],
     );
   }
@@ -778,24 +636,28 @@ class _Photos extends StatelessWidget {
                 )
               : const Padding(
                   padding: EdgeInsets.all(12),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.add_photo_alternate_outlined,
-                        color: Color(0xff4b805c),
-                        size: 29,
-                      ),
-                      SizedBox(height: 7),
-                      Text(
-                        'Добавить фото',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Color(0xff427553),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.add_photo_alternate_outlined,
+                          color: Color(0xff4b805c),
+                          size: 29,
                         ),
-                      ),
-                    ],
+                        SizedBox(height: 7),
+                        Text(
+                          'Добавить фото',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Color(0xff427553),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
         ),

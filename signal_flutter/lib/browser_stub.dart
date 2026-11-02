@@ -49,9 +49,15 @@ class MemoryBrowser implements SignalBrowser {
     double? latitude,
     void Function(double longitude, double latitude)? onPoint,
     ValueChanged<String>? onOrganization,
-  }) => const ColoredBox(
-    color: Color(0xffe6ede6),
-    child: Center(child: Text('Карта территории')),
+    ValueChanged<bool>? onReady,
+  }) => Builder(
+    builder: (context) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => onReady?.call(true));
+      return const ColoredBox(
+        color: Color(0xffe6ede6),
+        child: Center(child: Text('Карта территории')),
+      );
+    },
   );
   @override
   Widget photoDropTarget({

@@ -1,4 +1,6 @@
 import 'dart:typed_data';
+import 'package:flutter/material.dart';
+import 'package:signal_citizens/browser_stub.dart';
 import 'package:signal_citizens/models.dart';
 
 const organizationId = '11111111-1111-4111-8111-111111111111';
@@ -75,3 +77,51 @@ AppealForm validForm() => AppealForm(
   subject: 'Не убрана детская площадка',
   description: 'Много листьев и мусора',
 );
+
+/// The full app uses this deterministic map in widget flow tests.
+class PickingBrowser extends MemoryBrowser {
+  void Function(double, double)? pickPoint;
+  double? shownLongitude, shownLatitude;
+  bool mapReady = true;
+  ValueChanged<bool>? readyChanged;
+
+  @override
+  Widget map({
+    required String apiKey,
+    required List<Organization> organizations,
+    String organizationId = '',
+    bool overview = false,
+    bool preview = false,
+    int? districtId,
+    double? longitude,
+    double? latitude,
+    void Function(double, double)? onPoint,
+    ValueChanged<String>? onOrganization,
+    ValueChanged<bool>? onReady,
+  }) {
+    if (onPoint == null) {
+      return super.map(apiKey: apiKey, organizations: organizations);
+    }
+    pickPoint = onPoint;
+    shownLongitude = longitude;
+    shownLatitude = latitude;
+    readyChanged = onReady;
+    return Builder(
+      builder: (_) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          onReady?.call(mapReady);
+        });
+        return GestureDetector(
+          key: const ValueKey('test-picking-map'),
+          onTap: () => onPoint(72.6, 61.1),
+          child: const ColoredBox(
+            color: paleMap,
+            child: Center(child: Text('Карта территории')),
+          ),
+        );
+      },
+    );
+  }
+
+  static const paleMap = Color(0xffe6ede6);
+}

@@ -21,16 +21,30 @@ function harness({connected = false, width = 0, height = 0, sdkReady = true} = {
   const api = {
     ready: callback => callback(),
     Map: class {
-      constructor(container) {
+      constructor(container, options) {
         assert.equal(container.isConnected, true);
         assert.ok(container.width > 0 && container.height > 0);
         this.fits = 0; this.destroyed = false;
         this.container = {fitToViewport: () => this.fits++};
-        this.events = {add: noop};
-        this.geoObjects = {getBounds: () => null};
+        this.options = options;
+        this.handlers = {};
+        this.events = {add: (name, handler) => {this.handlers[name] = handler;}};
+        this.objects = [];
+        this.geoObjects = {
+          getBounds: () => null,
+          add: object => this.objects.push(object),
+          remove: object => {this.objects = this.objects.filter(item => item !== object);},
+        };
         layers.push(this);
       }
       destroy() {this.destroyed = true;}
+      setBounds(bounds) {this.bounds = bounds;}
+    },
+    Polygon: class {
+      constructor() {this.events = {add: noop};}
+    },
+    Placemark: class {
+      constructor(coordinates) {this.coordinates = coordinates;}
     },
   };
   const window = {addEventListener: noop, ymaps: api};
@@ -61,6 +75,7 @@ function harness({connected = false, width = 0, height = 0, sdkReady = true} = {
     tick,
     async resize() {for (const observer of [...observers]) observer.callback(); await tick();},
     releaseSdk() {script.onload();},
+    failSdk() {script.onerror();},
   };
 }
 
@@ -124,5 +139,47 @@ test('late SDK completion cannot create a map that has already been closed', asy
   await h.tick();
   await cancelled;
   assert.equal(h.layers.length, 0);
+  assert.equal(h.observers.size, 0);
+});
+
+test('failed SDK loading can be retried on the same container', async () => {
+  const h = harness({connected: true, width: 390, height: 600, sdkReady: false});
+  const failed = assert.rejects(h.adapter.createMap(h.element, config, noop, noop), /Карта недоступна/);
+  h.failSdk();
+  await failed;
+  const result = h.adapter.createMap(h.element, config, noop, noop);
+  h.releaseSdk();
+  await h.tick();
+  h.adapter.destroyMap(await result);
+  assert.equal(h.layers.length, 1);
+  assert.equal(h.observers.size, 0);
+});
+
+test('picker fits the selected territory, restores its marker and keeps it through resize', async () => {
+  const h = harness({connected: true, width: 390, height: 600});
+  const territory = (id, left) => ({id, name: String(id), geometry: {
+    type: 'Polygon', coordinates: [[[left, 61], [left + 1, 61], [left + 1, 62], [left, 62], [left, 61]]],
+  }});
+  const selected = JSON.stringify({apiKey: 'test', organizationId: 'one', districtId: 2, picking: true,
+    point: [74.5, 61.5], organizations: [{id: 'one', name: 'Owner', color: '#165d47', territories: [territory(1, 72), territory(2, 74)]}],
+  });
+  const points = [];
+  const result = h.adapter.createMap(h.element, selected, (...point) => points.push(point), noop);
+  await h.tick();
+  const id = await result, layer = h.layers[0];
+  assert.equal(JSON.stringify(layer.bounds), JSON.stringify([[74, 61], [75, 62]]));
+  assert.equal(JSON.stringify(layer.options.controls), JSON.stringify(['zoomControl']));
+  assert.equal(JSON.stringify(layer.objects.at(-1).coordinates), '[74.5,61.5]');
+  layer.handlers.click({get: () => [74.6, 61.6]});
+  layer.handlers.click({get: () => [NaN, 61.6]});
+  assert.deepEqual(points, [[74.6, 61.6]]);
+  h.adapter.setMapPoint(id, 74.6, 61.6);
+  Object.assign(h.element, {width: 1440, height: 700});
+  await h.resize();
+  assert.equal(h.layers.length, 1);
+  assert.equal(layer.fits, 1);
+  assert.equal(JSON.stringify(layer.objects.at(-1).coordinates), '[74.6,61.6]');
+  assert.equal(layer.objects.length, 3, 'two territories and one marker');
+  h.adapter.destroyMap(id);
   assert.equal(h.observers.size, 0);
 });

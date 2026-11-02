@@ -104,6 +104,7 @@ class WebSignalBrowser implements SignalBrowser {
     double? latitude,
     void Function(double longitude, double latitude)? onPoint,
     ValueChanged<String>? onOrganization,
+    ValueChanged<bool>? onReady,
   }) => YandexMap(
     key: ValueKey('$organizationId:$districtId'),
     configuration: {
@@ -118,6 +119,7 @@ class WebSignalBrowser implements SignalBrowser {
     },
     onPoint: onPoint,
     onOrganization: onOrganization,
+    onReady: onReady,
   );
   @override
   Widget photoDropTarget({
@@ -147,10 +149,12 @@ class YandexMap extends StatefulWidget {
     required this.configuration,
     this.onPoint,
     this.onOrganization,
+    this.onReady,
   });
   final Json configuration;
   final void Function(double, double)? onPoint;
   final ValueChanged<String>? onOrganization;
+  final ValueChanged<bool>? onReady;
   @override
   State<YandexMap> createState() => _YandexMapState();
 }
@@ -184,11 +188,13 @@ class _YandexMapState extends State<YandexMap> {
       }
       _handle = id;
       setState(() => _ready = true);
+      widget.onReady?.call(true);
     } catch (_) {
       if (current()) {
         setState(
           () => _error = 'Не удалось открыть карту. Попробуйте ещё раз.',
         );
+        widget.onReady?.call(false);
       }
     }
   }
@@ -222,7 +228,9 @@ class _YandexMapState extends State<YandexMap> {
 
   @override
   Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(12),
+    borderRadius: BorderRadius.circular(
+      widget.configuration['picking'] == true ? 0 : 12,
+    ),
     child: Stack(
       children: [
         if (_error == null)
@@ -264,6 +272,7 @@ class _YandexMapState extends State<YandexMap> {
                         _error = null;
                         _ready = false;
                         _attempt++;
+                        widget.onReady?.call(false);
                       }),
                       icon: const Icon(Icons.refresh),
                       label: const Text('Попробовать снова'),

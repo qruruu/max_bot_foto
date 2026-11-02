@@ -123,6 +123,11 @@ class SignalController extends ChangeNotifier {
       form.latitude = null;
       form.longitude = null;
     }
+    if (form.located && !allowsPoint(form.longitude!, form.latitude!)) {
+      form.latitude = null;
+      form.longitude = null;
+    }
+    if (!form.located) step = 1;
   }
 
   void _syncWallOrganization() {
@@ -169,6 +174,7 @@ class SignalController extends ChangeNotifier {
 
   void selectAddress(String value) {
     if (locked) return;
+    if (value == form.addressId) return;
     final selected = recipient?.addresses
         .where((a) => a['id'] == value)
         .firstOrNull;
@@ -179,17 +185,22 @@ class SignalController extends ChangeNotifier {
     _changed();
   }
 
-  void selectPoint(double longitude, double latitude) {
-    if (locked || address == null) return;
+  bool allowsPoint(double longitude, double latitude) {
+    if (address == null) return false;
     final district = recipient?.territories
         .where((t) => t['id'] == address!['district_id'])
         .firstOrNull;
-    if (district == null ||
-        !coversPoint(
+    return district != null &&
+        coversPoint(
           Json.from(district['geometry'] as Map),
           longitude,
           latitude,
-        )) {
+        );
+  }
+
+  void selectPoint(double longitude, double latitude) {
+    if (locked || address == null) return;
+    if (!allowsPoint(longitude, latitude)) {
       error = 'Выберите место внутри выделенной территории организации.';
       _notify();
       return;

@@ -28,6 +28,7 @@ abstract class SignalBrowser {
     double? latitude,
     void Function(double longitude, double latitude)? onPoint,
     ValueChanged<String>? onOrganization,
+    ValueChanged<bool>? onReady,
   });
   Widget photoDropTarget({
     required Widget child,

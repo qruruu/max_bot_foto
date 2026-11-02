@@ -200,7 +200,7 @@
       const cfg = JSON.parse(configuration), api = await loadMaps(cfg.apiKey);
       await waitForMapContainer(element, pending.signal);
       if (pending.signal.aborted) throw mapCancelled();
-      const layer = new api.Map(element, {center: [72.6, 61.1], zoom: 11, controls: cfg.preview ? [] : ['zoomControl', 'fullscreenControl']}, {suppressMapOpenBlock: true});
+      const layer = new api.Map(element, {center: [72.6, 61.1], zoom: 11, controls: cfg.preview ? [] : cfg.picking ? ['zoomControl'] : ['zoomControl', 'fullscreenControl']}, {suppressMapOpenBlock: true});
       id = String(++nextMap);
       const record = {layer, marker: null, resize: null, frame: null};
       maps.set(id, record);
