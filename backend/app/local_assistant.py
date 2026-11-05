@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import date, timedelta
 from threading import Lock
@@ -18,6 +19,7 @@ from app.reports import filtered
 from app.schemas import PhotoFilters
 from app.work_types import catalog_rows
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 _inference = Lock()
 _task_request = re.compile(r"(?:создай|создайте|назначь|назначьте|поставь|поставьте|добавь)\s+(?:новую\s+)?задачу\b")
@@ -81,14 +83,25 @@ def answer_statistics(body, db, user, today):
         f"Сегодня {today.isoformat()}. Справочник: "
         + str([{"code": row.code, "name": row.name} for row in catalog])
     )
-    try:
-        intent = StatisticsIntent.model_validate_json(model_reply(settings().local_assistant_url, [
-            {"role": "system", "content": instructions},
-            *[{"role": item.role, "content": item.content[:500]} for item in body.history],
-            {"role": "user", "content": body.question},
-        ], StatisticsIntent.model_json_schema()))
-    except ValueError:
-        return {"answer": "Не удалось однозначно разобрать запрос. Укажите дату, вид работ и нужную разбивку."}
+    period = conversational_photo_period(body.question.lower(), [], today)
+    work_breakdown = bool(re.search(r"вид(?:ам|ов|ы)?(?: работ)?|по работ", body.question.lower()))
+    district_breakdown = bool(re.search(r"территор|микрорайон|\bмкр\b", body.question.lower()))
+    explicit_work = [
+        row for row in catalog
+        if re.search(r"(?<!\w)" + re.escape(row.name.casefold()) + r"(?!\w)", body.question.casefold())
+    ]
+    specific_filter = bool(re.search(r"оператор|отправил|принят|отклон", body.question.lower()))
+    if period and work_breakdown and district_breakdown and not specific_filter and not explicit_work:
+        intent = StatisticsIntent(action="statistics", date_from=period[0], date_to=period[1], group_by="both")
+    else:
+        try:
+            intent = StatisticsIntent.model_validate_json(model_reply(settings().local_assistant_url, [
+                {"role": "system", "content": instructions},
+                *[{"role": item.role, "content": item.content[:300]} for item in body.history[-4:]],
+                {"role": "user", "content": body.question},
+            ], StatisticsIntent.model_json_schema()))
+        except ValueError:
+            return {"answer": "Не удалось однозначно разобрать запрос. Укажите дату, вид работ и нужную разбивку."}
     if intent.action == "help":
         return {"answer": "Могу посчитать поступившие фото за дату или период, показать разбивку по видам работ и территориям и помочь создать задачу. Для задачи напишите «создай задачу»."}
     works = {row.code: row.name for row in catalog}
@@ -96,12 +109,27 @@ def answer_statistics(body, db, user, today):
             or not intent.date_to or intent.date_from > intent.date_to
             or intent.work_type is not None and intent.work_type not in works):
         return {"answer": "Уточните дату или период и нужную разбивку: по видам работ или территориям. Этот запрос пока не удалось выполнить по базе."}
+    joint = intent.group_by == "both"
     filters = PhotoFilters(date_from=intent.date_from, date_to=intent.date_to,
-                           date_basis="received", work_type=intent.work_type)
+                           date_basis="photo" if joint else "received", work_only=joint,
+                           work_type=intent.work_type)
     source = filtered(filters, user).subquery()
     total = db.scalar(select(func.count()).select_from(source))
-    lines = [f"По базе, по дате поступления с {intent.date_from:%d.%m.%Y} по {intent.date_to:%d.%m.%Y}.",
-             f"Всего фото: {total} (без спама)."]
+    basis = "дате на фото" if joint else "дате поступления"
+    lines = [f"По базе, по {basis} с {intent.date_from:%d.%m.%Y} по {intent.date_to:%d.%m.%Y}.",
+             f"Всего {'рабочих ' if joint else ''}фото: {total} (без спама)."]
+    if joint:
+        groups = {}
+        for name, code, count in db.execute(
+            select(District.name, source.c.work_type, func.count()).select_from(source)
+            .outerjoin(District, District.id == source.c.district_id)
+            .group_by(source.c.district_id, District.name, source.c.work_type)
+            .order_by(District.name, source.c.work_type)
+        ):
+            groups.setdefault(name or "Территория не определена", []).append(
+                f"{works.get(code, 'Вид работ не определён')} — {count}")
+        lines.extend(f"• {name}: " + "; ".join(values) for name, values in groups.items())
+        return {"answer": "\n".join(lines)}
     if intent.work_type:
         lines.append("Вид работ: " + works[intent.work_type])
     if intent.group_by in {"work_type", "both"}:
@@ -126,6 +154,8 @@ def model_reply(url: str, messages: list[dict], schema: dict | None = None):
         with httpx.Client(timeout=httpx.Timeout(70.0, connect=3.0), trust_env=False) as client:
             response = client.post(
                 f"{url.rstrip('/')}/v1/chat/completions",
+                headers={"Authorization": "Bearer " + settings().local_assistant_api_key.get_secret_value()}
+                if settings().local_assistant_api_key.get_secret_value() else {},
                 json={
                     "messages": messages,
                     "chat_template_kwargs": {"enable_thinking": False},
@@ -134,7 +164,7 @@ def model_reply(url: str, messages: list[dict], schema: dict | None = None):
                         "json_schema": {"name": "task_draft", "schema": schema},
                     }} if schema else {}),
                     "temperature": 0,
-                    "max_tokens": 200 if schema else 160,
+                    "max_tokens": 512 if schema else 160,
                 },
             )
             response.raise_for_status()
@@ -143,6 +173,9 @@ def model_reply(url: str, messages: list[dict], schema: dict | None = None):
                 raise ValueError("Empty model response")
             return content.strip()
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+        # Log only the error category and status, never prompts or authentication headers.
+        logger.warning("Assistant inference failed: %s status=%s", type(exc).__name__,
+                       exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None)
         raise HTTPException(503, "Локальный помощник сейчас недоступен. Попробуйте позже.") from exc
     finally:
         _inference.release()

@@ -127,7 +127,11 @@ def answer_source(body, request: Request, model_reply, today):
             needs_clarification=(bool, False),
         )
         descriptions = {
-            path: {"description": spec.get("summary"), "parameters": spec.get("parameters", [])}
+            path: {"description": spec.get("summary"), "parameters": [
+                {"name": parameter["name"], "in": parameter["in"],
+                 "required": parameter.get("required", False)}
+                for parameter in spec.get("parameters", [])
+            ]}
             for path, spec in routes.items()
         }
         selection = Selection.model_validate_json(model_reply(url, [

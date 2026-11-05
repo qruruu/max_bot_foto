@@ -132,7 +132,7 @@ def test_breakdown_renders_only_database_numbers_and_catalog_names(assistant_db,
         "action": "statistics", "date_from": "2026-11-04", "date_to": "2026-11-04",
         "group_by": "both", "unsupported_filter": False,
     }))
-    assistant_db.execute.side_effect = [[("DEICING_MANUAL", 7)], [("КА-1", 7)]]
+    assistant_db.execute.return_value = [("КА-1", "DEICING_MANUAL", 7)]
     with TestClient(app) as client:
         result = client.post("/api/local-assistant/question", json={
             "question": "Покажи виды работ и территории за вчера",
@@ -140,7 +140,7 @@ def test_breakdown_renders_only_database_numbers_and_catalog_names(assistant_db,
         })
     assert result.status_code == 200
     answer = result.json()["answer"]
-    assert "ПГМ: 7" in answer and "КА-1: 7" in answer
+    assert "КА-1: ПГМ — 7" in answer
     assert "39" not in answer and "РАБОТЫ" not in answer
     assert assistant_db.scalar.call_count == 1
 
@@ -152,3 +152,37 @@ def test_unstructured_model_answer_cannot_reach_chat(assistant_db, monkeypatch):
     assert "Укажите дату" in result.json()["answer"]
     assert "39" not in result.json()["answer"]
     assistant_db.scalar.assert_not_called()
+
+
+@pytest.mark.parametrize("question", [
+    "дай статистику за вчера в разрезе видов работ и территорий",
+    "мне нужно знать сколько вчера было выполнено работ по видам и территориям одновременно за весь день 04.11.2026 по всем микрорайонам",
+])
+def test_joint_work_breakdown_works_without_inference(assistant_db, monkeypatch, question):
+    monkeypatch.setattr(local_assistant, "model_reply", Mock(side_effect=AssertionError("No inference needed")))
+    work = Mock(code="SNOW_MANUAL")
+    work.name = "ПОДХОДЫ"
+    monkeypatch.setattr(local_assistant, "catalog_rows", lambda db: [work])
+    assistant_db.execute.return_value = [("2 мкр", "SNOW_MANUAL", 7)]
+    with TestClient(app) as client:
+        response = client.post("/api/local-assistant/question", json={"question": question})
+    assert response.status_code == 200
+    assert "2 мкр: ПОДХОДЫ — 7" in response.json()["answer"]
+    statement = assistant_db.scalar.call_args.args[0]
+    assert date(2026, 11, 4) in statement.compile().params.values()
+    assert "photos.photo_date" in str(statement)
+
+
+def test_inference_sends_authentication_without_exposing_key(monkeypatch):
+    monkeypatch.setenv("LOCAL_ASSISTANT_API_KEY", "private-test-key")
+    settings.cache_clear()
+    http_client = httpx.Client
+
+    def complete(request):
+        assert request.headers["Authorization"] == "Bearer private-test-key"
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"executor":"Иванов"}'}}]})
+
+    monkeypatch.setattr(local_assistant.httpx, "Client", lambda **kwargs: http_client(
+        transport=httpx.MockTransport(complete), **kwargs,
+    ))
+    assert local_assistant.extract_task("http://model", "Создай задачу Иванову").executor == "Иванов"
