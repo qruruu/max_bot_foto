@@ -16,6 +16,7 @@ from app.models import Photo
 from app.organization_context import current_organization
 from app.reports import filtered
 from app.schemas import PhotoFilters
+from app.work_types import catalog_rows
 
 router = APIRouter()
 _inference = Lock()
@@ -132,6 +133,9 @@ def conversational_photo_period(question: str, history: list[ConversationMessage
     # Dates in previous messages only select a scope. Counts always come from the database.
     candidates = [question, *(item.content.lower() for item in reversed(history))]
     for text in candidates:
+        if match := re.search(r"\b(позавчера|вчера|сегодня)\b", text):
+            day = calendar_day(match[1], today)
+            return day, day, None
         if match := re.search(rf"{_day_quantity}\s+назад", text):
             return photo_period(match[0], today, None)
         if match := re.search(r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}\.\d{1,2}\.\d{4})\b", text):
@@ -179,11 +183,19 @@ def answer_question(body: AssistantQuestion, db: Db, user: AdminUser):
             return {"answer": "Уточните дату и условия подсчёта. Могу проверить общее число поступивших фото за дату, например 26.10.2026."}
     if period:
         start, end, date_context = period
-        filters = PhotoFilters(date_from=start, date_to=end, date_basis="received")
+        matches = [
+            row for row in catalog_rows(db)
+            if re.search(r"(?<!\w)" + re.escape(row.name.casefold()) + r"(?!\w)", question)
+        ]
+        if len(matches) > 1:
+            return {"answer": "Укажите один вид работ для подсчёта."}
+        work = matches[0] if matches else None
+        filters = PhotoFilters(date_from=start, date_to=end, date_basis="received",
+                               work_type=work.code if work else None)
         selection = filtered(filters, user).with_only_columns(Photo.id)
         count = db.scalar(select(func.count()).select_from(selection.subquery()))
         label = f"за {start:%d.%m.%Y}" if start == end else f"с {start:%d.%m.%Y} по {end:%d.%m.%Y}"
-        return {"answer": f"Поступило фото {label}: {count} (без спама).", "date_context": date_context}
+        return {"answer": f"Поступило фото{f' по виду работ «{work.name}»' if work else ''} {label}: {count} (без спама).", "date_context": date_context}
 
     if photo or _follow_up.fullmatch(question):
         return {"answer": "Уточните дату или период. Например, «сколько фото 10 дней назад?» или «сколько фото за последние 5 дней?»."}

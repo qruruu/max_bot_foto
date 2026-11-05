@@ -19,6 +19,7 @@ from app.models import User
 def assistant_db(monkeypatch):
     db = Mock()
     db.scalar.return_value = 7
+    monkeypatch.setattr(local_assistant, "catalog_rows", lambda db: [])
     monkeypatch.setenv("LOCAL_ASSISTANT_URL", "http://model:8080")
     monkeypatch.setenv("APP_TIMEZONE", "Asia/Yekaterinburg")
     settings.cache_clear()
@@ -106,3 +107,18 @@ def test_photo_correction_and_confirmation_query_database_instead_of_echoing_use
             assert response.json()["answer"] == "Поступило фото за 26.10.2026: 7 (без спама)."
     assert assistant_db.scalar.call_count == 3
     model.assert_not_called()
+
+
+def test_work_type_today_overrides_old_conversation_date(assistant_db, monkeypatch):
+    work = Mock(code="DEICING_MANUAL")
+    work.name = "ПГМ"
+    monkeypatch.setattr(local_assistant, "catalog_rows", lambda db: [work])
+    with TestClient(app) as client:
+        response = client.post("/api/local-assistant/question", json={
+            "question": "сколько фото пгм было сегодня ?",
+            "history": [{"role": "assistant", "content": "Поступило фото за 30.10.2026: 449."}],
+        })
+    assert response.json()["answer"] == "Поступило фото по виду работ «ПГМ» за 05.11.2026: 7 (без спама)."
+    params = assistant_db.scalar.call_args.args[0].compile().params.values()
+    assert date(2026, 11, 5) in params
+    assert "DEICING_MANUAL" in params
