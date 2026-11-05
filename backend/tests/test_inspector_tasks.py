@@ -239,3 +239,56 @@ def test_source_filter_separates_signal_and_inspector_in_lists_archives_and_stat
             assert client.get(endpoint,params={'source':source}).json()['total'] == 0
             assert [item['id'] for item in client.get(endpoint,params={'source':source,'archived':True}).json()['items']] == [id]
             assert client.get(endpoint + '/statistics',params={**dates,'source':source}).json()['total'] == 1
+
+
+@pytest.mark.integration
+def test_admin_assigns_private_task_to_operator_in_own_organization(workflow):
+    owner, scopes, operators, ids, _, inspectors = workflow
+    inbox = scopes[0].prefix + '/api/appeals'
+    endpoint = inbox + '/internal-tasks'
+    response = owner.get(endpoint + '/options')
+    assert response.status_code == 200, response.text
+    assert ids[0] in [item['id'] for item in response.json()]
+
+    due_date = str(today() + timedelta(days=2))
+    body = {'client_id': str(uuid4()), 'subject': 'Проверить урны', 'description': 'Обойти площадки',
+            'operator_id': ids[0], 'due_date': due_date}
+    assert multipart(operators[0], endpoint, body).status_code == 403
+    assert multipart(owner, endpoint, {**body, 'operator_id': 999999}).status_code == 422
+
+    response = multipart(owner, endpoint, body)
+    assert response.status_code == 201, response.text
+    task_id = response.json()['id']
+    assert multipart(owner, endpoint, body).json() == {'id': task_id}
+    detail = operators[0].get(inbox + f'/{task_id}').json()
+    assert detail['source'] == 'admin' and detail['status'] == 'ASSIGNED'
+    assert detail['task']['operator_id'] == ids[0]
+    assert detail['task']['due_date'] == due_date
+    assert len(detail['photos']) == 1
+    assert operators[0].get(detail['photos'][0]['url']).status_code == 200
+    assert [item['id'] for item in owner.get(inbox, params={'source': 'admin'}).json()['items']] == [task_id]
+    assert owner.get(inbox, params={'source': 'signal'}).json()['total'] == 0
+    other_inbox = scopes[1].prefix + '/api/appeals'
+    assert operators[1].get(other_inbox + f'/{task_id}').status_code == 404
+
+    inspector = inspectors[0]
+    inspector_inbox = f'/api/inspection/organizations/{scopes[0].id}/appeals'
+    inspector_detail = inspector_inbox + f'/{task_id}'
+    assert inspector.get(inspector_inbox).json()['total'] == 0
+    assert inspector.get(inspector_inbox, params={'source': 'admin'}).json()['total'] == 0
+    assert inspector.get(inspector_inbox + '/statistics', params={'start': str(today()), 'end': str(today())}).json()['total'] == 0
+    assert inspector.get(inspector_inbox + '/notifications').json()['latest_id'] == 0
+    assert inspector.get('/api/inspection/appeals/notifications').json()['latest_id'] == 0
+    assert inspector.get(inspector_detail).status_code == 404
+    assert inspector.get(inspector_detail + '/events').status_code == 404
+    assert inspector.get(inspector_detail + '/photos/' + detail['photos'][0]['id']).status_code == 404
+
+    admin_detail = inbox + f'/{task_id}'
+    assert multipart(owner, admin_detail + '/close', {'comment': 'Готово', 'expected_version': detail['version']}).status_code == 200
+    closed = owner.get(admin_detail).json()
+    attachment_id = closed['response_photos'][0]['id']
+    assert inspector.get(inspector_detail + '/attachments/' + attachment_id).status_code == 404
+    assert owner.post(admin_detail + '/archive', json={'archived': True, 'expected_version': closed['version']}).status_code == 200
+    assert inspector.get(inspector_inbox, params={'archived': True}).json()['total'] == 0
+    with TestClient(public_app) as citizen:
+        assert citizen.get(f'/api/public/appeals/wall/{task_id}').status_code == 404

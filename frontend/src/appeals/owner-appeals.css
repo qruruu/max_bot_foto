@@ -46,8 +46,6 @@
 .owner-appeal-search button { flex:none; width:30px; padding:4px; border:0; background:transparent; color:var(--muted); }
 .appeal-total { margin-left:auto; white-space:nowrap; font-size:13px; }
 .appeal-list-refresh { flex:none; width:44px; height:44px; padding:9px; }
-.appeal-list-hint { display:flex; align-items:center; gap:15px; padding:11px 15px; margin:0 0 15px; border:1px solid var(--border); border-radius:8px; background:var(--appeal-soft); color:var(--muted); font-size:12px; line-height:1.5; }
-.appeal-list-hint svg { flex:none; }
 .owner-appeal-list { display:grid; gap:10px; }
 .owner-appeals .owner-appeal-card { display:grid; grid-template-columns:165px minmax(0,1fr) auto 20px; gap:22px; align-items:center; width:100%; margin:0; padding:12px 15px; border-radius:10px; text-align:left; background:var(--appeal-card); color:var(--text); }
 .owner-appeals .owner-appeal-card:hover { border-color:var(--appeal-link); background:var(--surface-soft,#f5f8fc); }
@@ -252,7 +250,6 @@
   .owner-appeal-toolbar select { flex:1; }
   .owner-appeal-search { order:3; flex-basis:100%; }
   .appeal-list-refresh { margin-left:auto; }
-  .appeal-list-hint { font-size:11px; gap:10px; }
   .owner-appeals .owner-appeal-card { grid-template-columns:70px minmax(0,1fr); padding:11px; gap:12px; }
   .appeal-list-photo { grid-row:1/span 2; min-height:110px; }
   .owner-appeal-card .appeal-badges { grid-column:2; align-items:flex-start; flex-direction:row; justify-content:space-between; }
@@ -278,10 +275,9 @@
 @media(prefers-reduced-motion:reduce) { .owner-appeals :is(button,.button) { transition:none; } }
 
 /* Staff assignment information is deliberately absent from the public wall. */
-.appeal-list-filters { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)) auto; align-items:end; gap:16px; margin:20px 0 16px; }
+.appeal-list-filters { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); align-items:end; gap:10px; margin:0 0 12px; }
 .appeal-list-filters label { display:block; min-width:0; }
 .appeal-list-filters select { display:block; width:100%; margin-top:6px; min-height:36px; }
-.appeal-reset-filters { min-height:36px; }
 .owner-appeals .owner-appeal-search { max-width:none; }
 .appeal-list-columns,.owner-appeals .owner-appeal-card { display:grid; grid-template-columns:minmax(300px,2.5fr) minmax(90px,.8fr) minmax(110px,.9fr) minmax(110px,1fr) 145px 18px; gap:16px; }
 .appeal-list-columns { padding:12px 15px; margin-bottom:8px; border-radius:8px; background:var(--appeal-soft); color:var(--muted); font-size:12px; }
@@ -340,3 +336,15 @@
 
 .owner-appeals .appeal-source-label { color:var(--green); font-size:12px; font-weight:600; }
 .appeal-subject-panel .appeal-source-label { margin:0 0 12px; }
+
+.admin-task-form { margin-bottom: 18px; }
+.admin-task-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.admin-task-form fieldset > label { margin-bottom: 12px; }
+
+.appeal-header-actions, .appeal-list-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.owner-appeals .page-header { margin-block: 18px 12px; }
+.owner-appeal-toolbar { gap: 10px; margin-bottom: 10px; }
+.appeal-list-tools > button { min-height: 38px; }
+.appeal-list-tools > .appeal-list-refresh { width: 38px; height: 38px; margin-left: 0; padding: 0; }
+.appeal-list-tools .appeal-total { margin: 0; }
+.appeal-file-row { display: flex; align-items: center; gap: 8px; margin-block: 4px; overflow-wrap: anywhere; }

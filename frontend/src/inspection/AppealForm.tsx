@@ -6,6 +6,7 @@ import type { PublicOrganization } from '../appeals/catalog';
 import { clearDraft, EMPTY_FORM, hasDraftContent, loadDraft, saveDraft } from '../appeals/drafts';
 import type { AppealDraft, StoredPhoto } from '../appeals/drafts';
 import { galleryPhoto } from '../appeals/gallery';
+import { pastedImages } from '../appeals/TaskImageInput';
 import './appeals.css';
 
 const ProblemMap = lazy(() => import('../appeals/ProblemMap'));
@@ -83,7 +84,7 @@ export default function InspectionAppealForm({organizationId, inspectorId, creat
     window.addEventListener('beforeunload', leaving); return () => window.removeEventListener('beforeunload', leaving);
   }, [storageKey]);
 
-  async function addPhotos(files: FileList | null) {
+  async function addPhotos(files: FileList | File[] | null) {
     if (!files || sending.current || locked) return;
     sending.current = true; setPreparing(true); setError('');
     const added: Photo[] = [];
@@ -136,9 +137,9 @@ export default function InspectionAppealForm({organizationId, inspectorId, creat
         <fieldset disabled={locked}>
           <label>Вид работ <small>необязательно</small><select value={form.category} onChange={event => setForm(current => ({...current, category: event.target.value}))}><option value="">Без вида работ</option>{organization?.work_types.map(work => <option key={work.code} value={work.code}>{work.name}</option>)}</select></label>
           <label>Срок задачи <small>необязательно</small><input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)}/></label>
-          <label>Описание задачи<textarea required maxLength={4000} rows={4} value={form.description} onChange={event => setForm(current => ({...current, description: event.target.value}))}/></label>
+          <label>Описание задачи<textarea required maxLength={4000} rows={4} value={form.description} onPaste={event => {const images = pastedImages(event); if (images.length) void addPhotos(images);}} onChange={event => setForm(current => ({...current, description: event.target.value}))}/></label>
           <label>Уточнение места <small>необязательно</small><input maxLength={300} value={form.place} onChange={event => setForm(current => ({...current, place: event.target.value}))}/></label>
-          <label>Фотографии <small>до 3, необязательно</small><input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple onChange={event => void addPhotos(event.target.files)}/></label>
+          <label>Фото и скриншоты <small>до 3 файлов. Скриншот можно вставить в описание.</small><input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple onChange={event => void addPhotos(event.target.files)}/></label>
           <label>Документы <small>до 5 файлов Word, Excel или PDF, до 25 МБ каждый</small><input type="file" accept=".doc,.docx,.xls,.xlsx,.pdf" multiple onChange={event => {
             const added = [...(event.target.files || [])];
             if (added.length + documents.length > 5 || added.some(file => file.size > 25 * 1024 * 1024)) {setError('Можно приложить до пяти документов по 25 МБ'); return;}

@@ -40,6 +40,7 @@ from app.models import (
     AppealAddress,
     AppealAttachment,
     AppealCaptureSession,
+    AppealEvent,
     AppealPhoto,
     AppealTask,
     CitizenAppeal,
@@ -311,10 +312,14 @@ def create_appeal(db, body, photos, *, is_public, inspector=None):
     db.add(appeal)
     db.flush()
     record_event(db, appeal, "CREATED", inspector, inspector=bool(inspector))
+    store_intake_photos(db, appeal, photos)
+    return appeal
+
+
+def store_intake_photos(db, appeal, photos):
     for index, prepared in enumerate(photos):
         db.add(AppealPhoto(id=str(uuid4()), appeal_id=appeal.id, position=index, captured_at=now(), position_at=now(),
-                          latitude=body.latitude, longitude=body.longitude, accuracy=0, **prepared))
-    return appeal
+                          latitude=appeal.latitude, longitude=appeal.longitude, accuracy=0, **prepared))
 
 
 def save_gallery(token, body, photos):
@@ -467,10 +472,15 @@ def operators(appeal_id: int, user: AppealReader):
     manager(user)
     with control_session() as db:
         appeal = find_appeal(db, appeal_id, user=user)
-        scope = tenant_scope(db, appeal.organization_id)
-        with Session(database_engine(scope.database_url)) as tenant:
-            return [{"id": row.id, "name": row.name} for row in tenant.scalars(select(User).where(
-                User.active, User.role == "OPERATOR").order_by(User.name, User.id))]
+        return active_operators(db, appeal.organization_id)
+
+
+def active_operators(db, organization_id):
+    scope = tenant_scope(db, organization_id)
+    with Session(database_engine(scope.database_url)) as tenant:
+        return [{"id": row.id, "name": row.name} for row in tenant.scalars(select(User).where(
+            User.active, User.role == "OPERATOR").order_by(User.name, User.id))]
+
 
 
 @owner_router.post("/{appeal_id}/assign")
@@ -486,25 +496,92 @@ def assign(appeal_id: int, body: AssignmentInput, user: AppealReader):
             raise HTTPException(409, "Задача в архиве")
         if db.scalar(select(CitizenAppeal.id).where(CitizenAppeal.parent_id == appeal.id).limit(1)):
             raise HTTPException(409, "Назначайте исполнителей в подзадачах")
-        scope = tenant_scope(db, appeal.organization_id)
-        with Session(database_engine(scope.database_url)) as tenant:
-            operator = tenant.get(User, body.operator_id)
-            if not operator or not operator.active or operator.role != "OPERATOR":
-                raise HTTPException(422, "Выберите действующего оператора этой организации")
-            previous = latest_task(db, appeal.id)
-            if previous and previous.status in {"ASSIGNED", "IN_PROGRESS"}:
-                previous.status, previous.finished_at = "CANCELLED", now()
-            db.add(AppealTask(appeal_id=appeal.id, operator_id=operator.id, operator_name=operator.name,
-                             instruction=body.instruction, status="ASSIGNED", result_comment="",
-                             due_date=effective_due_date(db, appeal)))
-        appeal.status = "ASSIGNED"
-        record_event(db, appeal, "ASSIGNED", user, comment="Исполнитель: " + operator.name)
-        if body.instruction.strip():
-            record_event(db, appeal, "INSTRUCTION", user, comment=body.instruction.strip(),
-                         visibility="TASK", operator_id=operator.id)
-        changed(db, appeal, user, "APPEAL_ASSIGNED")
+        assign_operator(db, appeal, user, body.operator_id, body.instruction, effective_due_date(db, appeal))
         db.commit()
         return {"ok": True, "version": appeal.version}
+
+
+def assign_operator(db, appeal, user, operator_id, instruction, due_date):
+    scope = tenant_scope(db, appeal.organization_id)
+    with Session(database_engine(scope.database_url)) as tenant:
+        operator = tenant.get(User, operator_id)
+        if not operator or not operator.active or operator.role != "OPERATOR":
+            raise HTTPException(422, "Выберите действующего оператора этой организации")
+        previous = latest_task(db, appeal.id)
+        if previous and previous.status in {"ASSIGNED", "IN_PROGRESS"}:
+            previous.status, previous.finished_at = "CANCELLED", now()
+        db.add(AppealTask(appeal_id=appeal.id, operator_id=operator.id, operator_name=operator.name,
+                         instruction=instruction, status="ASSIGNED", result_comment="", due_date=due_date))
+    appeal.status = "ASSIGNED"
+    record_event(db, appeal, "ASSIGNED", user, comment="Исполнитель: " + operator.name)
+    if instruction.strip():
+        record_event(db, appeal, "INSTRUCTION", user, comment=instruction.strip(),
+                     visibility="TASK", operator_id=operator.id)
+    changed(db, appeal, user, "APPEAL_ASSIGNED")
+
+
+class AdminTaskInput(StrictModel):
+    client_id: UUID
+    subject: str = Field(min_length=1, max_length=80)
+    description: str = Field(min_length=1, max_length=4000)
+    operator_id: int = Field(gt=0)
+    due_date: date | None = None
+
+    @field_validator("subject", "description")
+    @classmethod
+    def nonempty(cls, value):
+        if not value.strip():
+            raise ValueError("Заполните название и описание задачи")
+        return value.strip()
+
+
+def admin_task_organization_id(user):
+    manager(user)
+    scope = current_organization()
+    if not scope:
+        raise HTTPException(403, "Откройте кабинет организации для назначения задачи")
+    return scope.id
+
+
+@organization_router.get("/internal-tasks/options")
+def internal_task_operators(user: AppealReader):
+    organization_id = admin_task_organization_id(user)
+    with control_session() as db:
+        return active_operators(db, organization_id)
+
+
+@organization_router.post("/internal-tasks", status_code=201)
+async def create_admin_task(request: Request, user: AppealReader):
+    organization_id = admin_task_organization_id(user)
+    body, photos = await multipart(request, AdminTaskInput, require_photos=False)
+    return await run_in_threadpool(save_admin_task, organization_id, body, photos, user)
+
+
+def save_admin_task(organization_id, body, photos, user):
+    with control_session() as db:
+        # Serialize retries before checking the submission ID.
+        organization = db.get(Organization, organization_id, with_for_update=True)
+        if not organization or organization.status != "ACTIVE":
+            raise HTTPException(409, "Организация недоступна")
+        existing = db.scalar(select(CitizenAppeal).where(
+            CitizenAppeal.organization_id == organization_id,
+            CitizenAppeal.admin_submission_id == str(body.client_id)))
+        if existing:
+            return {"id": existing.id}
+        validate_due_date(body.due_date)
+        appeal = CitizenAppeal(
+            organization_id=organization.id, organization_name=organization.name,
+            city=organization.city or "", address="Без территории", place="", category="",
+            subject=body.subject, description=body.description, photo_count=len(photos),
+            is_public=False, admin_submission_id=str(body.client_id),
+        )
+        db.add(appeal)
+        db.flush()
+        record_event(db, appeal, "CREATED", user)
+        assign_operator(db, appeal, user, body.operator_id, "", body.due_date)
+        store_intake_photos(db, appeal, photos)
+        db.commit()
+        return {"id": appeal.id}
 
 
 @owner_router.post("/{appeal_id}/deadline")
@@ -599,6 +676,8 @@ def save_close(appeal_id, body, photos, user):
         appeal = find_appeal(db, appeal_id, lock=True, user=user)
         versioned(appeal, body.expected_version)
         task = latest_task(db, appeal.id)
+        if appeal.archived_at:
+            raise HTTPException(409, "Сначала верните задачу из архива")
         if is_final(appeal):
             raise HTTPException(409, "Обращение уже закрыто или находится в спаме")
         children = list(db.scalars(select(CitizenAppeal).where(CitizenAppeal.parent_id == appeal.id)))
@@ -645,6 +724,16 @@ async def close_appeal(appeal_id: int, request: Request, user: AppealReader):
     return await run_in_threadpool(save_close, appeal_id, body, photos, user)
 
 
+def cancelled_by_inspector(db, appeal):
+    if appeal.status != "CANCELLED" or not appeal.submitted_by_inspector_id:
+        return False
+    # Older tasks already have a status event, so they are eligible too.
+    last_transition = db.execute(select(AppealEvent.kind, AppealEvent.actor_type, AppealEvent.status)
+        .where(AppealEvent.appeal_id == appeal.id, AppealEvent.kind.in_(("STATUS", "ASSIGNED", "RESULT", "CLOSED")))
+        .order_by(AppealEvent.id.desc()).limit(1)).first()
+    return last_transition == ("STATUS", "INSPECTOR", "CANCELLED")
+
+
 @owner_router.post("/{appeal_id}/archive")
 @organization_router.post("/{appeal_id}/archive")
 def archive_appeal(appeal_id: int, body: ArchiveInput, user: AppealReader):
@@ -652,8 +741,8 @@ def archive_appeal(appeal_id: int, body: ArchiveInput, user: AppealReader):
     with control_session() as db:
         appeal = find_appeal(db, appeal_id, lock=True, user=user)
         versioned(appeal, body.expected_version)
-        if not is_final(appeal):
-            raise HTTPException(409, "В архив можно перенести закрытое обращение или спам")
+        if not is_final(appeal) and not cancelled_by_inspector(db, appeal):
+            raise HTTPException(409, "В архив можно перенести закрытое обращение, задачу, отменённую проверяющим, или спам")
         if bool(appeal.archived_at) != body.archived:
             appeal.archived_at = now() if body.archived else None
             record_event(db, appeal, "ARCHIVED" if body.archived else "RESTORED", user)

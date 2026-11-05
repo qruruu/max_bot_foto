@@ -208,10 +208,14 @@ def test_inspector_changes_task_status_without_managing_or_publishing_an_appeal(
     events = owner.get(endpoint + '/events').json()['items']
     changes = [item for item in events if item['kind'] == 'STATUS']
     assert [(item['status'], item['actor_role']) for item in changes] == [('COMPLETED', 'INSPECTOR'), ('CANCELLED', 'INSPECTOR')]
-    closed = multipart(owner, endpoint + '/close', {'comment': 'Принято решение', 'expected_version': 4}, False)
+    assert owner.get(endpoint).json()['cancelled_by_inspector']
+    assert owner.post(endpoint + '/archive', json={'archived': True, 'expected_version': 4}).status_code == 200
+    assert owner.get(inbox, params={'archived': True}).json()['items'][0]['id'] == id
+    assert owner.post(endpoint + '/archive', json={'archived': False, 'expected_version': 5}).status_code == 200
+    closed = multipart(owner, endpoint + '/close', {'comment': 'Принято решение', 'expected_version': 6}, False)
     assert closed.status_code == 200, closed.text
     assert not inspectors[0].get(checked).json()['can_set_task_status']
-    assert inspectors[0].post(checked + '/task-status', json={'status': 'COMPLETED', 'expected_version': 5}).status_code == 409
+    assert inspectors[0].post(checked + '/task-status', json={'status': 'COMPLETED', 'expected_version': 7}).status_code == 409
     # A new complaint need not have an operator assignment to receive the inspector's decision.
     other = multipart(inspectors[0], inspection, inspector_metadata(scopes[0], addresses[0])).json()['id']
     result = inspectors[0].post(inspection + f'/{other}/task-status', json={'status': 'COMPLETED', 'expected_version': 1})

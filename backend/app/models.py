@@ -124,12 +124,14 @@ class CitizenAppeal(Timestamps, Base):
     inspector_due_date: Mapped[date | None] = mapped_column(Date)
     parent_id: Mapped[int | None] = mapped_column(ForeignKey("citizen_appeals.id"), index=True)
     inspector_submission_id: Mapped[str | None] = mapped_column(String(36))
+    admin_submission_id: Mapped[str | None] = mapped_column(String(36))
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     __table_args__ = (
         CheckConstraint("status IN ('NEW', 'IN_REVIEW', 'ASSIGNED', 'IN_PROGRESS', 'COMPLETED', 'REJECTED', 'CANCELLED', 'RESOLVED', 'DECLINED', 'SPAM')"),
         CheckConstraint("photo_count BETWEEN 0 AND 3", name="ck_appeal_photo_count"),
         CheckConstraint("submitted_by_inspector_id IS NULL OR is_public = false", name="ck_inspector_appeal_private"),
         UniqueConstraint("submitted_by_inspector_id", "inspector_submission_id", name="uq_inspector_appeal_submission"),
+        UniqueConstraint("organization_id", "admin_submission_id", name="uq_admin_task_submission"),
     )
 
 

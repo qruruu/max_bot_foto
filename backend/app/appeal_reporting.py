@@ -14,7 +14,7 @@ from app.domain import now
 from app.models import AppealTask, CitizenAppeal
 
 DeadlineFilter = Literal['any', 'none', 'overdue', 'today', 'week']
-SourceFilter = Literal['all', 'inspector', 'signal']
+SourceFilter = Literal['all', 'inspector', 'signal', 'admin']
 
 
 def today():
@@ -30,8 +30,10 @@ def filters(category='', operator='', deadline='any', organization='', source='a
     conditions = []
     if source == 'inspector':
         conditions.append(CitizenAppeal.submitted_by_inspector_id.is_not(None))
+    elif source == 'admin':
+        conditions.append(CitizenAppeal.admin_submission_id.is_not(None))
     elif source == 'signal':
-        conditions.append(CitizenAppeal.submitted_by_inspector_id.is_(None))
+        conditions.extend([CitizenAppeal.submitted_by_inspector_id.is_(None), CitizenAppeal.admin_submission_id.is_(None)])
     if category:
         conditions.append(CitizenAppeal.category == ('' if category == '__none__' else category))
     if organization:

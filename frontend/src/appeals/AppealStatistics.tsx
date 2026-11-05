@@ -15,7 +15,7 @@ function range(days: number) {const end = new Date(), start = new Date(); start.
 const number = (n: number | null, suffix = '') => n == null ? 'Нет данных' : n.toLocaleString('ru-RU') + suffix;
 const colors = ['#35765b','#65a589','#ddaa4a','#ac7e9f','#7c9992','#bd795c','#8295ae','#947c60','#b87373','#90978b'];
 
-export default function AppealStatistics({endpoint, source: controlledSource, onSourceChange}: {endpoint: string; source?: AppealSource; onSourceChange?: (value: AppealSource) => void}) {
+export default function AppealStatistics({endpoint, source: controlledSource, onSourceChange, includeAdmin = true}: {endpoint: string; includeAdmin?: boolean; source?: AppealSource; onSourceChange?: (value: AppealSource) => void}) {
   const [localSource, setLocalSource] = useState<AppealSource>('all');
   const source = controlledSource ?? localSource;
   const setSource = onSourceChange ?? setLocalSource;
@@ -58,7 +58,7 @@ export default function AppealStatistics({endpoint, source: controlledSource, on
   const segments = data?.statuses.map((s,i) => {const start = offset; offset += s.count / Math.max(data.total,1) * 100; return `${colors[i%colors.length]} ${start}% ${offset}%`;});
   return <section className="appeal-statistics" aria-label="Статистика обращений">
     <div className="panel appeal-report-filters">
-      <AppealSourceFilter value={source} onChange={setSource}/>
+      <AppealSourceFilter includeAdmin={includeAdmin} value={source} onChange={setSource}/>
       <label>Период<select value={period} onChange={e => {setPeriod(e.target.value); if (e.target.value !== 'custom') setDates(range(Number(e.target.value)));}}><option value="7">Последние 7 дней</option><option value="30">Последние 30 дней</option><option value="90">Последние 90 дней</option><option value="custom">Свой период</option></select></label>
       {period === 'custom' && <><label>С даты<input type="date" value={dates.start} max={dates.end} onChange={e => {if (e.target.value) setDates({...dates,start:e.target.value});}}/></label><label>По дату<input type="date" value={dates.end} min={dates.start} onChange={e => {if (e.target.value) setDates({...dates,end:e.target.value});}}/></label></>}
       {options && options.organizations.length > 1 && !endpoint.includes('/inspection/') && <label>Организация<select value={organization} onChange={e => {setOrganization(e.target.value); setOperator('');}}><option value="">Все организации</option>{options.organizations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>}

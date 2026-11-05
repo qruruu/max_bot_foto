@@ -200,8 +200,14 @@ async def submit_appeal(request: Request):
     return await gallery_submission(request)
 
 
+def appeal_source(appeal):
+    if appeal.admin_submission_id:
+        return "admin"
+    return "inspector" if appeal.submitted_by_inspector_id else "signal"
+
+
 def appeal_dict(appeal):
-    return {"id": appeal.id, "number": receipt(appeal.id)["number"], "is_final": is_final(appeal),
+    return {"id": appeal.id, "source": appeal_source(appeal), "number": receipt(appeal.id)["number"], "is_final": is_final(appeal),
             **{key: getattr(appeal, key) for key in ("city", "address", "place", "category", "subject", "description",
                 "organization_id", "organization_name", "work_type_name",
                 "organization_hint", "contact", "photo_count", "status", "owner_note", "version",
@@ -266,12 +272,13 @@ def appeal_notifications(user: AppealReader):
 @organization_router.get("/{appeal_id}")
 def appeal_detail(appeal_id: int, user: AppealReader):
     with control_session() as db:
-        from app.appeal_workflow import workflow_detail
+        from app.appeal_workflow import cancelled_by_inspector, workflow_detail
         appeal = find_appeal(db, appeal_id, user=user)
         return {**private_appeal_dict(appeal, user), "unanswered_comments": unanswered_comments(db, [appeal.id], user).get(appeal.id, 0),
                 **workflow_detail(db, appeal, private_url, private=True,
                     operator_id=user.id if user.role == "OPERATOR" else None),
                 "can_manage": user.role == "ADMIN_OPERATOR", "can_execute": user.role == "OPERATOR",
+                "cancelled_by_inspector": user.role == "ADMIN_OPERATOR" and cancelled_by_inspector(db, appeal),
                 "photos": [photo_dict(photo) for photo in db.scalars(
             select(AppealPhoto).where(AppealPhoto.appeal_id == appeal.id).order_by(AppealPhoto.position))]}
 
@@ -302,7 +309,7 @@ def edit_appeal(appeal_id: int, body: OwnerEdit, user: AppealReader):
         raise HTTPException(403, "Изменять обращение может администратор")
     with control_session() as db:
         appeal = find_appeal(db, appeal_id, lock=True)
-        if ((appeal.is_public or appeal.submitted_by_inspector_id) and body.status not in {"NEW", "IN_REVIEW", "SPAM"}
+        if ((appeal.is_public or appeal.submitted_by_inspector_id or appeal.admin_submission_id) and body.status not in {"NEW", "IN_REVIEW", "SPAM"}
                 or body.status in DECISION_STATUSES - {"RESOLVED"}) and body.status != appeal.status:
             raise HTTPException(422, "Назначьте исполнителя или используйте закрытие с публичным ответом")
         if appeal.archived_at:
