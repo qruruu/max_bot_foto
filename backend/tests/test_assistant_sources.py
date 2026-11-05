@@ -94,3 +94,35 @@ def test_territory_list_and_greeting_do_not_call_the_model(monkeypatch):
             assert "дату" not in response.json()["answer"]
             assert "coordinates" not in response.json()["answer"]
     model.assert_not_called()
+
+
+def test_internal_read_preserves_cookie_and_workspace_without_duplicating_prefix():
+    import asyncio
+    from pathlib import Path
+
+    from fastapi import Request
+    from starlette.responses import JSONResponse
+
+    from app.organization_context import OrganizationScope, organization_scope
+
+    organization_id = "11111111-1111-4111-8111-111111111111"
+    target = FastAPI()
+
+    @target.get("/org/{organization_id}/api/users")
+    def users(organization_id: str, request: Request):
+        if request.cookies.get("workspace_session") != "valid-session":
+            return JSONResponse({"detail": "Войдите"}, 401)
+        return {"organization": organization_id, "items": [{"name": "Иван"}]}
+
+    scope = OrganizationScope(id=organization_id, name="Компания", database_url="postgresql://test",
+                              data_dir=Path("/tmp"), owner_user_id=1)
+    request = Request({
+        "type": "http", "method": "POST", "scheme": "https", "server": ("metka.example", 443),
+        "root_path": "/org/" + organization_id, "path": "/api/local-assistant/question",
+        "headers": [(b"cookie", b"workspace_session=valid-session")],
+    })
+    with organization_scope(scope):
+        result = asyncio.run(assistant_sources.read_source(target, request, "/api/users", {}))
+    assert result.status_code == 200
+    assert result.json()["organization"] == organization_id
+    assert result.json()["items"] == [{"name": "Иван"}]

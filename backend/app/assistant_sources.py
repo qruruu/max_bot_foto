@@ -117,7 +117,8 @@ def scalar(value):
 async def read_source(app, request, path, params):
     # Cookies stay in this transport and are never included in model context.
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url=str(request.base_url),
+        transport=httpx.ASGITransport(app=app),
+        base_url=str(request.base_url.replace(path="/", query="", fragment="")),
         cookies=dict(request.cookies), follow_redirects=False,
     ) as client:
         return await client.get(workspace_url(path), params=params)
