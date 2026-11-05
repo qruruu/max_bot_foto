@@ -27,7 +27,9 @@ from app.session_details import client_address, session_dict
 hasher = PasswordHasher()
 DUMMY_HASH = hasher.hash(secrets.token_urlsafe(24))
 router = APIRouter(prefix="/api/auth", tags=["auth"])
-Db = Annotated[Session, Depends(get_db)]
+# Authorization and handlers finish their database work before response streaming.
+# Slow preview/original consumers must not keep a transaction and pool slot open.
+Db = Annotated[Session, Depends(get_db, scope="function")]
 
 
 def digest(value: str):

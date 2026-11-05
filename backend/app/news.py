@@ -38,7 +38,7 @@ def get_news_db():
         yield db
 
 
-NewsDb = Annotated[Session, Depends(get_news_db)]
+NewsDb = Annotated[Session, Depends(get_news_db, scope="function")]
 
 
 def news_reader_key(user):

@@ -801,7 +801,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.14,<2" },
     { name = "argon2-cffi", specifier = ">=23.1,<26" },
-    { name = "fastapi", specifier = ">=0.115,<1" },
+    { name = "fastapi", specifier = ">=0.121,<1" },
     { name = "geoalchemy2", specifier = ">=0.17,<1" },
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "onnxruntime", specifier = ">=1.22,<2" },
