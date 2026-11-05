@@ -251,6 +251,13 @@ def answer_question(body: AssistantQuestion, db: Db, user: AdminUser, request: R
 
     question = " ".join(body.question.lower().strip(" ?!").split())
     today = now().astimezone(ZoneInfo(config.app_timezone)).date()
+    if question in {"привет", "здравствуй", "здравствуйте", "добрый день", "добрый вечер", "доброе утро"}:
+        return {"answer": "Привет! Я Даня ИИ. Могу найти данные в «Метке», показать статистику или помочь создать задачу. Что нужно?"}
+    if question in {"что ты умеешь", "что умеешь", "что можешь", "помощь", "что ты можешь"}:
+        return {"answer": "Могу показать территории, операторов, виды работ, задачи, отчёты и другие данные «Метки», посчитать фото и подготовить задачу. Например: «список территорий» или «статистика за вчера по видам работ и территориям»."}
+    from app.assistant_sources import answer_source, direct_source
+    if direct_source(question):
+        return answer_source(body, request, model_reply, today)
     if _task_request.match(question):
         if not current_organization():
             return {"answer": "Откройте чат в кабинете нужной организации, чтобы назначить задачу."}
@@ -266,7 +273,9 @@ def answer_question(body: AssistantQuestion, db: Db, user: AdminUser, request: R
             },
         }
 
-    if re.search(r"территор|микрорайон|разбив|по видам|виды работ", question):
+    if re.search(r"разбив|по видам|статист|выполн", question) or (
+        re.search(r"территор|микрорайон", question) and re.search(r"фото|снимк|работ", question)
+    ):
         return answer_statistics(body, db, user, today)
 
     photo = _photo_question.fullmatch(question)
@@ -301,5 +310,4 @@ def answer_question(body: AssistantQuestion, db: Db, user: AdminUser, request: R
 
     if photo or _follow_up.fullmatch(question):
         return {"answer": "Уточните дату или период. Например, «сколько фото 10 дней назад?» или «сколько фото за последние 5 дней?»."}
-    from app.assistant_sources import answer_source
     return answer_source(body, request, model_reply, today)

@@ -30,6 +30,28 @@ EXCLUDED = re.compile(r"/(?:preview|original|map|next|arrivals|avatars|contact-a
 SENSITIVE = re.compile(r"password|token|secret|api_key|credential|cookie|authorization|database_url", re.I)
 
 
+DIRECT_SOURCES = (
+    (r"территори[ийяю]+|микрорайон(?:ы|ов)?", "territories", "/api/districts"),
+    (r"оператор(?:ы|ов)?|сотрудник(?:и|ов)?", "people", "/api/users"),
+    (r"вид(?:ы|ов) работ", "catalog", "/api/work-types"),
+    (r"чат(?:ы|ов)?", "photos", "/api/chats"),
+    (r"очередь обработки|ошибки обработки", "processing", "/api/jobs"),
+    (r"ежедневны[ех] отч[её]т(?:ы|ов)", "reports", "/api/daily-reports"),
+    (r"новости|новостей", "news", "/api/news"),
+)
+
+
+def direct_source(question):
+    text = question.lower().strip(" .?!")
+    for pattern, domain, path in DIRECT_SOURCES:
+        if re.fullmatch(
+            r"(?:(?:покажи|показать|дай|выведи|открой)\s+)?(?:мне\s+)?"
+            r"(?:(?:весь\s+)?список\s+|все\s+)?(?:" + pattern + r")", text
+        ):
+            return domain, path
+    return None
+
+
 class SourceDomain(BaseModel):
     domain: Literal["photos", "tasks", "reports", "people", "territories", "catalog", "days",
                     "messages", "news", "processing", "exchange", "clarify"]
@@ -114,7 +136,9 @@ def answer_source(body, request: Request, model_reply, today):
     from app.config import settings
     url = settings().local_assistant_url
     try:
-        domain = SourceDomain.model_validate_json(model_reply(url, messages, SourceDomain.model_json_schema())).domain
+        direct = direct_source(body.question)
+        domain = direct[0] if direct else SourceDomain.model_validate_json(
+            model_reply(url, messages, SourceDomain.model_json_schema())).domain
         if domain == "clarify":
             return {"answer": "Уточните раздел и что нужно найти: фото, задачи, отчёты, операторы, территории, переписка, новости, обработка или обмен."}
         routes = sources_for(app, domain)
@@ -134,14 +158,17 @@ def answer_source(body, request: Request, model_reply, today):
             ]}
             for path, spec in routes.items()
         }
-        selection = Selection.model_validate_json(model_reply(url, [
-            {"role": "system", "content": "Выбери один GET источник и параметры запроса. Только JSON по схеме. "
-             "Не выдумывай ID и имена, отсутствующий обязательный параметр означает needs_clarification=true. "
-             "Для поиска используй q если источник поддерживает его. Даты в ISO. "
-             "Один ответ содержит только страницу данных, не обобщай её как полный итог. "
-             f"Сегодня {today.isoformat()}. Источники: " + json.dumps(descriptions, ensure_ascii=False)},
-            *history, {"role": "user", "content": body.question},
-        ], Selection.model_json_schema()))
+        if direct:
+            selection = Selection(path=direct[1])
+        else:
+            selection = Selection.model_validate_json(model_reply(url, [
+                {"role": "system", "content": "Выбери один GET источник и параметры запроса. Только JSON по схеме. "
+                 "Не выдумывай ID и имена, отсутствующий обязательный параметр означает needs_clarification=true. "
+                 "Для поиска используй q если источник поддерживает его. Даты в ISO. "
+                 "Один ответ содержит только страницу данных, не обобщай её как полный итог. "
+                 f"Сегодня {today.isoformat()}. Источники: " + json.dumps(descriptions, ensure_ascii=False)},
+                *history, {"role": "user", "content": body.question},
+            ], Selection.model_json_schema()))
     except ValueError:
         return {"answer": "Не удалось определить источник и параметры. Уточните раздел, дату или номер записи."}
     if selection.needs_clarification:
@@ -165,6 +192,12 @@ def answer_source(body, request: Request, model_reply, today):
         data = clean_data(response.json())
     except ValueError:
         return {"answer": "Этот источник нужно открыть в соответствующем разделе «Метки»."}
+    if path == "/api/districts" and isinstance(data, dict) and isinstance(data.get("features"), list):
+        data = {"total": len(data["features"]),
+                "items": [item.get("properties", {}) for item in data["features"]]}
+    if path == "/api/users" and isinstance(data, list) and direct:
+        data = [{key: value for key, value in item.items() if key in {"id", "name", "login", "role", "active"}}
+                for item in data]
     text = "\n".join(render_data(data))
     truncated = len(text) > 14000
     text = text[:14000]
