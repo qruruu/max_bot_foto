@@ -57,8 +57,6 @@ services:
         condition: service_completed_successfully
   trainer:
     <<: *app
-    # Leave CPU capacity for interactive API requests on the two-core server.
-    cpus: 1.0
     command: [python, -m, app.ml]
     stop_grace_period: 5m
     depends_on:
