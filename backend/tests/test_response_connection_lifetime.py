@@ -43,7 +43,7 @@ def test_database_connections_are_released_before_slow_file_transfer(monkeypatch
         db.execute(text("SELECT 1"))
         return StreamingResponse(iter([b"published image"]))
 
-    async def exercise(path):
+    async def exercise(path, count=1):
         entered, release = asyncio.Event(), asyncio.Event()
         messages = []
 
@@ -51,7 +51,8 @@ def test_database_connections_are_released_before_slow_file_transfer(monkeypatch
             messages.append(message)
             if message["type"] == "http.response.start":
                 # ASGI backpressure models an image transfer still in progress.
-                entered.set()
+                if sum(item["type"] == "http.response.start" for item in messages) == count:
+                    entered.set()
                 await release.wait()
 
         async def receive():
@@ -65,7 +66,7 @@ def test_database_connections_are_released_before_slow_file_transfer(monkeypatch
             "root_path": "", "headers": [], "client": ("127.0.0.1", 1),
             "server": ("test", 80),
         }
-        transfer = asyncio.create_task(app(scope, receive, send))
+        transfers = [asyncio.create_task(app(dict(scope), receive, send)) for _ in range(count)]
         try:
             await asyncio.wait_for(entered.wait(), timeout=3)
             assert engine.pool.checkedout() == 0
@@ -76,12 +77,12 @@ def test_database_connections_are_released_before_slow_file_transfer(monkeypatch
                 assert response.json() == {"ok": True}
         finally:
             release.set()
-            await asyncio.wait_for(transfer, timeout=3)
-        assert messages[0]["status"] == 200
+            await asyncio.wait_for(asyncio.gather(*transfers), timeout=3)
+        assert sum(item.get("status") == 200 for item in messages) == count
         assert engine.pool.checkedout() == 0
 
     try:
-        asyncio.run(exercise("/preview"))
+        asyncio.run(exercise("/preview", count=16))
         asyncio.run(exercise("/news-file"))
     finally:
         engine.dispose()
