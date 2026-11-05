@@ -5,6 +5,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError, api } from './api';
 import { useApp } from './App';
 import ChatPanel from './ChatPanel';
+import LocalAssistantChat from './LocalAssistantChat';
 import { useOperatorChats } from './OperatorChatsProvider';
 import { mergeMessages, messagePreview, operatorPhotoLink } from './operatorChatData';
 import type { ContactPage, MessagePage, OperatorContact, OperatorMessage } from './operatorChatData';
@@ -15,6 +16,8 @@ export default function OperatorChats() {
   const {refreshUnread} = useOperatorChats();
   const [params, setParams] = useSearchParams();
   const selected = params.get('with') || '';
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const assistantAvailable = user.role === 'ADMIN_OPERATOR' && meta.local_assistant_enabled;
   const peerId = /^[1-9]\d*$/.test(selected) ? Number(selected) : null;
   const currentPeer = useRef(peerId);
   currentPeer.current = peerId;
@@ -148,9 +151,12 @@ export default function OperatorChats() {
 
   return <>
     <header className="page-header"><div><span className="eyebrow">ОБЩЕНИЕ В КОМАНДЕ</span><h1>Чаты операторов</h1><p>Личная переписка с коллегами внутри панели.</p></div>
-      <button onClick={() => setRevision(value => value + 1)} aria-label="Обновить чаты"><RefreshCw size={18}/></button>
+      {assistantAvailable && <button onClick={() => setAssistantOpen(value => !value)} aria-expanded={assistantOpen}>
+        {assistantOpen ? 'К чатам операторов' : 'Даня ИИ'}
+      </button>}
+      {(!assistantAvailable || !assistantOpen) && <button onClick={() => setRevision(value => value + 1)} aria-label="Обновить чаты"><RefreshCw size={18}/></button>}
     </header>
-    <ChatPanel contacts={contacts.map(contact => ({key: String(contact.id), name: contact.name, avatar_url: contact.avatar_url,
+    {assistantAvailable && assistantOpen ? <LocalAssistantChat key={user.id}/> : <ChatPanel contacts={contacts.map(contact => ({key: String(contact.id), name: contact.name, avatar_url: contact.avatar_url,
       active: contact.active, unread: contact.unread, subtitle: !contact.active ? 'Аккаунт отключён' : contact.role === 'ADMIN_OPERATOR' ? 'Администратор' : 'Оператор',
       preview: contact.last_message ? `${contact.last_message.sender_id === user.id ? 'Вы: ' : ''}${messagePreview(contact.last_message)}` : null,
       preview_at: contact.last_message?.created_at}))} selected={peerId ? String(peerId) : ''} select={key => setParams(key ? {with: key} : {})}
@@ -162,6 +168,6 @@ export default function OperatorChats() {
         </Link> : <div className="operator-message-photo-unavailable">Фотография #{message.photo.id} недоступна</div>)}))}
       hasOlder={hasOlder} loadingOlder={loadingOlder} older={older} listRef={list} draft={draft}
       changeDraft={value => {if (peerId) setDrafts(previous => ({...previous, [peerId]: value})); setSendError('');}}
-      send={send} keyDown={keyDown} sending={!!sendingPeer} sendError={sendError} timezone={meta.timezone}/>
+      send={send} keyDown={keyDown} sending={!!sendingPeer} sendError={sendError} timezone={meta.timezone}/>}
   </>;
 }

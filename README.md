@@ -232,6 +232,23 @@ API: `GET /api/operator-chats` — список коллег и последни
 Все запросы требуют входа, изменения также проверяют CSRF и Origin.
 Миграция `0018` создаёт таблицу сообщений при штатном `docker compose up -d --build`.
 
+### Пробный помощник для администраторов
+
+Поместите файл [Qwen3-1.7B Q4_K_M](https://huggingface.co/ggml-org/Qwen3-1.7B-GGUF/tree/main) в отдельную папку с моделями. Запустите llama.cpp в сети текущего проекта Compose, указав путь к папке и точное имя файла. Команда оставляет порт доступным только внутри Docker и ограничивает обработку двумя потоками CPU и одним запросом за раз.
+
+```bash
+docker run -d --name metka-llama --network max-photos_default --restart unless-stopped \
+  --mount type=bind,source=/path/to/models,target=/models,readonly \
+  ghcr.io/ggml-org/llama.cpp:server --host 0.0.0.0 --port 8080 --jinja \
+  --model /models/Qwen3-1.7B-Q4_K_M.gguf --ctx-size 1024 --threads 2 --threads-batch 2 --parallel 1
+```
+
+Задайте `LOCAL_ASSISTANT_URL=http://metka-llama:8080` в `.env` и пересоберите `api` и `web`.
+Войдите администратором, откройте «Чаты операторов» → «Даня ИИ» и спросите
+«Сколько фото поступило сегодня?» или «Сколько фотографий получили вчера?».
+Подсчёт идёт по дате поступления и правилам видимости архива. Пустое значение
+`LOCAL_ASSISTANT_URL` отключает пробную функцию.
+
 ## Аватарка профиля
 
 Откройте «Настройки» → «Профиль», выберите фотографию и нажмите «Сохранить аватарку».

@@ -73,6 +73,7 @@ from app.integration_access import IntegrationAccess
 from app.integration_access import router as integration_keys_router
 from app.integration_api import router as integration_router
 from app.integrations import YandexDisk, safe_url
+from app.local_assistant import router as local_assistant_router
 from app.media import media_path
 from app.models import (
     Audit,
@@ -144,6 +145,7 @@ app.include_router(appeals_public_router)
 app.include_router(appeal_sharing_router)
 app.include_router(signin_router)
 app.include_router(operator_chats_router)
+app.include_router(local_assistant_router)
 app.include_router(chat_senders_router)
 app.include_router(work_types_router)
 app.include_router(news_router)
@@ -230,6 +232,7 @@ def meta(db: Db, user: CurrentUser):
                        for row in catalog_rows(db)],
         "statuses": list(Status),
         "timezone": settings().app_timezone,
+        "local_assistant_enabled": bool(settings().local_assistant_url) and user.role == Role.ADMIN_OPERATOR,
         "yandex_maps_api_key": settings().yandex_maps_api_key
         if has_permission(user, Permission.DISTRICTS_VIEW) or has_permission(user, Permission.PHOTOS_VIEW)
         else "",

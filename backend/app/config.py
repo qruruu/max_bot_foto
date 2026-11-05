@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     app_origin: str = "http://localhost:8080"
     public_appeals_origin: str = ""
     app_timezone: str = "Asia/Yekaterinburg"
+    local_assistant_url: str = ""
     session_hours: int = 12
     cookie_secure: bool = True
     organizations_enabled: bool = False
