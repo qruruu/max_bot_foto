@@ -7,6 +7,8 @@ import { useApp } from './App';
 import ChatPanel from './ChatPanel';
 import useLocalAssistantChat, { assistantExample, assistantKey, assistantName, assistantQuestionLimit } from './useLocalAssistantChat';
 import type { ChatContact } from './ChatPanel';
+import AdminTaskForm from './appeals/AdminTaskForm';
+import './appeals/owner-appeals.css';
 import { useOperatorChats } from './OperatorChatsProvider';
 import { mergeMessages, messagePreview, operatorPhotoLink } from './operatorChatData';
 import type { ContactPage, MessagePage, OperatorContact, OperatorMessage } from './operatorChatData';
@@ -18,6 +20,7 @@ export default function OperatorChats() {
   const [params, setParams] = useSearchParams();
   const assistant = useLocalAssistantChat();
   const assistantList = useRef<HTMLDivElement>(null);
+  const taskDialog = useRef<HTMLDialogElement>(null);
   const assistantAvailable = user.role === 'ADMIN_OPERATOR' && meta.local_assistant_enabled;
   const selected = params.get('with') || '';
   const assistantSelected = !!assistantAvailable && selected === assistantKey;
@@ -116,6 +119,11 @@ export default function OperatorChats() {
     if (assistantSelected && element) element.scrollTop = element.scrollHeight;
   }, [assistantSelected, assistant.messages]);
 
+  useLayoutEffect(() => {
+    const dialog = taskDialog.current;
+    if (assistant.task && dialog && !dialog.open) dialog.showModal();
+  }, [assistant.task]);
+
   async function older() {
     if (!peerId || !messages.length || loadingOlder) return;
     const target = peerId, controller = new AbortController();
@@ -169,7 +177,7 @@ export default function OperatorChats() {
     chatContacts.unshift({
       key: assistantKey, name: assistantName, avatar_url: null, assistant: true,
       active: true, unread: 0, subtitle: 'Локальный помощник',
-      preview: reply?.body ?? 'Статистика по фотографиям', preview_at: reply?.created_at,
+      preview: reply?.body ?? 'Статистика по фото и задачи', preview_at: reply?.created_at,
     });
   }
 
@@ -193,5 +201,8 @@ export default function OperatorChats() {
       send={assistantSelected ? assistant.send : send} keyDown={keyDown}
       sending={assistantSelected ? assistant.sending : !!sendingPeer}
       sendError={assistantSelected ? assistant.error : sendError} timezone={meta.timezone}/>
+    {assistantAvailable && assistant.task && <dialog ref={taskDialog} className="operator-assistant-task" aria-label="Черновик задачи" onCancel={event => event.preventDefault()}>
+      <AdminTaskForm endpoint="/appeals/internal-tasks" initial={assistant.task} onClose={assistant.closeTask} onCreated={assistant.completeTask}/>
+    </dialog>}
   </>;
 }

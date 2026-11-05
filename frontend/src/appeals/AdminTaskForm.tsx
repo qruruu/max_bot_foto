@@ -5,18 +5,22 @@ import TaskImageInput, { pastedImages } from './TaskImageInput';
 import { galleryPhoto } from './gallery';
 
 type Operator = {id: number; name: string};
+export type AdminTaskDraft = {executor?: string | null; subject?: string | null; description?: string | null; dueDate?: string | null};
 
-export default function AdminTaskForm({endpoint, onClose, onCreated}: {
+const nameKey = (value: string) => value.toLocaleLowerCase('ru-RU').replaceAll('ё', 'е').trim().split(/\s+/).sort().join(' ');
+
+export default function AdminTaskForm({endpoint, initial, onClose, onCreated}: {
   endpoint: string;
+  initial?: AdminTaskDraft;
   onClose: () => void;
   onCreated: (id: number) => void;
 }) {
   const [operators, setOperators] = useState<Operator[] | null>(null);
-  const [subject, setSubject] = useState('');
-  const [description, setDescription] = useState('');
+  const [subject, setSubject] = useState(initial?.subject ?? '');
+  const [description, setDescription] = useState(initial?.description ?? '');
   const [operatorId, setOperatorId] = useState('');
   const [files, setFiles] = useState<File[]>([]);
-  const [dueDate, setDueDate] = useState('');
+  const [dueDate, setDueDate] = useState(initial?.dueDate ?? '');
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -26,10 +30,18 @@ export default function AdminTaskForm({endpoint, onClose, onCreated}: {
   useEffect(() => {
     const abort = new AbortController();
     api<Operator[]>(endpoint + '/options', 'GET', undefined, abort.signal)
-      .then(items => {if (!abort.signal.aborted) setOperators(items);})
+      .then(items => {
+        if (abort.signal.aborted) return;
+        setOperators(items);
+        if (initial?.executor) {
+          const expected = nameKey(initial.executor);
+          const matches = items.filter(operator => nameKey(operator.name) === expected);
+          if (matches.length === 1) setOperatorId(String(matches[0].id));
+        }
+      })
       .catch(reason => {if (!abort.signal.aborted) setError(reason.message);});
     return () => abort.abort();
-  }, [endpoint, retry]);
+  }, [endpoint, initial?.executor, retry]);
 
   function updateFiles(next: File[]) {
     if (next.length > 3) {
@@ -81,7 +93,7 @@ export default function AdminTaskForm({endpoint, onClose, onCreated}: {
         <label>Исполнитель<select required value={operatorId} disabled={!operators?.length} onChange={event => setOperatorId(event.target.value)}>
           <option value="">{operators ? 'Выберите оператора' : 'Загружаем операторов…'}</option>
           {operators?.map(operator => <option key={operator.id} value={operator.id}>{operator.name}</option>)}
-        </select></label>
+        </select>{initial?.executor && operators?.length && !operatorId ? <span className="hint">Из запроса: {initial.executor}. Выберите исполнителя из списка.</span> : null}</label>
         <label>Срок (необязательно)<input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)}/></label>
       </div>
       <TaskImageInput disabled={busy} files={files} onChange={updateFiles}/>

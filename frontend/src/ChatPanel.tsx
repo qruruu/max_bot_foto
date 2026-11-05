@@ -64,7 +64,7 @@ export default function ChatPanel(props: Props) {
           {props.hasOlder && <button type="button" className="operator-chat-older" onClick={props.older} disabled={props.loadingOlder}>{props.loadingOlder ? 'Загружаем…' : 'Более ранние сообщения'}</button>}
           {props.loading && <p className="operator-chat-note">Загружаем переписку…</p>}
           {!props.loading && !messages.length && !props.historyError && <div className="operator-chat-empty">
-            {assistantPrompt ? <><Bot size={36}/><h2>Спросите про фотографии</h2><p>Даня ИИ посчитает, сколько фото поступило сегодня или вчера.</p></> :
+            {assistantPrompt ? <><Bot size={36}/><h2>Фото и задачи</h2><p>Спросите, сколько фото поступило за нужный день, или попросите подготовить задачу.</p></> :
               <><MessageCircle size={36}/><p>Сообщений пока нет. Напишите собеседнику первым.</p></>}
           </div>}
           <ol role="log" aria-label="Сообщения" aria-live="polite" aria-relevant="additions">

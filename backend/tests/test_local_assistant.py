@@ -1,8 +1,9 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from unittest.mock import Mock
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from app import local_assistant
@@ -14,24 +15,8 @@ from app.db import get_db
 from app.models import User
 
 
-def test_assistant_rejects_operators_before_calling_model(monkeypatch):
-    classify = Mock()
-    db = Mock()
-    monkeypatch.setattr(local_assistant, "classify_question", classify)
-    monkeypatch.setenv("LOCAL_ASSISTANT_URL", "http://model:8080")
-    settings.cache_clear()
-    monkeypatch.setitem(app.dependency_overrides, get_db, lambda: db)
-    monkeypatch.setitem(app.dependency_overrides, current_user, lambda: User(role=Role.OPERATOR))
-
-    with TestClient(app) as client:
-        response = client.post("/api/local-assistant/question", json={"question": "Сколько фото сегодня?"})
-
-    assert response.status_code == 403
-    classify.assert_not_called()
-    db.scalar.assert_not_called()
-
-
-def test_admin_question_uses_local_model_and_counts_by_local_receipt_date(monkeypatch):
+@pytest.fixture
+def assistant_db(monkeypatch):
     db = Mock()
     db.scalar.return_value = 7
     monkeypatch.setenv("LOCAL_ASSISTANT_URL", "http://model:8080")
@@ -40,21 +25,68 @@ def test_admin_question_uses_local_model_and_counts_by_local_receipt_date(monkey
     monkeypatch.setitem(app.dependency_overrides, get_db, lambda: db)
     monkeypatch.setitem(app.dependency_overrides, current_user, lambda: User(role=Role.ADMIN_OPERATOR))
     monkeypatch.setattr(local_assistant, "now", lambda: datetime(2026, 11, 4, 21, tzinfo=UTC))
+    return db
+
+
+def test_assistant_rejects_operators_before_calling_model(monkeypatch, assistant_db):
+    extract = Mock()
+    monkeypatch.setattr(local_assistant, "extract_task", extract)
+    monkeypatch.setitem(app.dependency_overrides, current_user, lambda: User(role=Role.OPERATOR))
+
+    with TestClient(app) as client:
+        response = client.post("/api/local-assistant/question", json={"question": "Создай задачу Иванову"})
+
+    assert response.status_code == 403
+    extract.assert_not_called()
+    assistant_db.scalar.assert_not_called()
+
+
+@pytest.mark.parametrize(("question", "context", "start", "end"), [
+    ("Сколько снимков пришло вчера?", None, date(2026, 11, 4), date(2026, 11, 4)),
+    ("сколько фото 10 дней назад ?", None, date(2026, 10, 26), date(2026, 10, 26)),
+    ("а 5 дней ?", "ago", date(2026, 10, 31), date(2026, 10, 31)),
+    ("сколько фото за последние 5 дней?", None, date(2026, 11, 1), date(2026, 11, 5)),
+    ("сколько фото за 03.11.2026?", None, date(2026, 11, 3), date(2026, 11, 3)),
+])
+def test_photo_count_uses_explicit_local_receipt_dates(assistant_db, question, context, start, end):
+    with TestClient(app) as client:
+        response = client.post("/api/local-assistant/question", json={"question": question, "date_context": context})
+
+    assert response.status_code == 200
+    statement = assistant_db.scalar.call_args.args[0]
+    assert {start, end} <= set(statement.compile().params.values())
+    assert "photos.received_at" in str(statement)
+    assert "photos.is_spam" in str(statement)
+
+
+def test_ambiguous_or_filtered_photo_request_never_counts_a_different_period(assistant_db):
+    with TestClient(app) as client:
+        for question in ("а 5 дней?", "сколько фото за 31.02.2026?", "сколько фото Иванов отправил сегодня?"):
+            response = client.post("/api/local-assistant/question", json={"question": question})
+            assert response.status_code == 200
+            assert "Уточните дату" in response.json()["answer"]
+    assistant_db.scalar.assert_not_called()
+
+
+def test_task_request_returns_only_a_draft_with_missing_fields(monkeypatch, assistant_db):
+    monkeypatch.setattr(local_assistant, "current_organization", lambda: object())
+    question = "создай задачу андрею дмитриевичу шашко"
 
     def complete(request):
         assert request.url == "http://model:8080/v1/chat/completions"
-        assert json.loads(request.content)["messages"][-1]["content"] == "Сколько снимков пришло вчера?"
-        return httpx.Response(200, json={"choices": [{"message": {"content": '{"period":"yesterday"}'}}]})
+        assert json.loads(request.content)["messages"][-1]["content"] == question
+        content = '{"executor":"Андрей Дмитриевич Шашко","subject":null,"description":null,"due":null}'
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
 
     http_client = httpx.Client
     with TestClient(app) as client:
         monkeypatch.setattr(local_assistant.httpx, "Client", lambda **kwargs: http_client(
             transport=httpx.MockTransport(complete), **kwargs,
         ))
-        response = client.post("/api/local-assistant/question", json={"question": " Сколько снимков пришло вчера? "})
+        response = client.post("/api/local-assistant/question", json={"question": question})
 
     assert response.status_code == 200
-    assert response.json()["answer"] == "Поступило фото за 04.11.2026: 7 (без спама, по доступным вам чатам)."
-    statement = db.scalar.call_args.args[0]
-    assert "photos.received_at" in str(statement)
-    assert "photos.is_spam" in str(statement)
+    assert response.json()["task"] == {
+        "executor": "Андрей Дмитриевич Шашко", "subject": None, "description": None, "dueDate": None,
+    }
+    assistant_db.scalar.assert_not_called()

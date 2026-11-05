@@ -2,6 +2,10 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { api } from './api';
 import type { ChatMessage } from './ChatPanel';
+import type { AdminTaskDraft } from './appeals/AdminTaskForm';
+
+type DateContext = 'ago' | 'last';
+type AssistantResponse = { answer: string; date_context?: DateContext | null; task?: AdminTaskDraft };
 
 export const assistantKey = 'danya';
 export const assistantName = 'Даня ИИ';
@@ -13,6 +17,8 @@ export default function useLocalAssistantChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [task, setTask] = useState<AdminTaskDraft>();
+  const [dateContext, setDateContext] = useState<DateContext>();
 
   function changeDraft(value: string) {
     setDraft(value);
@@ -28,12 +34,16 @@ export default function useLocalAssistantChat() {
     setSending(true);
     setError('');
     try {
-      const { answer } = await api<{ answer: string }>('/local-assistant/question', 'POST', { question });
+      const response = await api<AssistantResponse>('/local-assistant/question', 'POST', {
+        question, ...(dateContext && {date_context: dateContext}),
+      });
+      setDateContext(response.date_context ?? undefined);
+      setTask(response.task);
       const answeredAt = new Date().toISOString();
       setMessages(previous => [
         ...previous,
         { id: previous.length + 1, body: question, outgoing: true, created_at: sentAt, read: true },
-        { id: previous.length + 2, body: answer, outgoing: false, created_at: answeredAt, read: false },
+        { id: previous.length + 2, body: response.answer, outgoing: false, created_at: answeredAt, read: false },
       ]);
       setDraft('');
     } catch (err) {
@@ -43,5 +53,14 @@ export default function useLocalAssistantChat() {
     }
   }
 
-  return { draft, messages, sending, error, changeDraft, send };
+  function completeTask(id: number) {
+    setTask(undefined);
+    setMessages(previous => [...previous, {
+      id: previous.length + 1, body: `Задача №${id} создана и назначена исполнителю.`,
+      outgoing: false, created_at: new Date().toISOString(), read: false,
+    }]);
+    window.dispatchEvent(new Event('appeals-changed'));
+  }
+
+  return { draft, messages, sending, error, task, changeDraft, send, completeTask, closeTask: () => setTask(undefined) };
 }

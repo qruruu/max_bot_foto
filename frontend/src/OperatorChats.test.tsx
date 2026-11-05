@@ -66,3 +66,51 @@ it('opens the admin assistant from the contact list and keeps replies when retur
   await act(async () => contact.click());
   expect(element.querySelector('[role="log"]')?.textContent).toContain('Поступило фото: 7');
 });
+
+it('requires confirmation before creating the assistant task through the standard task API', async () => {
+  (globalThis as {IS_REACT_ACT_ENVIRONMENT?: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
+  session.role = 'ADMIN_OPERATOR';
+  session.assistant = true;
+  const element = document.createElement('div');
+  document.body.append(element);
+  const root = createRoot(element);
+  const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal');
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+    configurable: true, value(this: HTMLDialogElement) { this.open = true; },
+  });
+  unmount = async () => {
+    await act(async () => root.unmount());
+    element.remove();
+    if (originalShowModal) Object.defineProperty(HTMLDialogElement.prototype, 'showModal', originalShowModal);
+    else Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal');
+  };
+  vi.mocked(api).mockImplementation(async (path, method) => {
+    if (path === '/operator-chats') return {items: [], unread: 0};
+    if (path === '/local-assistant/question') return {
+      answer: 'Проверьте черновик задачи',
+      task: {executor: 'Иван Иванов', subject: 'Переснять вход', description: 'Переснять вход с улицы'},
+    };
+    if (path === '/appeals/internal-tasks/options') return [{id: 5, name: 'Иванов Иван'}];
+    if (path === '/appeals/internal-tasks' && method === 'POST') return {id: 13};
+    throw new Error(path);
+  });
+
+  await act(async () => root.render(<MemoryRouter initialEntries={['/messages?with=danya']}><OperatorChats/></MemoryRouter>));
+  const input = element.querySelector<HTMLTextAreaElement>('textarea')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Создай задачу Иванову — переснять вход');
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+  });
+  await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})));
+
+  const dialog = element.querySelector<HTMLDialogElement>('dialog')!;
+  expect(dialog.open).toBe(true);
+  expect(dialog.querySelector('select')?.value).toBe('5');
+  expect(api).not.toHaveBeenCalledWith('/appeals/internal-tasks', 'POST', expect.anything());
+  await act(async () => dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
+  const request = vi.mocked(api).mock.calls.find(([path, method]) => path === '/appeals/internal-tasks' && method === 'POST');
+  expect(JSON.parse((request?.[2] as FormData).get('metadata') as string)).toMatchObject({
+    operator_id: 5, subject: 'Переснять вход', description: 'Переснять вход с улицы',
+  });
+  expect(element.querySelector('[role="log"]')?.textContent).toContain('Задача №13 создана');
+});
