@@ -98,6 +98,11 @@ def extract_task(url: str, question: str) -> TaskDraft:
 def calendar_day(value: str, today: date) -> date | None:
     if value in {"сегодня", "вчера", "позавчера", "завтра", "послезавтра"}:
         return today + timedelta(days={"сегодня": 0, "вчера": -1, "позавчера": -2, "завтра": 1, "послезавтра": 2}[value])
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None
     match = re.fullmatch(r"(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?", value)
     if match:
         day, month, year = match.groups()
@@ -120,6 +125,18 @@ def photo_period(text: str, today: date, context: DateContext | None):
         return today - timedelta(days=int(match[1]) - 1), today, "last"
     if day := calendar_day(text.removeprefix("за "), today):
         return day, day, None
+    return None
+
+
+def conversational_photo_period(question: str, history: list[ConversationMessage], today: date):
+    # Dates in previous messages only select a scope. Counts always come from the database.
+    candidates = [question, *(item.content.lower() for item in reversed(history))]
+    for text in candidates:
+        if match := re.search(rf"{_day_quantity}\s+назад", text):
+            return photo_period(match[0], today, None)
+        if match := re.search(r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}\.\d{1,2}\.\d{4})\b", text):
+            if day := calendar_day(match[0], today):
+                return day, day, None
     return None
 
 
@@ -150,6 +167,16 @@ def answer_question(body: AssistantQuestion, db: Db, user: AdminUser):
     period = photo_period((photo[1] or "") if photo else question, today, body.date_context) if (
         photo or body.date_context and _follow_up.fullmatch(question)
     ) else None
+    photo_reference = bool(re.search(r"фото|снимк", question))
+    confirmation = question in {"да", "ну да", "верно", "именно", "проверь", "пересчитай", "точно"}
+    photo_history = any(re.search(r"фото|снимк", item.content.lower()) for item in body.history)
+    if not period and (photo_reference or confirmation and photo_history):
+        period = conversational_photo_period(question, body.history, today)
+        # Additional filters require a supported query instead of silently counting every photo.
+        if re.search(r"оператор|отправил|иванов|принят|отклон|объект", question):
+            period = None
+        if not period:
+            return {"answer": "Уточните дату и условия подсчёта. Могу проверить общее число поступивших фото за дату, например 26.10.2026."}
     if period:
         start, end, date_context = period
         filters = PhotoFilters(date_from=start, date_to=end, date_basis="received")

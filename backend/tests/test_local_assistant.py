@@ -90,3 +90,19 @@ def test_task_request_returns_only_a_draft_with_missing_fields(monkeypatch, assi
         "executor": "Андрей Дмитриевич Шашко", "subject": None, "description": None, "dueDate": None,
     }
     assistant_db.scalar.assert_not_called()
+
+
+def test_photo_correction_and_confirmation_query_database_instead_of_echoing_user(assistant_db, monkeypatch):
+    model = Mock(side_effect=AssertionError("Photo statistics must use database"))
+    monkeypatch.setattr(local_assistant, "model_reply", model)
+    history = [
+        {"role": "user", "content": "ты сказал что 10 дней назад было 15 фото"},
+        {"role": "assistant", "content": "Сколько фото было именно 2026-10-26?"},
+    ]
+    with TestClient(app) as client:
+        for question in ("ты сказал что 10 дней назад было 15 фото", "ну да", "26 числа было не 10 фото"):
+            response = client.post("/api/local-assistant/question", json={"question": question, "history": history})
+            assert response.status_code == 200
+            assert response.json()["answer"] == "Поступило фото за 26.10.2026: 7 (без спама)."
+    assert assistant_db.scalar.call_count == 3
+    model.assert_not_called()
