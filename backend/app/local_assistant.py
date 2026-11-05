@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import func, select
 
@@ -207,7 +207,7 @@ def conversational_photo_period(question: str, history: list[ConversationMessage
 
 
 @router.post("/api/local-assistant/question")
-def answer_question(body: AssistantQuestion, db: Db, user: AdminUser):
+def answer_question(body: AssistantQuestion, db: Db, user: AdminUser, request: Request):
     config = settings()
     if not config.local_assistant_url:
         raise HTTPException(404, "Локальный помощник не включён.")
@@ -264,4 +264,5 @@ def answer_question(body: AssistantQuestion, db: Db, user: AdminUser):
 
     if photo or _follow_up.fullmatch(question):
         return {"answer": "Уточните дату или период. Например, «сколько фото 10 дней назад?» или «сколько фото за последние 5 дней?»."}
-    return answer_statistics(body, db, user, today)
+    from app.assistant_sources import answer_source
+    return answer_source(body, request, model_reply, today)
