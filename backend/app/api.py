@@ -105,6 +105,7 @@ from app.photo_promotion import production_duplicate
 from app.photo_promotion import router as photo_promotion_router
 from app.photo_routes import router as photo_routes_router
 from app.photo_scope import active_cohort, active_cohort_condition
+from app.preview_admission import PreviewAdmission
 from app.receiver import connection_status, received
 from app.reports import export_excel, filtered, photo_dict, photo_list_position, summarize
 from app.schemas import (
@@ -158,6 +159,7 @@ app.include_router(integration_router)
 app.add_middleware(IntegrationAccess)
 app.add_middleware(SecurityTelemetry)
 app.add_middleware(OrganizationsMiddleware)
+app.add_middleware(PreviewAdmission)
 app.add_middleware(AppealBodyLimit)
 Filters = Annotated[PhotoFilters, Query()]
 
