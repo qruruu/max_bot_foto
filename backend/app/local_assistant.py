@@ -183,10 +183,14 @@ def model_reply(url: str, messages: list[dict], schema: dict | None = None):
 
 def extract_task(url: str, question: str) -> TaskDraft:
     try:
-        return TaskDraft.model_validate_json(model_reply(url, [
+        draft = TaskDraft.model_validate_json(model_reply(url, [
             {"role": "system", "content": _task_instructions},
             {"role": "user", "content": question},
         ], TaskDraft.model_json_schema()))
+        if not draft.description or not draft.description.strip():
+            draft.subject = None
+            draft.description = None
+        return draft
     except ValueError as exc:
         raise HTTPException(503, "Не удалось разобрать задачу. Уточните поручение.") from exc
 
