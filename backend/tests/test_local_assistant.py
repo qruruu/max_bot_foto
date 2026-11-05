@@ -122,3 +122,33 @@ def test_work_type_today_overrides_old_conversation_date(assistant_db, monkeypat
     params = assistant_db.scalar.call_args.args[0].compile().params.values()
     assert date(2026, 11, 5) in params
     assert "DEICING_MANUAL" in params
+
+
+def test_breakdown_renders_only_database_numbers_and_catalog_names(assistant_db, monkeypatch):
+    work = Mock(code="DEICING_MANUAL")
+    work.name = "ПГМ"
+    monkeypatch.setattr(local_assistant, "catalog_rows", lambda db: [work])
+    monkeypatch.setattr(local_assistant, "model_reply", lambda *args: json.dumps({
+        "action": "statistics", "date_from": "2026-11-04", "date_to": "2026-11-04",
+        "group_by": "both", "unsupported_filter": False,
+    }))
+    assistant_db.execute.side_effect = [[("DEICING_MANUAL", 7)], [("КА-1", 7)]]
+    with TestClient(app) as client:
+        result = client.post("/api/local-assistant/question", json={
+            "question": "Покажи виды работ и территории за вчера",
+            "history": [{"role": "assistant", "content": "ПОДХОДЫ: 39, РАБОТЫ: 12, КА-1: 5"}],
+        })
+    assert result.status_code == 200
+    answer = result.json()["answer"]
+    assert "ПГМ: 7" in answer and "КА-1: 7" in answer
+    assert "39" not in answer and "РАБОТЫ" not in answer
+    assert assistant_db.scalar.call_count == 1
+
+
+def test_unstructured_model_answer_cannot_reach_chat(assistant_db, monkeypatch):
+    monkeypatch.setattr(local_assistant, "model_reply", lambda *args: "ПОДХОДЫ: 39, КА-1: 5")
+    with TestClient(app) as client:
+        result = client.post("/api/local-assistant/question", json={"question": "разбивку за вчера"})
+    assert "Укажите дату" in result.json()["answer"]
+    assert "39" not in result.json()["answer"]
+    assistant_db.scalar.assert_not_called()

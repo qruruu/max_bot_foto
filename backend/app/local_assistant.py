@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from app.auth import AdminUser, Db
 from app.config import settings
 from app.domain import now
-from app.models import Photo
+from app.models import District, Photo
 from app.organization_context import current_organization
 from app.reports import filtered
 from app.schemas import PhotoFilters
@@ -55,6 +55,68 @@ class TaskDraft(BaseModel):
     subject: str | None = Field(default=None, max_length=80)
     description: str | None = Field(default=None, max_length=500)
     due: str | None = Field(default=None, max_length=60)
+
+
+class StatisticsIntent(BaseModel):
+    action: Literal["statistics", "help", "clarify"]
+    date_from: date | None = None
+    date_to: date | None = None
+    work_type: str | None = None
+    group_by: Literal["none", "work_type", "district", "both"] = "none"
+    unsupported_filter: bool = False
+
+
+def answer_statistics(body, db, user, today):
+    catalog = catalog_rows(db)
+    instructions = (
+        "Разбери запрос для чтения статистики Метки. Верни только JSON по схеме. "
+        "action=statistics для статистики фото, видов работ, территорий. "
+        "action=help для вопросов о возможностях. Иначе clarify. "
+        "Определи date_from и date_to как ISO даты. Текущий запрос важнее истории. "
+        "Используй историю только для пропущенных параметров. Нет даты — null. "
+        "group_by=both если запрошены виды работ и территории, иначе work_type или district. "
+        "work_type — код из справочника для одного указанного вида работ, иначе null. "
+        "unsupported_filter=true для фильтра по сотруднику, статусу или конкретной территории, "
+        "или неизвестному виду работ. Не вычисляй количество. Числа из переписки не являются данными. "
+        f"Сегодня {today.isoformat()}. Справочник: "
+        + str([{"code": row.code, "name": row.name} for row in catalog])
+    )
+    try:
+        intent = StatisticsIntent.model_validate_json(model_reply(settings().local_assistant_url, [
+            {"role": "system", "content": instructions},
+            *[{"role": item.role, "content": item.content[:500]} for item in body.history],
+            {"role": "user", "content": body.question},
+        ], StatisticsIntent.model_json_schema()))
+    except ValueError:
+        return {"answer": "Не удалось однозначно разобрать запрос. Укажите дату, вид работ и нужную разбивку."}
+    if intent.action == "help":
+        return {"answer": "Могу посчитать поступившие фото за дату или период, показать разбивку по видам работ и территориям и помочь создать задачу. Для задачи напишите «создай задачу»."}
+    works = {row.code: row.name for row in catalog}
+    if (intent.action != "statistics" or intent.unsupported_filter or not intent.date_from
+            or not intent.date_to or intent.date_from > intent.date_to
+            or intent.work_type is not None and intent.work_type not in works):
+        return {"answer": "Уточните дату или период и нужную разбивку: по видам работ или территориям. Этот запрос пока не удалось выполнить по базе."}
+    filters = PhotoFilters(date_from=intent.date_from, date_to=intent.date_to,
+                           date_basis="received", work_type=intent.work_type)
+    source = filtered(filters, user).subquery()
+    total = db.scalar(select(func.count()).select_from(source))
+    lines = [f"По базе, по дате поступления с {intent.date_from:%d.%m.%Y} по {intent.date_to:%d.%m.%Y}.",
+             f"Всего фото: {total} (без спама)."]
+    if intent.work_type:
+        lines.append("Вид работ: " + works[intent.work_type])
+    if intent.group_by in {"work_type", "both"}:
+        lines.append("По видам работ:")
+        for code, count in db.execute(select(source.c.work_type, func.count()).group_by(source.c.work_type)):
+            lines.append(f"• {works.get(code, 'Не определён')}: {count}")
+    if intent.group_by in {"district", "both"}:
+        lines.append("По территориям:")
+        for name, count in db.execute(
+            select(District.name, func.count()).select_from(source)
+            .outerjoin(District, District.id == source.c.district_id)
+            .group_by(source.c.district_id, District.name)
+        ):
+            lines.append(f"• {name or 'Не определена'}: {count}")
+    return {"answer": "\n".join(lines)}
 
 
 def model_reply(url: str, messages: list[dict], schema: dict | None = None):
@@ -167,6 +229,9 @@ def answer_question(body: AssistantQuestion, db: Db, user: AdminUser):
             },
         }
 
+    if re.search(r"территор|микрорайон|разбив|по видам|виды работ", question):
+        return answer_statistics(body, db, user, today)
+
     photo = _photo_question.fullmatch(question)
     period = photo_period((photo[1] or "") if photo else question, today, body.date_context) if (
         photo or body.date_context and _follow_up.fullmatch(question)
@@ -199,21 +264,4 @@ def answer_question(body: AssistantQuestion, db: Db, user: AdminUser):
 
     if photo or _follow_up.fullmatch(question):
         return {"answer": "Уточните дату или период. Например, «сколько фото 10 дней назад?» или «сколько фото за последние 5 дней?»."}
-    instructions = (
-        "Ты Даня ИИ, локальный помощник в системе Метка. Отвечай кратко по-русски. "
-        "Доступные функции: подсчёт поступивших фото по дате и подготовка задач. "
-        "Для подсчёта предложи написать «сколько фото за 03.11.2026» или «сколько фото 10 дней назад». "
-        "Для задачи предложи написать «создай задачу» с именем и поручением. "
-        "При создании бот уточняет исполнителя и поручение, предлагает необязательные срок и фото, "
-        "показывает итог и ждёт подтверждения. "
-        "Отчёты, отправка сообщений и поиск по инструкциям ещё не подключены. "
-        "У тебя нет прямого доступа к базе, не выдумывай статистику, документы, сотрудников "
-        "и результаты действий. Не заявляй о создании задачи. "
-        f"Сегодня {today.isoformat()}."
-    )
-    history = [{"role": item.role, "content": item.content} for item in body.history]
-    return {"answer": model_reply(config.local_assistant_url, [
-        {"role": "system", "content": instructions},
-        *history,
-        {"role": "user", "content": body.question},
-    ])}
+    return answer_statistics(body, db, user, today)
