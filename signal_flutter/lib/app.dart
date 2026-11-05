@@ -332,7 +332,7 @@ class _NavItem extends StatelessWidget {
                 maxLines: 1,
                 style: TextStyle(
                   fontSize: 10.5,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  fontWeight: FontWeight.w700,
                   color: selected ? green : muted,
                 ),
               ),
@@ -364,10 +364,10 @@ class _DesktopNav extends StatelessWidget {
         minimumSize: const Size(0, 36),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-        textStyle: TextStyle(
+        textStyle: const TextStyle(
           fontSize: 12,
           fontFamily: 'Inter',
-          fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+          fontWeight: FontWeight.w700,
         ),
       ),
       child: Text(label),

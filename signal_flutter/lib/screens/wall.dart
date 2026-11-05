@@ -98,7 +98,7 @@ class _WallScreenState extends State<WallScreen> {
                                 const SizedBox(width: 10),
                                 const Expanded(
                                   child: Text(
-                                    'Кто отвечает за территорию',
+                                    'Карта ответственных по территории',
                                     style: TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w600,

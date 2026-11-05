@@ -395,7 +395,7 @@ void main() {
       for (var i = 0; i < 3; i++) {
         await tester.drag(wall, const Offset(0, -1800));
         await tester.pumpAndSettle();
-        expect(find.text('Кто отвечает за территорию'), findsNothing);
+        expect(find.text('Карта ответственных по территории'), findsNothing);
         expect(browser.disposed, 0);
         await tester.drag(wall, const Offset(0, 2000));
         await tester.pumpAndSettle();

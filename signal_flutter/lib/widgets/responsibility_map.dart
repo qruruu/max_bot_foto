@@ -44,7 +44,7 @@ class _ResponsibilityMapState extends State<ResponsibilityMap>
               const Padding(
                 padding: EdgeInsets.fromLTRB(16, 0, 16, 10),
                 child: Text(
-                  'Кто отвечает за территорию',
+                  'Карта ответственных по территории',
                   style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
                 ),
               ),
@@ -136,7 +136,7 @@ class _ResponsibilityMapState extends State<ResponsibilityMap>
                       const SizedBox(width: 7),
                       const Expanded(
                         child: Text(
-                          'Кто отвечает за территорию',
+                          'Карта ответственных по территории',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
