@@ -6,12 +6,12 @@ import { afterEach, expect, it, vi } from 'vitest';
 import OperatorChats from './OperatorChats';
 import { api } from './api';
 
-const {refreshUnread} = vi.hoisted(()=>({refreshUnread:vi.fn(async()=>{})}));
+const {refreshUnread, session} = vi.hoisted(()=>({refreshUnread:vi.fn(async()=>{}), session:{role:'OPERATOR', assistant:false}}));
 vi.mock('./OperatorChatsProvider',()=>({useOperatorChats:()=>({refreshUnread})}));
-vi.mock('./App',()=>({useApp:()=>({user:{id:1},meta:{timezone:'Asia/Yekaterinburg'}}),ErrorBox:({error}:{error:string})=>error?<p role="alert">{error}</p>:null}));
+vi.mock('./App',()=>({useApp:()=>({user:{id:1, role:session.role},meta:{timezone:'Asia/Yekaterinburg', local_assistant_enabled:session.assistant}}),ErrorBox:({error}:{error:string})=>error?<p role="alert">{error}</p>:null}));
 vi.mock('./api', async importOriginal=>({...await importOriginal<typeof import('./api')>(),api:vi.fn()}));
 let unmount:()=>Promise<void> = async()=>{};
-afterEach(async()=>{await unmount();vi.clearAllMocks();});
+afterEach(async()=>{await unmount();vi.clearAllMocks();session.role='OPERATOR';session.assistant=false;});
 
 it('preserves operator photo attachments, read acknowledgement and compose controls in the shared view',async()=>{
   (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
@@ -30,4 +30,39 @@ it('preserves operator photo attachments, read acknowledgement and compose contr
   expect(element.querySelector('.operator-conversation-header')?.textContent).toContain('Администратор');
   expect(api).toHaveBeenCalledWith('/operator-chats/2/read','POST',{through_id:10},expect.any(AbortSignal));
   expect(refreshUnread).toHaveBeenCalled();
+});
+
+it('opens the admin assistant from the contact list and keeps replies when returning to the chat', async () => {
+  (globalThis as {IS_REACT_ACT_ENVIRONMENT?: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
+  session.role = 'ADMIN_OPERATOR';
+  session.assistant = true;
+  const element = document.createElement('div');
+  document.body.append(element);
+  const root = createRoot(element);
+  unmount = async () => { await act(async () => root.unmount()); element.remove(); };
+  vi.mocked(api).mockImplementation(async path => {
+    if (path === '/operator-chats') return {items: [], unread: 0};
+    if (path === '/local-assistant/question') return {answer: 'Поступило фото: 7'};
+    throw new Error(path);
+  });
+
+  await act(async () => root.render(<MemoryRouter initialEntries={['/messages']}><OperatorChats/></MemoryRouter>));
+  const contact = element.querySelector<HTMLButtonElement>('.operator-chat-contact')!;
+  expect(contact.textContent).toContain('Даня ИИ');
+  expect(element.querySelector('.page-header')?.textContent).not.toContain('Даня ИИ');
+  await act(async () => contact.click());
+  expect(element.querySelector('.operator-conversation-header')?.textContent).toContain('Локальный помощник');
+
+  const input = element.querySelector<HTMLTextAreaElement>('textarea')!;
+  expect(input.maxLength).toBe(500);
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Сколько фото сегодня?');
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+  });
+  await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})));
+  expect(api).toHaveBeenCalledWith('/local-assistant/question', 'POST', {question: 'Сколько фото сегодня?'});
+  expect(element.querySelector('[role="log"]')?.textContent).toContain('Поступило фото: 7');
+  await act(async () => element.querySelector<HTMLButtonElement>('.operator-chat-back')!.click());
+  await act(async () => contact.click());
+  expect(element.querySelector('[role="log"]')?.textContent).toContain('Поступило фото: 7');
 });

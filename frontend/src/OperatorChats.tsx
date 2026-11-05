@@ -5,7 +5,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError, api } from './api';
 import { useApp } from './App';
 import ChatPanel from './ChatPanel';
-import LocalAssistantChat from './LocalAssistantChat';
+import useLocalAssistantChat, { assistantExample, assistantKey, assistantName, assistantQuestionLimit } from './useLocalAssistantChat';
+import type { ChatContact } from './ChatPanel';
 import { useOperatorChats } from './OperatorChatsProvider';
 import { mergeMessages, messagePreview, operatorPhotoLink } from './operatorChatData';
 import type { ContactPage, MessagePage, OperatorContact, OperatorMessage } from './operatorChatData';
@@ -15,9 +16,11 @@ export default function OperatorChats() {
   const {user, meta} = useApp();
   const {refreshUnread} = useOperatorChats();
   const [params, setParams] = useSearchParams();
-  const selected = params.get('with') || '';
-  const [assistantOpen, setAssistantOpen] = useState(false);
+  const assistant = useLocalAssistantChat();
+  const assistantList = useRef<HTMLDivElement>(null);
   const assistantAvailable = user.role === 'ADMIN_OPERATOR' && meta.local_assistant_enabled;
+  const selected = params.get('with') || '';
+  const assistantSelected = !!assistantAvailable && selected === assistantKey;
   const peerId = /^[1-9]\d*$/.test(selected) ? Number(selected) : null;
   const currentPeer = useRef(peerId);
   currentPeer.current = peerId;
@@ -108,6 +111,11 @@ export default function OperatorChats() {
     } else if (stickToBottom.current) element.scrollTop = element.scrollHeight;
   }, [messages]);
 
+  useLayoutEffect(() => {
+    const element = assistantList.current;
+    if (assistantSelected && element) element.scrollTop = element.scrollHeight;
+  }, [assistantSelected, assistant.messages]);
+
   async function older() {
     if (!peerId || !messages.length || loadingOlder) return;
     const target = peerId, controller = new AbortController();
@@ -146,28 +154,44 @@ export default function OperatorChats() {
   }
 
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {event.preventDefault(); void send();}
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {event.preventDefault(); void (assistantSelected ? assistant.send() : send());}
+  }
+
+  const chatContacts: ChatContact[] = contacts.map(contact => ({
+    key: String(contact.id), name: contact.name, avatar_url: contact.avatar_url,
+    active: contact.active, unread: contact.unread,
+    subtitle: !contact.active ? 'Аккаунт отключён' : contact.role === 'ADMIN_OPERATOR' ? 'Администратор' : 'Оператор',
+    preview: contact.last_message ? `${contact.last_message.sender_id === user.id ? 'Вы: ' : ''}${messagePreview(contact.last_message)}` : null,
+    preview_at: contact.last_message?.created_at,
+  }));
+  if (assistantAvailable) {
+    const reply = assistant.messages.at(-1);
+    chatContacts.unshift({
+      key: assistantKey, name: assistantName, avatar_url: null, assistant: true,
+      active: true, unread: 0, subtitle: 'Локальный помощник',
+      preview: reply?.body ?? 'Статистика по фотографиям', preview_at: reply?.created_at,
+    });
   }
 
   return <>
     <header className="page-header"><div><span className="eyebrow">ОБЩЕНИЕ В КОМАНДЕ</span><h1>Чаты операторов</h1><p>Личная переписка с коллегами внутри панели.</p></div>
-      {assistantAvailable && <button onClick={() => setAssistantOpen(value => !value)} aria-expanded={assistantOpen}>
-        {assistantOpen ? 'К чатам операторов' : 'Даня ИИ'}
-      </button>}
-      {(!assistantAvailable || !assistantOpen) && <button onClick={() => setRevision(value => value + 1)} aria-label="Обновить чаты"><RefreshCw size={18}/></button>}
+      <button onClick={() => setRevision(value => value + 1)} aria-label="Обновить чаты"><RefreshCw size={18}/></button>
     </header>
-    {assistantAvailable && assistantOpen ? <LocalAssistantChat key={user.id}/> : <ChatPanel contacts={contacts.map(contact => ({key: String(contact.id), name: contact.name, avatar_url: contact.avatar_url,
-      active: contact.active, unread: contact.unread, subtitle: !contact.active ? 'Аккаунт отключён' : contact.role === 'ADMIN_OPERATOR' ? 'Администратор' : 'Оператор',
-      preview: contact.last_message ? `${contact.last_message.sender_id === user.id ? 'Вы: ' : ''}${messagePreview(contact.last_message)}` : null,
-      preview_at: contact.last_message?.created_at}))} selected={peerId ? String(peerId) : ''} select={key => setParams(key ? {with: key} : {})}
-      contactLoading={contactLoading} contactError={contactError} historyError={historyError} loading={loading}
-      messages={messages.map(message => ({...message, outgoing: message.sender_id === user.id, read: !!message.read_at || message.id <= readThrough,
+    <ChatPanel contacts={chatContacts} selected={assistantSelected ? assistantKey : peerId ? String(peerId) : ''}
+      select={key => setParams(key ? {with: key} : {})}
+      contactLoading={contactLoading} contactError={contactError} historyError={assistantSelected ? '' : historyError}
+      loading={!assistantSelected && loading}
+      messages={assistantSelected ? assistant.messages : messages.map(message => ({...message, outgoing: message.sender_id === user.id, read: !!message.read_at || message.id <= readThrough,
         attachment: message.photo && (message.photo.available ? <Link className="operator-message-photo" to={operatorPhotoLink(message.photo.id, peerId!)} aria-label={'Открыть фотографию №' + message.photo.id}>
           {message.photo.preview_url ? <img src={message.photo.preview_url} loading="lazy" alt={'Фотография №' + message.photo.id}/> : <span className="operator-message-photo-placeholder"><Camera size={30}/></span>}
           <span>Фотография #{message.photo.id}<small>Открыть карточку</small></span>
         </Link> : <div className="operator-message-photo-unavailable">Фотография #{message.photo.id} недоступна</div>)}))}
-      hasOlder={hasOlder} loadingOlder={loadingOlder} older={older} listRef={list} draft={draft}
-      changeDraft={value => {if (peerId) setDrafts(previous => ({...previous, [peerId]: value})); setSendError('');}}
-      send={send} keyDown={keyDown} sending={!!sendingPeer} sendError={sendError} timezone={meta.timezone}/>}
+      hasOlder={!assistantSelected && hasOlder} loadingOlder={loadingOlder} older={older}
+      listRef={assistantSelected ? assistantList : list} draft={assistantSelected ? assistant.draft : draft}
+      assistantPrompt={{example: assistantExample, maxLength: assistantQuestionLimit}}
+      changeDraft={assistantSelected ? assistant.changeDraft : value => {if (peerId) setDrafts(previous => ({...previous, [peerId]: value})); setSendError('');}}
+      send={assistantSelected ? assistant.send : send} keyDown={keyDown}
+      sending={assistantSelected ? assistant.sending : !!sendingPeer}
+      sendError={assistantSelected ? assistant.error : sendError} timezone={meta.timezone}/>
   </>;
 }
