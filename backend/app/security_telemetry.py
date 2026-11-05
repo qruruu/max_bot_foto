@@ -21,6 +21,12 @@ class VerifiedActor:
     organization: str | None
 
 
+@dataclass(frozen=True)
+class VerifiedApplication:
+    id: str
+    organization: str
+
+
 def identify(request, user_id, role, *, login=False):
     """Only authentication code calls this after checking the account and session."""
     if type(user_id) is not int or user_id <= 0 or role not in ROLES:
@@ -34,6 +40,10 @@ def identify(request, user_id, role, *, login=False):
 
 
 def resource(path, method):
+    if path == "/api/integration-keys" or path.startswith("/api/integration-keys/"):
+        return "private_records"
+    if path == "/api/integration/v1" or path.startswith("/api/integration/v1/"):
+        return "original" if path.endswith("/original") else "private_records"
     if path == "/api/health":
         return "health"
     if method == "POST" and path in {
@@ -154,6 +164,16 @@ class SecurityTelemetry:
                 organization=actor.organization if actor else None,
                 observer_dropped=self.dropped,
             )
+            if scope["path"].startswith("/api/integration/v1"):
+                application = state.get("metka_verified_application")
+                application = application if isinstance(application, VerifiedApplication) else None
+                row.update(schema=2, application_id=application.id if application else None,
+                           organization=application.organization if application else None,
+                           actor_id=None, role=None,
+                           operation="original" if scope["path"].endswith("/original") else
+                           "changes" if scope["path"].endswith("/changes") else
+                           "geozones" if "/geozones" in scope["path"] else
+                           "photos" if "/photos" in scope["path"] else "snapshot")
             try:
                 self.emit(row)
             except (OSError, ValueError):

@@ -33,6 +33,67 @@ class Timestamps:
     )
 
 
+class IntegrationKey(Base):
+    __tablename__ = "integration_keys"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    secret_hash: Mapped[str] = mapped_column(String(64))
+    scopes: Mapped[list] = mapped_column(JSONB)
+    cohort: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    window: Mapped[int] = mapped_column(BigInteger, default=0)
+    requests: Mapped[int] = mapped_column(Integer, default=0)
+    reserved_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+class IntegrationBudget(Base):
+    __tablename__ = "integration_budgets"
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), primary_key=True)
+    window: Mapped[int] = mapped_column(BigInteger, default=0)
+    requests: Mapped[int] = mapped_column(Integer, default=0)
+    reserved_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+class IntegrationClock(Base):
+    __tablename__ = "integration_clock"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    epoch: Mapped[str] = mapped_column(String(36))
+    sequence: Mapped[int] = mapped_column(BigInteger, default=0)
+    floor: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+class IntegrationChange(Base):
+    __tablename__ = "integration_changes"
+    sequence: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    entity: Mapped[str] = mapped_column(String(20))
+    entity_id: Mapped[int] = mapped_column(Integer)
+    cohort: Mapped[str | None] = mapped_column(String(20))
+    operation: Mapped[str] = mapped_column(String(10))
+    data: Mapped[dict | None] = mapped_column(JSONB)
+
+
+class IntegrationSnapshot(Base):
+    __tablename__ = "integration_snapshots"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    key_id: Mapped[str] = mapped_column(String(36), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    cursor: Mapped[str] = mapped_column(Text)
+    photo_date: Mapped[date | None] = mapped_column(Date)
+
+
+class IntegrationSnapshotRow(Base):
+    __tablename__ = "integration_snapshot_rows"
+    snapshot_id: Mapped[str] = mapped_column(ForeignKey("integration_snapshots.id", ondelete="CASCADE"), primary_key=True)
+    entity: Mapped[str] = mapped_column(String(20), primary_key=True)
+    entity_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    data: Mapped[dict] = mapped_column(JSONB)
+
+
 class CitizenAppeal(Timestamps, Base):
     """Organization inbox in the control database; never part of photo reports."""
     __tablename__ = "citizen_appeals"

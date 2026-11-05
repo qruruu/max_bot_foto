@@ -156,3 +156,19 @@ def test_real_unauthorized_export_has_no_invented_actor(client, capsys):
     ]
     row = next(row for row in rows if row["resource"] == "report_export")
     assert row["actor_id"] is None and row["outcome"] == "denied"
+
+
+def test_application_identity_never_becomes_a_human_session():
+    from app.security_telemetry import VerifiedApplication
+    application = VerifiedApplication('22222222-2222-4222-8222-222222222222', '11111111-1111-4111-8111-111111111111')
+    row = exercise(path='/api/integration/v1/photos/1/original', state={
+        'metka_verified_application': application,
+    })[0][0]
+    assert row['schema'] == 2 and row['application_id'] == application.id
+    assert row['actor_id'] is None and row['role'] is None
+    assert row['organization'] == application.organization and row['operation'] == 'original'
+    assert row['response_bytes'] == len(b'PRIVATE_CONTENT') and row['outcome'] == 'served'
+    denied = exercise(path='/api/integration/v1/changes', status=401,
+                      state={'metka_verified_application': {'id': 'forged'}})[0][0]
+    assert denied['application_id'] is None and denied['organization'] is None
+    assert denied['operation'] == 'changes' and denied['outcome'] == 'denied'

@@ -69,6 +69,9 @@ from app.inspections import admin_router as inspection_admin_router
 from app.inspections import owner_router as inspection_owner_router
 from app.inspections import router as inspection_router
 from app.intake import ingest
+from app.integration_access import IntegrationAccess
+from app.integration_access import router as integration_keys_router
+from app.integration_api import router as integration_router
 from app.integrations import YandexDisk, safe_url
 from app.media import media_path
 from app.models import (
@@ -150,6 +153,9 @@ app.include_router(daily_reports_router)
 app.include_router(organizations_router)
 app.include_router(disk_accounts_router)
 app.include_router(photo_promotion_router)
+app.include_router(integration_keys_router)
+app.include_router(integration_router)
+app.add_middleware(IntegrationAccess)
 app.add_middleware(SecurityTelemetry)
 app.add_middleware(OrganizationsMiddleware)
 app.add_middleware(AppealBodyLimit)

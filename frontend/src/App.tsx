@@ -11,6 +11,7 @@ import Administration from './Administration';
 import Learning from './Learning';
 import Exchange from './Exchange';
 import Settings from './Settings';
+import IntegrationKeys from './IntegrationKeys';
 import WorkTypes from './WorkTypes';
 import News from './News';
 import Avatar from './Avatar';
@@ -86,6 +87,7 @@ export default function App() {
     {to:'/audit', label:'Журнал действий', Icon:ShieldCheck, allowed:hasPermission(user,'audit_view')},
     {to:'/jobs', label:'Обработка', Icon:RefreshCw, allowed:hasPermission(user,'jobs_manage')},
     {to:'/exchange', label:'Обмен с АРМ', Icon:ArrowDownToLine, allowed:hasPermission(user,'exchange_manage')},
+    {to:'/api-keys', label:'API-ключи', Icon:ShieldCheck, allowed:admin && !!meta.organization},
     {to:'/learning', label:'Обучение нейросети', Icon:Layers, allowed:hasPermission(user,'learning_manage')},
   ].filter(link => link.allowed);
   const home = links.find(link => link.to !== '/news')?.to || '/news';
@@ -135,6 +137,7 @@ export default function App() {
           <Route path="/jobs" element={protectedPage('jobs_manage',<Administration key="jobs" page="jobs"/>)}/>
           <Route path="/learning" element={protectedPage('learning_manage',<Learning/>)}/>
           <Route path="/exchange" element={protectedPage('exchange_manage',<Exchange/>)}/>
+          <Route path="/api-keys" element={admin && meta.organization ? <IntegrationKeys/> : denied}/>
           <Route path="/settings" element={<Navigate to="/settings/profile" replace/>}/>
           <Route path="/settings/:section" element={<Settings/>}/>
           <Route path="/account" element={<Navigate to="/settings" replace/>}/>
