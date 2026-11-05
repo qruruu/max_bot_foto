@@ -7,8 +7,7 @@ import { useApp } from './App';
 import ChatPanel from './ChatPanel';
 import useLocalAssistantChat, { assistantExample, assistantKey, assistantName, assistantQuestionLimit } from './useLocalAssistantChat';
 import type { ChatContact } from './ChatPanel';
-import AdminTaskForm from './appeals/AdminTaskForm';
-import './appeals/owner-appeals.css';
+import AssistantTaskActions from './AssistantTaskActions';
 import { useOperatorChats } from './OperatorChatsProvider';
 import { mergeMessages, messagePreview, operatorPhotoLink } from './operatorChatData';
 import type { ContactPage, MessagePage, OperatorContact, OperatorMessage } from './operatorChatData';
@@ -18,9 +17,8 @@ export default function OperatorChats() {
   const {user, meta} = useApp();
   const {refreshUnread} = useOperatorChats();
   const [params, setParams] = useSearchParams();
-  const assistant = useLocalAssistantChat();
+  const assistant = useLocalAssistantChat(meta.today);
   const assistantList = useRef<HTMLDivElement>(null);
-  const taskDialog = useRef<HTMLDialogElement>(null);
   const assistantAvailable = user.role === 'ADMIN_OPERATOR' && meta.local_assistant_enabled;
   const selected = params.get('with') || '';
   const assistantSelected = !!assistantAvailable && selected === assistantKey;
@@ -119,11 +117,6 @@ export default function OperatorChats() {
     if (assistantSelected && element) element.scrollTop = element.scrollHeight;
   }, [assistantSelected, assistant.messages]);
 
-  useLayoutEffect(() => {
-    const dialog = taskDialog.current;
-    if (assistant.task && dialog && !dialog.open) dialog.showModal();
-  }, [assistant.task]);
-
   async function older() {
     if (!peerId || !messages.length || loadingOlder) return;
     const target = peerId, controller = new AbortController();
@@ -196,13 +189,16 @@ export default function OperatorChats() {
         </Link> : <div className="operator-message-photo-unavailable">Фотография #{message.photo.id} недоступна</div>)}))}
       hasOlder={!assistantSelected && hasOlder} loadingOlder={loadingOlder} older={older}
       listRef={assistantSelected ? assistantList : list} draft={assistantSelected ? assistant.draft : draft}
-      assistantPrompt={{example: assistantExample, maxLength: assistantQuestionLimit}}
+      assistantPrompt={{
+        example: assistant.task.step === 'description' ? 'Напишите, что нужно сделать' :
+          assistant.task.step === 'deadline' ? 'Завтра или 15.11' : assistantExample,
+        maxLength: assistant.task.step === 'description' ? 4000 : assistantQuestionLimit,
+        hideDraft: ['operator', 'photos', 'review'].includes(assistant.task.step || ''),
+        actions: <AssistantTaskActions task={assistant.task} resetDraft={() => assistant.changeDraft('')}/>,
+      }}
       changeDraft={assistantSelected ? assistant.changeDraft : value => {if (peerId) setDrafts(previous => ({...previous, [peerId]: value})); setSendError('');}}
       send={assistantSelected ? assistant.send : send} keyDown={keyDown}
       sending={assistantSelected ? assistant.sending : !!sendingPeer}
       sendError={assistantSelected ? assistant.error : sendError} timezone={meta.timezone}/>
-    {assistantAvailable && assistant.task && <dialog ref={taskDialog} className="operator-assistant-task" aria-label="Черновик задачи" onCancel={event => event.preventDefault()}>
-      <AdminTaskForm endpoint="/appeals/internal-tasks" initial={assistant.task} onClose={assistant.closeTask} onCreated={assistant.completeTask}/>
-    </dialog>}
   </>;
 }

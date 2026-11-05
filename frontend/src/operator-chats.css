@@ -82,6 +82,7 @@
 .operator-message-meta .operator-message-forward { display: inline-flex; align-items: center; padding: 3px; border: 0; background: transparent; color: var(--muted); }
 .inspection-forward-summary { padding: 12px; border-left: 3px solid var(--accent,var(--green)); margin: 18px 0; max-height: 200px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 
-.operator-assistant-task { width: min(540px, calc(100% - 28px)); max-height: 90dvh; padding: 0; border: 0; border-radius: 12px; color: var(--text); background: var(--surface); }
-.operator-assistant-task::backdrop { background: rgb(0 0 0 / .5); }
-.operator-assistant-task > .admin-task-form { margin: 0; }
+.operator-chat-compose > .operator-assistant-actions { display: grid; gap: 8px; max-height: 30dvh; overflow: auto; margin-bottom: 8px; }
+.operator-assistant-action-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.operator-assistant-actions label, .operator-assistant-actions small { display: block; }
+.operator-assistant-actions input { display: block; width: 100%; }

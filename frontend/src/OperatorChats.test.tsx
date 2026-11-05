@@ -67,50 +67,53 @@ it('opens the admin assistant from the contact list and keeps replies when retur
   expect(element.querySelector('[role="log"]')?.textContent).toContain('Поступило фото: 7');
 });
 
-it('requires confirmation before creating the assistant task through the standard task API', async () => {
+it('asks for missing task details in chat and lets the administrator skip optional fields', async () => {
   (globalThis as {IS_REACT_ACT_ENVIRONMENT?: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
   session.role = 'ADMIN_OPERATOR';
   session.assistant = true;
   const element = document.createElement('div');
   document.body.append(element);
   const root = createRoot(element);
-  const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal');
-  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
-    configurable: true, value(this: HTMLDialogElement) { this.open = true; },
-  });
-  unmount = async () => {
-    await act(async () => root.unmount());
-    element.remove();
-    if (originalShowModal) Object.defineProperty(HTMLDialogElement.prototype, 'showModal', originalShowModal);
-    else Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal');
-  };
+  unmount = async () => { await act(async () => root.unmount()); element.remove(); };
   vi.mocked(api).mockImplementation(async (path, method) => {
     if (path === '/operator-chats') return {items: [], unread: 0};
-    if (path === '/local-assistant/question') return {
-      answer: 'Проверьте черновик задачи',
-      task: {executor: 'Иван Иванов', subject: 'Переснять вход', description: 'Переснять вход с улицы'},
-    };
+    if (path === '/local-assistant/question') return {answer: 'Уточним задачу', task: {executor: 'Иван Иванов'}};
     if (path === '/appeals/internal-tasks/options') return [{id: 5, name: 'Иванов Иван'}];
     if (path === '/appeals/internal-tasks' && method === 'POST') return {id: 13};
     throw new Error(path);
   });
 
-  await act(async () => root.render(<MemoryRouter initialEntries={['/messages?with=danya']}><OperatorChats/></MemoryRouter>));
-  const input = element.querySelector<HTMLTextAreaElement>('textarea')!;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Создай задачу Иванову — переснять вход');
-    input.dispatchEvent(new Event('input', {bubbles: true}));
-  });
-  await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})));
+  async function reply(text: string) {
+    const input = element.querySelector<HTMLTextAreaElement>('textarea')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, text);
+      input.dispatchEvent(new Event('input', {bubbles: true}));
+    });
+    await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})));
+  }
+  async function click(text: string) {
+    const button = Array.from(element.querySelectorAll('button')).find(item => item.textContent === text);
+    expect(button).toBeDefined();
+    await act(async () => button!.click());
+  }
+  const messages = () => element.querySelector('[role="log"]')?.textContent;
 
-  const dialog = element.querySelector<HTMLDialogElement>('dialog')!;
-  expect(dialog.open).toBe(true);
-  expect(dialog.querySelector('select')?.value).toBe('5');
+  await act(async () => root.render(<MemoryRouter initialEntries={['/messages?with=danya']}><OperatorChats/></MemoryRouter>));
+  await reply('Создай задачу Иванову');
+  expect(messages()).toContain('Что нужно сделать?');
+  await reply('Переснять вход с улицы');
+  expect(messages()).toContain('К какому сроку');
+  await click('Пропустить срок');
+  expect(messages()).toContain('Есть фото или скриншоты');
+  expect(element.querySelector('input[type="file"]')).not.toBeNull();
+  await click('Пропустить фото');
+  expect(messages()).toContain('Исполнитель — Иванов Иван');
+  expect(messages()).toContain('Срок — без срока');
   expect(api).not.toHaveBeenCalledWith('/appeals/internal-tasks', 'POST', expect.anything());
-  await act(async () => dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
+  await click('Создать задачу');
   const request = vi.mocked(api).mock.calls.find(([path, method]) => path === '/appeals/internal-tasks' && method === 'POST');
   expect(JSON.parse((request?.[2] as FormData).get('metadata') as string)).toMatchObject({
-    operator_id: 5, subject: 'Переснять вход', description: 'Переснять вход с улицы',
+    operator_id: 5, subject: 'Переснять вход с улицы', description: 'Переснять вход с улицы', due_date: null,
   });
-  expect(element.querySelector('[role="log"]')?.textContent).toContain('Задача №13 создана');
+  expect(messages()).toContain('Задача №13 создана');
 });

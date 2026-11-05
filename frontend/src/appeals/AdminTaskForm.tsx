@@ -2,25 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api } from '../api';
 import TaskImageInput, { pastedImages } from './TaskImageInput';
-import { galleryPhoto } from './gallery';
+import { createAdminTask } from './adminTaskData';
+import type { TaskOperator } from './adminTaskData';
 
-type Operator = {id: number; name: string};
-export type AdminTaskDraft = {executor?: string | null; subject?: string | null; description?: string | null; dueDate?: string | null};
-
-const nameKey = (value: string) => value.toLocaleLowerCase('ru-RU').replaceAll('ё', 'е').trim().split(/\s+/).sort().join(' ');
-
-export default function AdminTaskForm({endpoint, initial, onClose, onCreated}: {
+export default function AdminTaskForm({endpoint, onClose, onCreated}: {
   endpoint: string;
-  initial?: AdminTaskDraft;
   onClose: () => void;
   onCreated: (id: number) => void;
 }) {
-  const [operators, setOperators] = useState<Operator[] | null>(null);
-  const [subject, setSubject] = useState(initial?.subject ?? '');
-  const [description, setDescription] = useState(initial?.description ?? '');
+  const [operators, setOperators] = useState<TaskOperator[] | null>(null);
+  const [subject, setSubject] = useState('');
+  const [description, setDescription] = useState('');
   const [operatorId, setOperatorId] = useState('');
   const [files, setFiles] = useState<File[]>([]);
-  const [dueDate, setDueDate] = useState(initial?.dueDate ?? '');
+  const [dueDate, setDueDate] = useState('');
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -29,19 +24,11 @@ export default function AdminTaskForm({endpoint, initial, onClose, onCreated}: {
 
   useEffect(() => {
     const abort = new AbortController();
-    api<Operator[]>(endpoint + '/options', 'GET', undefined, abort.signal)
-      .then(items => {
-        if (abort.signal.aborted) return;
-        setOperators(items);
-        if (initial?.executor) {
-          const expected = nameKey(initial.executor);
-          const matches = items.filter(operator => nameKey(operator.name) === expected);
-          if (matches.length === 1) setOperatorId(String(matches[0].id));
-        }
-      })
+    api<TaskOperator[]>(endpoint + '/options', 'GET', undefined, abort.signal)
+      .then(items => {if (!abort.signal.aborted) setOperators(items);})
       .catch(reason => {if (!abort.signal.aborted) setError(reason.message);});
     return () => abort.abort();
-  }, [endpoint, initial?.executor, retry]);
+  }, [endpoint, retry]);
 
   function updateFiles(next: File[]) {
     if (next.length > 3) {
@@ -59,19 +46,13 @@ export default function AdminTaskForm({endpoint, initial, onClose, onCreated}: {
     setBusy(true);
     setError('');
     try {
-      const body = new FormData();
-      body.append('metadata', JSON.stringify({
+      const task = await createAdminTask(endpoint, {
         client_id: clientId.current,
         subject: subject.trim(),
         description: description.trim(),
         operator_id: Number(operatorId),
         due_date: dueDate || null,
-      }));
-      for (const file of files) {
-        const {blob} = await galleryPhoto(file);
-        body.append('photos', blob, file.name);
-      }
-      const task = await api<{id: number}>(endpoint, 'POST', body);
+      }, files);
       onCreated(task.id);
     } catch (reason) {
       setError((reason as Error).message);
@@ -93,7 +74,7 @@ export default function AdminTaskForm({endpoint, initial, onClose, onCreated}: {
         <label>Исполнитель<select required value={operatorId} disabled={!operators?.length} onChange={event => setOperatorId(event.target.value)}>
           <option value="">{operators ? 'Выберите оператора' : 'Загружаем операторов…'}</option>
           {operators?.map(operator => <option key={operator.id} value={operator.id}>{operator.name}</option>)}
-        </select>{initial?.executor && operators?.length && !operatorId ? <span className="hint">Из запроса: {initial.executor}. Выберите исполнителя из списка.</span> : null}</label>
+        </select></label>
         <label>Срок (необязательно)<input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)}/></label>
       </div>
       <TaskImageInput disabled={busy} files={files} onChange={updateFiles}/>

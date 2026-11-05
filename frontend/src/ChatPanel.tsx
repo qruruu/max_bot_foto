@@ -21,7 +21,7 @@ type Props = {
   send: (event?: FormEvent) => void; keyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   sending: boolean; sendError: string; timezone: string;
   forward?: (id: number) => void;
-  assistantPrompt?: { example: string; maxLength: number };
+  assistantPrompt?: { example: string; maxLength: number; hideDraft?: boolean; actions?: ReactNode };
   labels?: {contacts: string; search: string; loading: string; none: string; empty: string; back: string; message: string};
 };
 const operatorLabels = {
@@ -79,8 +79,9 @@ export default function ChatPanel(props: Props) {
         </div>
         <form className="operator-chat-compose" onSubmit={props.send}>
           <ErrorBox error={props.sendError}/>
-          <div><textarea aria-label={assistantPrompt ? 'Вопрос помощнику' : labels.message} placeholder={peer && !peer.active ? 'Аккаунт отключён' : assistantPrompt?.example || 'Напишите сообщение…'} maxLength={assistantPrompt?.maxLength ?? 4000} rows={2} value={props.draft} disabled={!peer?.active || props.loading || props.sending} onChange={event => props.changeDraft(event.target.value)} onKeyDown={props.keyDown}/><button className="primary" aria-label="Отправить сообщение" disabled={!peer?.active || !props.draft.trim() || props.loading || props.sending}><Send size={19}/></button></div>
-          <p className="hint" role="status">{props.sending ? (assistantPrompt ? 'Даня ИИ отвечает…' : 'Отправляем…') : 'Enter — отправить, Shift + Enter — новая строка.'}</p>
+          {assistantPrompt?.actions}
+          {!assistantPrompt?.hideDraft && <><div><textarea aria-label={assistantPrompt ? 'Вопрос помощнику' : labels.message} placeholder={peer && !peer.active ? 'Аккаунт отключён' : assistantPrompt?.example || 'Напишите сообщение…'} maxLength={assistantPrompt?.maxLength ?? 4000} rows={2} value={props.draft} disabled={!peer?.active || props.loading || props.sending} onChange={event => props.changeDraft(event.target.value)} onKeyDown={props.keyDown}/><button className="primary" aria-label="Отправить сообщение" disabled={!peer?.active || !props.draft.trim() || props.loading || props.sending}><Send size={19}/></button></div>
+          <p className="hint" role="status">{props.sending ? (assistantPrompt ? 'Даня ИИ отвечает…' : 'Отправляем…') : 'Enter — отправить, Shift + Enter — новая строка.'}</p></>}
         </form>
       </>}
     </div>

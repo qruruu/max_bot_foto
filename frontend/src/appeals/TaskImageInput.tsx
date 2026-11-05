@@ -6,13 +6,14 @@ export function pastedImages(event: ClipboardEvent<HTMLTextAreaElement>) {
   return images;
 }
 
-export default function TaskImageInput({disabled, files, onChange}: {
+export default function TaskImageInput({disabled, files, onChange, allowPaste = true}: {
   disabled: boolean;
+  allowPaste?: boolean;
   files: File[];
   onChange: (files: File[]) => void;
 }) {
   return <div>
-    <label>Фото и скриншоты <small>До 3 файлов по 25 МБ. Скриншот можно вставить в поле текста.</small>
+    <label>Фото и скриншоты <small>До 3 файлов по 25 МБ.{allowPaste && ' Скриншот можно вставить в поле текста.'}</small>
       <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
         multiple disabled={disabled} onChange={event => {
           onChange([...files, ...Array.from(event.target.files || [])]);

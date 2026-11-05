@@ -38,9 +38,15 @@ _task_instructions = (
 )
 
 
+class ConversationMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
 class AssistantQuestion(BaseModel):
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
     date_context: DateContext | None = None
+    history: list[ConversationMessage] = Field(default_factory=list, max_length=8)
 
 
 class TaskDraft(BaseModel):
@@ -50,34 +56,43 @@ class TaskDraft(BaseModel):
     due: str | None = Field(default=None, max_length=60)
 
 
-def extract_task(url: str, question: str) -> TaskDraft:
+def model_reply(url: str, messages: list[dict], schema: dict | None = None):
     if not _inference.acquire(blocking=False):
         raise HTTPException(429, "Помощник уже отвечает. Попробуйте ещё раз чуть позже.")
     try:
-        with httpx.Client(timeout=httpx.Timeout(25.0, connect=3.0), trust_env=False) as client:
+        with httpx.Client(timeout=httpx.Timeout(70.0, connect=3.0), trust_env=False) as client:
             response = client.post(
                 f"{url.rstrip('/')}/v1/chat/completions",
                 json={
-                    "messages": [
-                        {"role": "system", "content": _task_instructions},
-                        {"role": "user", "content": question},
-                    ],
+                    "messages": messages,
                     "chat_template_kwargs": {"enable_thinking": False},
-                    "response_format": {
+                    **({"response_format": {
                         "type": "json_schema",
-                        "json_schema": {"name": "task_draft", "schema": TaskDraft.model_json_schema()},
-                    },
+                        "json_schema": {"name": "task_draft", "schema": schema},
+                    }} if schema else {}),
                     "temperature": 0,
-                    "max_tokens": 260,
+                    "max_tokens": 200 if schema else 160,
                 },
             )
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
-            return TaskDraft.model_validate_json(content)
+            if not isinstance(content, str) or not content.strip():
+                raise ValueError("Empty model response")
+            return content.strip()
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
         raise HTTPException(503, "Локальный помощник сейчас недоступен. Попробуйте позже.") from exc
     finally:
         _inference.release()
+
+
+def extract_task(url: str, question: str) -> TaskDraft:
+    try:
+        return TaskDraft.model_validate_json(model_reply(url, [
+            {"role": "system", "content": _task_instructions},
+            {"role": "user", "content": question},
+        ], TaskDraft.model_json_schema()))
+    except ValueError as exc:
+        raise HTTPException(503, "Не удалось разобрать задачу. Уточните поручение.") from exc
 
 
 def calendar_day(value: str, today: date) -> date | None:
@@ -122,7 +137,7 @@ def answer_question(body: AssistantQuestion, db: Db, user: AdminUser):
         draft = extract_task(config.local_assistant_url, body.question)
         due_date = calendar_day(draft.due.lower().strip(" .") if draft.due else "", today)
         return {
-            "answer": "Проверьте черновик задачи и заполните пропущенные поля. Задача появится после нажатия «Назначить задачу».",
+            "answer": "Уточним данные для задачи и проверим их перед созданием.",
             "task": {
                 "executor": draft.executor,
                 "subject": draft.subject,
@@ -145,4 +160,21 @@ def answer_question(body: AssistantQuestion, db: Db, user: AdminUser):
 
     if photo or _follow_up.fullmatch(question):
         return {"answer": "Уточните дату или период. Например, «сколько фото 10 дней назад?» или «сколько фото за последние 5 дней?»."}
-    return {"answer": "Могу посчитать поступившие фото за указанную дату или несколько последних дней и подготовить задачу для оператора. Например, «создай задачу Иванову — переснять вход»."}
+    instructions = (
+        "Ты Даня ИИ, локальный помощник в системе Метка. Отвечай кратко по-русски. "
+        "Доступные функции: подсчёт поступивших фото по дате и подготовка задач. "
+        "Для подсчёта предложи написать «сколько фото за 03.11.2026» или «сколько фото 10 дней назад». "
+        "Для задачи предложи написать «создай задачу» с именем и поручением. "
+        "При создании бот уточняет исполнителя и поручение, предлагает необязательные срок и фото, "
+        "показывает итог и ждёт подтверждения. "
+        "Отчёты, отправка сообщений и поиск по инструкциям ещё не подключены. "
+        "У тебя нет прямого доступа к базе, не выдумывай статистику, документы, сотрудников "
+        "и результаты действий. Не заявляй о создании задачи. "
+        f"Сегодня {today.isoformat()}."
+    )
+    history = [{"role": item.role, "content": item.content} for item in body.history]
+    return {"answer": model_reply(config.local_assistant_url, [
+        {"role": "system", "content": instructions},
+        *history,
+        {"role": "user", "content": body.question},
+    ])}
