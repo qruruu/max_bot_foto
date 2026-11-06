@@ -35,15 +35,22 @@ beforeEach(() => {
 afterEach(async () => {await act(async () => root.unmount()); element.remove();});
 
 it('keeps message notifications after opening and clears them after a reply without losing the drafted administrator answer', async () => {
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async (...args) => args[0].includes('/events?')
+    ? {items: [], has_more: false, can_comment: true, unanswered_comments: messages}
+    : original(...args));
+  const unread = () => element.querySelector('#appeal-tab-executor .appeal-tab-count')?.textContent;
   await act(async () => {root.render(<MemoryRouter><OwnerAppeals organization endpoint="/appeals"/></MemoryRouter>); await tick();});
   expect(element.textContent).toContain('Новые сообщения: 2'); expect(element.querySelector('img')?.getAttribute('src')).toBe('/preview');
   expect(element.textContent).not.toContain('Показать фото');
   expect(element.querySelector('button button')).toBeNull();
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
-  expect(element.textContent).toContain('Новые сообщения: 2');
-  expect(element.querySelector('.owner-appeal-photos img')?.getAttribute('src')).toBe('/photo');
-  expect(element.querySelector<HTMLAnchorElement>('.owner-appeal-photos .button')?.getAttribute('href')).toBe('/original');
+  expect(unread()).toBe('2');
+  expect(element.querySelector('.owner-appeal-photos img')?.getAttribute('src')).toBe('/preview');
+  expect(element.querySelector('.appeal-photo-preview')?.getAttribute('href')).toBe('/photo');
+  expect(element.querySelector<HTMLAnchorElement>('.appeal-photo-original')?.getAttribute('href')).toBe('/original');
   expect(element.textContent).not.toContain('Показать фото');
+  await act(async () => element.querySelector<HTMLElement>('.appeal-close-form summary')!.click());
   const answer = [...element.querySelectorAll('textarea')].find(textarea => textarea.placeholder === 'Результат рассмотрения обращения')!;
   const chat = element.querySelector<HTMLTextAreaElement>('[aria-label="Сообщение по обращению"]')!;
   await act(async () => {
@@ -51,12 +58,13 @@ it('keeps message notifications after opening and clears them after a reply with
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(field, text); field.dispatchEvent(new Event('input', {bubbles: true}));
     }
   });
+  await act(async () => element.querySelector<HTMLButtonElement>('#appeal-tab-executor')!.click());
   await act(async () => {element.querySelector<HTMLButtonElement>('.chat-composer button[type=submit]')!.click(); await tick();});
-  expect(element.textContent).not.toContain('Новые сообщения'); expect(answer.value).toBe('Черновик ответа');
+  expect(unread()).toBeUndefined(); expect(answer.value).toBe('Черновик ответа');
   expect(chat.value).toBe('');
   messages = 1;
   await act(async () => {window.dispatchEvent(new Event('focus')); await tick();});
-  expect(element.textContent).toContain('Новые сообщения: 1'); expect(answer.value).toBe('Черновик ответа');
+  expect(unread()).toBe('1'); expect(answer.value).toBe('Черновик ответа');
 });
 
 it.each(['/appeals', '/platform/appeals'])('assigns original organization work types and can clear them through %s', async endpoint => {
@@ -138,14 +146,14 @@ it.each([
   expect(params.has('q')).toBe(false); expect(params.get('status')).toBe('SPAM'); expect(params.get('archived')).toBe('true');
 });
 
-it('keeps the request separate from processing and retains all drafts when switching tabs', async () => {
+it('keeps task forms together in the overview and retains all drafts when switching tabs', async () => {
   await act(async () => {root.render(<MemoryRouter><OwnerAppeals organization endpoint="/appeals"/></MemoryRouter>); await tick();});
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
   const request = element.querySelector<HTMLElement>('#appeal-panel-request')!;
-  const work = element.querySelector<HTMLElement>('#appeal-panel-work')!;
+  const work = element.querySelector<HTMLElement>('#appeal-panel-executor')!;
   expect(request.hidden).toBe(false); expect(work.hidden).toBe(true);
-  expect(request.textContent).toContain('Описание жителя');
-  expect(request.querySelector('.appeal-request-copy > .owner-appeal-edit')).not.toBeNull();
+  expect(request.textContent).toContain('Обращение жителя');
+  expect(request.querySelector('.appeal-request-extras > .owner-appeal-edit')).not.toBeNull();
   expect(work.querySelector('.owner-appeal-edit')).toBeNull();
   await act(async () => {element.querySelector<HTMLButtonElement>('#appeal-tab-executor')!.click();});
   expect(request.hidden).toBe(true); expect(work.hidden).toBe(false);
@@ -190,7 +198,7 @@ it('keeps separate inspector and executor chats and preserves both drafts when s
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(checking, 'Уточнение проверяющему');
     checking.dispatchEvent(new Event('input', {bubbles:true}));
   });
-  await act(async () => {[...element.querySelectorAll<HTMLButtonElement>('[role=tab]')].find(button => button.textContent === 'Работа с исполнителем')!.click();});
+  await act(async () => {element.querySelector<HTMLButtonElement>('#appeal-tab-executor')!.click();});
   expect(checking.isConnected).toBe(true);
   expect(checking.value).toBe('Уточнение проверяющему');
   expect(executor.disabled).toBe(false);
@@ -265,22 +273,21 @@ it('keeps the chat draft when the open task is refreshed at a newer version', as
   expect(draft.value).toBe('Черновик');
 });
 
-it('keeps the task identity over the work tabs and exposes assignment and decision from the overview', async () => {
+it('places assignment and closure in the overview while keeping task identity over the chat', async () => {
   Object.assign(current, {submitted_by_inspector_name: 'Автор проверки', is_public: false});
   await act(async () => {root.render(<MemoryRouter initialEntries={['/appeals?appeal=42']}><OwnerAppeals organization/></MemoryRouter>); await tick();});
   const context = element.querySelector('.appeal-detail-context')!;
   const heading = context.querySelector('h1')!;
+  const overview = element.querySelector<HTMLElement>('#appeal-panel-request')!;
   expect(heading.textContent).toContain('ОБ-000042');
   expect(heading.textContent).toContain('Мусор');
-  const actions = element.querySelector('.appeal-next-actions')!;
-  const buttons = actions.querySelectorAll('button');
-  await act(async () => buttons[0].click());
-  expect(context.querySelector('#appeal-tab-executor')?.getAttribute('aria-selected')).toBe('true');
-  expect(context.querySelector('h1')).toBe(heading);
+  expect(overview.querySelector<HTMLDetailsElement>('.appeal-assign')?.open).toBe(true);
+  const closure = overview.querySelector<HTMLDetailsElement>('.appeal-close-form')!;
+  expect(closure.open).toBe(false);
+  expect(closure.querySelector('summary')?.textContent).toBe('Закрыть задачу');
+  expect(context.querySelectorAll('[role=tab]')).toHaveLength(3);
   await act(async () => context.querySelector<HTMLButtonElement>('#appeal-tab-inspector')!.click());
-  const decision = element.querySelector<HTMLElement>('.appeal-decision-panel')!;
-  expect(decision.hidden).toBe(true);
-  await act(async () => context.querySelector<HTMLButtonElement>('#appeal-tab-decision')!.click());
-  expect(decision.hidden).toBe(false);
+  expect(overview.hidden).toBe(true);
+  expect(element.querySelector('#appeal-panel-inspector [aria-label="Чат с проверяющим"]')).not.toBeNull();
   expect(context.querySelector('h1')).toBe(heading);
 });

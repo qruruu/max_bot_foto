@@ -24,11 +24,12 @@ beforeEach(() => {
 afterEach(async () => {await act(async () => root.unmount()); element.remove();});
 async function mount(value = appeal, readOnly = false) {await act(async () => {root.render(<AppealActions appeal={value} endpoint="/appeals" readOnly={readOnly} changed={changed}/>); await tick();});}
 const byText = (text: string) => [...element.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes(text))!;
-const click = async (button: HTMLButtonElement) => {await act(async () => {button.click(); await tick();});};
+const click = async (button: HTMLElement) => {await act(async () => {button.click(); await tick();});};
 
 it('requires a separate confirmation, allows editing again, and sends selected evidence only after confirming', async () => {
   await mount();
-  const answer = [...element.querySelectorAll('textarea')].at(-1)!;
+  await click(element.querySelector<HTMLElement>('.appeal-close-form summary')!);
+  const answer = element.querySelector<HTMLTextAreaElement>('.appeal-close-form textarea')!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(answer, 'Урна очищена');
     answer.dispatchEvent(new Event('input', {bubbles: true}));
@@ -72,12 +73,13 @@ it('lets the operator return an active task to assigned and offers cancellation 
 
 it.each(['operator', 'admin'])('prepares selected phone photos before submitting the %s result', async role => {
   await mount(role === 'operator' ? {...appeal, status: 'ASSIGNED', can_manage: false, can_execute: true} : appeal);
+  if (role === 'admin') await click(element.querySelector<HTMLElement>('.appeal-close-form summary')!);
   if (role === 'operator') await act(async () => {
     const select = element.querySelector('select')!; select.value = 'COMPLETED'; select.dispatchEvent(new Event('change', {bubbles: true}));
   });
   const photo = new File(['phone-original'], 'IMG_3557.jpeg', {type: 'image/jpeg'});
   await act(async () => {
-    const textarea = [...element.querySelectorAll('textarea')].at(-1)!;
+    const textarea = element.querySelector<HTMLTextAreaElement>(role === 'admin' ? '.appeal-close-form textarea' : 'textarea')!;
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Почистили');
     textarea.dispatchEvent(new Event('input', {bubbles: true}));
     const input = element.querySelector<HTMLInputElement>('input[type=file]')!;
@@ -126,6 +128,7 @@ it('allows a checking inspector to mark completed or cancelled without exposing 
 
 it.each(['RESOLVED', 'DECLINED', 'CANCELLED', 'REJECTED'])('confirms the administrator decision %s with a required answer and optional photos', async status => {
   await mount({...appeal, task: status !== 'RESOLVED' ? {...appeal.task!, status: 'ASSIGNED'} : null});
+  await click(element.querySelector<HTMLElement>('.appeal-close-form summary')!);
   const decision = [...element.querySelectorAll('select')].find(select => [...select.options].some(option => option.value === 'DECLINED'))!;
   await act(async () => {decision.value = status; decision.dispatchEvent(new Event('change', {bubbles: true}));});
   const text = {
@@ -135,7 +138,7 @@ it.each(['RESOLVED', 'DECLINED', 'CANCELLED', 'REJECTED'])('confirms the adminis
   const action = () => byText(text[0]);
   expect(action().disabled).toBe(true);
   await act(async () => {
-    const textarea = [...element.querySelectorAll('textarea')].at(-1)!;
+    const textarea = element.querySelector<HTMLTextAreaElement>('.appeal-close-form textarea')!;
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Ответ организации'); textarea.dispatchEvent(new Event('input', {bubbles: true}));
   });
   expect(action().disabled).toBe(false); await click(action());
@@ -148,9 +151,8 @@ it.each(['RESOLVED', 'DECLINED', 'CANCELLED', 'REJECTED'])('confirms the adminis
   expect((call[2] as FormData).getAll('photos')).toHaveLength(0);
 });
 
-it.each(['CANCELLED', 'REJECTED'])('keeps final decision %s visible and offers archive instead of assignment', async status => {
+it.each(['CANCELLED', 'REJECTED'])('offers archive instead of assignment for final decision %s', async status => {
   await mount({...appeal, status, is_final: true, resolved_at: new Date().toISOString(), public_response: 'Причина завершения', response_photos: []});
-  expect(element.textContent).toContain('Причина завершения');
   expect(element.textContent).not.toContain('Решение по обращению');
   expect(element.textContent).not.toContain('Перенаправить задачу');
   expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/operators'))).toBe(false);
@@ -163,7 +165,7 @@ it.each(['CANCELLED', 'REJECTED'])('keeps final decision %s visible and offers a
 
 it.each(['CANCELLED', 'REJECTED'])('allows the administrator to finalize task result %s without changing its name', async status => {
   await mount({...appeal, status, is_final: false, resolved_at: null, task: {...appeal.task!, status}});
-  expect(element.textContent).toContain('Решение по обращению');
+  expect(element.querySelector('.appeal-close-form summary')?.textContent).toBe('Рассмотреть результат');
   expect(element.textContent).not.toContain('Перенести в архив');
   const decision = [...element.querySelectorAll('select')].find(select => [...select.options].some(option => option.value === 'DECLINED'))!;
   expect([...decision.options].map(option => option.text)).toEqual(['Закрыть обращение', 'Отказ', 'Задача отменена', 'Исполнитель отклонил']);
@@ -186,14 +188,14 @@ it('offers a deadline only after assigning an active task, saves and clears it w
   expect(api).toHaveBeenCalledWith('/appeals/42/deadline','POST',{due_date:null,expected_version:4});
 });
 it.each(['operator','inspector'])('shows deadlines to %s without granting deadline editing',async role=>{
-  await mount({...appeal,status:'ASSIGNED',can_manage:false,can_execute:role==='operator',task:{...appeal.task!,status:'ASSIGNED',due_date:'2030-12-15'}},role==='inspector');
+  await mount({...appeal,status:'ASSIGNED',can_manage:false,can_execute:role==='operator',submitted_by_inspector_name:role==='inspector' ? 'Проверяющий' : undefined,inspector_due_date:'2030-12-15',task:{...appeal.task!,status:'ASSIGNED',due_date:'2030-12-15'}},role==='inspector');
   expect(element.textContent).toContain('15.12.2030');expect(element.querySelector('input[type=date]')).toBeNull();
 });
 
 it('submits the chosen subtask deadline with its operator and retains the parent version', async () => {
   vi.mocked(api).mockResolvedValue([{id:7, name:'Исполнитель'}]);
   await mount({...appeal, status:'NEW', task:null, submitted_by_inspector_name:'Проверяющий', inspector_due_date:'2026-11-10'});
-  const panel = element.querySelector('details')!;
+  const panel = [...element.querySelectorAll('details')].find(item => item.querySelector('summary')?.textContent === 'Разделить на подзадачи')!;
   const inputs = panel.querySelectorAll<HTMLInputElement>('input');
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(inputs[0], 'Уборка участка');
@@ -206,4 +208,12 @@ it('submits the chosen subtask deadline with its operator and retains the parent
   });
   await click(byText('Создать подзадачу и назначить'));
   expect(vi.mocked(api).mock.calls.find(([path]) => path.endsWith('/subtasks'))?.[2]).toMatchObject({subject:'Уборка участка', description:'Убрать мусор у входа', operator_id:7, due_date:'2026-11-06', expected_version:3});
+});
+
+it('offers archive directly for an inspector cancellation before the administrator makes a decision', async () => {
+  await mount({...appeal, status: 'CANCELLED', is_final: false, task: null,
+    cancelled_by_inspector: true, submitted_by_inspector_name: 'Проверяющий'});
+  expect(element.querySelector('.appeal-assign')).toBeNull();
+  await click(byText('Перенести в архив'));
+  expect(api).toHaveBeenCalledWith('/appeals/42/archive', 'POST', {archived: true, expected_version: 3});
 });
