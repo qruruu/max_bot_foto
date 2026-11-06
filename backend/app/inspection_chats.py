@@ -12,7 +12,7 @@ from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.orm import Session
 
 from app.appeal_events import personal_forward_source
-from app.auth import AdminUser, Db
+from app.auth import AdminUser, CurrentUser, Db, is_platform_owner
 from app.chat_messages import Screenshots, prepare_screenshots, quote, screenshot_response
 from app.db import database_engine
 from app.domain import now
@@ -124,7 +124,34 @@ def admin_identity(user):
     org = current_organization()
     if not org:
         raise HTTPException(404)
+    if is_platform_owner(user):
+        with control_session() as db:
+            primary_id = db.scalar(select(Organization.owner_user_id).where(Organization.legacy).limit(1))
+        if primary_id is not None and user._platform_user_id != primary_id:
+            # A second owner's workspace session must not write as the shared primary account.
+            return f"o:{user._platform_user_id}", org.id
     return f"a:{org.id}:{user.id}", org.id
+
+
+def workspace_owner_alias(user, actor):
+    if not is_platform_owner(user):
+        return ()
+    if actor.startswith("o:"):
+        org = current_organization()
+        from app.config import base_settings
+
+        return (f"a:{org.id}:{user._platform_user_id}",) if org.database_url == base_settings().database_url else ()
+    return (f"o:{user._platform_user_id}",)
+
+
+def owner_inboxes(db, owner_id, inspector_id):
+    primary_id = db.scalar(select(Organization.owner_user_id).where(Organization.legacy).limit(1))
+    if primary_id is None and db.scalar(select(func.count()).select_from(PlatformOwner)) == 1:
+        primary_id = owner_id
+    return tuple(f"a:{org.id}:{owner_id if org.legacy else org.owner_user_id}"
+                 for org in db.scalars(select(Organization).join(InspectionGrant).where(
+                     InspectionGrant.inspector_id == inspector_id, Organization.status == "ACTIVE"))
+                 if org.legacy or owner_id == primary_id)
 
 
 def admin_contacts(db, org_id):
@@ -137,11 +164,41 @@ def admin_contacts(db, org_id):
                        Inspector.active, InspectionAgency.active).order_by(Inspector.name))]
 
 
-def owner_contacts(db):
-    return [contact(f"i:{account.id}", account.name, "Проверяющий", agency.name, account.avatar_image,
-                    "/api/platform/inspection/chat")
-            for account, agency in db.execute(select(Inspector, InspectionAgency).join(InspectionAgency)
-                .where(Inspector.active, InspectionAgency.active).order_by(InspectionAgency.name, Inspector.name))]
+def platform_contacts(db, exclude=None, base="/api/platform/inspection/chat"):
+    return [contact(f"o:{user.id}", user.name, "Владелец сервиса", None, user.avatar_image, base)
+            for user in db.scalars(select(User).join(PlatformOwner, PlatformOwner.user_id == User.id)
+                                   .where(User.active, User.id != exclude).order_by(User.name))]
+
+
+def owner_message_inboxes(db, owner_id, message_id):
+    message = db.get(InspectionMessage, message_id)
+    if message:
+        for key in (message.sender_key, message.recipient_key):
+            if key.startswith("i:"):
+                return owner_inboxes(db, owner_id, int(key[2:]))
+    return ()
+
+
+def owner_contacts(db, owner_id, *, peer=None):
+    base = "/api/platform/inspection/chat"
+    contacts = [contact(f"i:{account.id}", account.name, "Проверяющий", agency.name, account.avatar_image, base)
+                for account, agency in db.execute(select(Inspector, InspectionAgency).join(InspectionAgency)
+                    .where(Inspector.active, InspectionAgency.active).order_by(InspectionAgency.name, Inspector.name))]
+    contacts += platform_contacts(db, owner_id)
+    if peer and not peer.startswith("a:"):
+        return contacts
+    owner_ids = set(db.scalars(select(PlatformOwner.user_id)))
+    organizations = select(Organization).where(Organization.status == "ACTIVE").order_by(Organization.name)
+    if peer:
+        organizations = organizations.where(Organization.id == peer.split(":")[1])
+    for org in db.scalars(organizations):
+        scope = scope_for(org)
+        excluded = owner_ids | {scope.owner_user_id} if org.legacy else {scope.owner_user_id}
+        with Session(database_engine(scope.database_url)) as tenant:
+            for user in tenant.scalars(select(User).where(User.active, User.id.not_in(excluded)).order_by(User.name)):
+                kind = "Администратор" if user.role == "ADMIN_OPERATOR" else "Оператор"
+                contacts.append(contact(f"a:{org.id}:{user.id}", user.name, kind, org.name, user.avatar_image, base))
+    return contacts
 
 
 def contact_keys(item):
@@ -175,7 +232,12 @@ def can_view_photo(db, actor, org_id, photo_id, cache=None):
             scope = scope_for(org)
             with Session(database_engine(scope.database_url)) as tenant:
                 account = tenant.get(User, int(parts[2]))
-                allowed = bool(account and account.active and account.role == "ADMIN_OPERATOR")
+                allowed = bool(account and account.active)
+                if allowed and account.role != "ADMIN_OPERATOR":
+                    from app.operator_chats import visible_photos
+
+                    with organization_scope(scope):
+                        allowed = photo_id in visible_photos(tenant, account, [photo_id])
     else:
         allowed = False
     if allowed:
@@ -191,19 +253,20 @@ def can_view_photo(db, actor, org_id, photo_id, cache=None):
     return allowed
 
 
-def source_message(db, actor, contacts, message_id):
+def source_message(db, actor, contacts, message_id, *, actor_aliases=()):
     source = db.get(InspectionMessage, message_id)
-    if not source or actor not in (source.sender_key, source.recipient_key):
+    identities = {actor, *actor_aliases}
+    if not source or not identities.intersection((source.sender_key, source.recipient_key)):
         raise HTTPException(404, "Сообщение недоступно")
-    validate_peer(contacts, other_participant(source, actor))
+    validate_peer(contacts, source.recipient_key if source.sender_key in identities else source.sender_key)
     return source
 
 
-def eligible_contacts(db, actor, contacts, org_id=None, photo_id=None, forward_id=None):
+def eligible_contacts(db, actor, contacts, org_id=None, photo_id=None, forward_id=None, *, actor_aliases=()):
     if forward_id:
         if photo_id is not None or org_id is not None:
             raise HTTPException(422, "Выберите сообщение или фотографию")
-        source = source_message(db, actor, contacts, forward_id)
+        source = source_message(db, actor, contacts, forward_id, actor_aliases=actor_aliases)
         org_id, photo_id = source.photo_organization_id, source.photo_id
     if (org_id is None) != (photo_id is None):
         raise HTTPException(422, "Укажите фотографию и её организацию")
@@ -260,24 +323,26 @@ def message_dict(message, actor, db, base="/api/inspection", cache=None, viewer=
     return result
 
 
-def contact_previews(db, actor, contacts):
+def contact_previews(db, actor, contacts, *, inboxes=None):
     for item in contacts:
         peer = item["key"]
-        latest = db.scalar(select(InspectionMessage).where(pair(actor, peer, item.get("aliases", ())))
+        actor_aliases = inboxes(peer) if inboxes else ()
+        condition = pair(peer, actor, actor_aliases) if actor_aliases else pair(actor, peer, item.get("aliases", ()))
+        latest = db.scalar(select(InspectionMessage).where(condition)
                            .order_by(InspectionMessage.id.desc()).limit(1))
         item["last_message"] = ((f"Фото #{latest.photo_id}" + (" · " if latest.body else "") if latest.photo_id else "") + (latest.body or ("Скриншот" if latest.screenshot_count else "")))[:140] if latest else None
         item["last_message_at"] = latest.created_at if latest else None
-        item["last_message_outgoing"] = latest.sender_key == actor if latest else False
+        item["last_message_outgoing"] = latest.sender_key in (actor, *actor_aliases) if latest else False
         item["unread"] = db.scalar(select(func.count()).select_from(InspectionMessage).where(
-            InspectionMessage.sender_key.in_(contact_keys(item)), InspectionMessage.recipient_key == actor, InspectionMessage.read_at.is_(None)))
+            InspectionMessage.sender_key.in_(contact_keys(item)), InspectionMessage.recipient_key.in_([actor, *actor_aliases]), InspectionMessage.read_at.is_(None)))
     return sorted(contacts, key=lambda c: (c["last_message_at"] is not None,
                   c["last_message_at"].timestamp() if c["last_message_at"] else 0), reverse=True)
 
 
-def messages(db, actor, peer, before_id, after_id=None, base="/api/inspection", *, aliases=()):
+def messages(db, actor, peer, before_id, after_id=None, base="/api/inspection", *, aliases=(), actor_aliases=()):
     if before_id and after_id is not None:
         raise HTTPException(422, "Выберите одно направление загрузки истории")
-    condition = [pair(actor, peer, aliases)]
+    condition = [pair(peer, actor, actor_aliases) if actor_aliases else pair(actor, peer, aliases)]
     if before_id:
         condition.append(InspectionMessage.id < before_id)
     if after_id is not None:
@@ -285,18 +350,19 @@ def messages(db, actor, peer, before_id, after_id=None, base="/api/inspection", 
     order = InspectionMessage.id.asc() if after_id is not None else InspectionMessage.id.desc()
     rows = list(db.scalars(select(InspectionMessage).where(*condition).order_by(order).limit(51)))
     more, rows = len(rows) > 50, rows[:50]
-    outgoing = (InspectionMessage.sender_key == actor, InspectionMessage.recipient_key.in_([peer, *aliases]))
+    outgoing = (InspectionMessage.sender_key.in_([actor, *actor_aliases]), InspectionMessage.recipient_key.in_([peer, *aliases]))
     read = select(func.max(InspectionMessage.id)).where(*outgoing, InspectionMessage.read_at.is_not(None))
-    if aliases:
+    if aliases or actor_aliases:
         # A receipt from one inbox cannot acknowledge messages sent to another inbox.
         unread = select(func.min(InspectionMessage.id)).where(*outgoing, InspectionMessage.read_at.is_(None)).scalar_subquery()
         read = read.where(or_(unread.is_(None), InspectionMessage.id < unread))
     read_through = db.scalar(read) or 0
     receipts = list(db.scalars(select(InspectionMessage.id).where(
         *outgoing, InspectionMessage.read_at.is_not(None), InspectionMessage.id > read_through,
-    ).order_by(InspectionMessage.id.desc()).limit(100))) if aliases else []
+    ).order_by(InspectionMessage.id.desc()).limit(100))) if aliases or actor_aliases else []
     cache = {}
-    return {"items": [message_dict(m, actor, db, base, cache, peer_key=peer if aliases else None)
+    return {"items": [message_dict(m, m.sender_key if m.sender_key in actor_aliases else actor, db, base, cache,
+                                   viewer=actor, peer_key=peer if aliases or actor_aliases else None)
                       for m in (rows if after_id is not None else reversed(rows))],
             "next_before_id": rows[-1].id if more and after_id is None else None,
             "has_newer": bool(after_id is not None and more), "peer_read_through_id": read_through,
@@ -325,19 +391,19 @@ def lock_inspector_inboxes(db, actor, peer):
         db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:inspector, 7012))"), {"inspector": inspector})
 
 
-def send(db, actor, peer, body, contacts, base="/api/inspection", *, external_source=None):
+def send(db, actor, peer, body, contacts, base="/api/inspection", *, external_source=None, actor_aliases=(), source_aliases=()):
     validate_peer(contacts, peer)
     content, org_id, photo_id = body.body, str(body.photo_organization_id) if body.photo_organization_id else None, body.photo_id
     forward_name, reply = None, None
     screenshots = prepare_screenshots(body.screenshots) or None
     if body.forward_message_id:
-        source = source_message(db, actor, contacts, body.forward_message_id)
+        source = source_message(db, actor, contacts, body.forward_message_id, actor_aliases=(*actor_aliases, *source_aliases))
         content, org_id, photo_id = source.body, source.photo_organization_id, source.photo_id
         screenshots, forward_name = source.screenshots, forwarded_author(db, source)
     if external_source:
         content, org_id, photo_id, screenshots, forward_name = external_source
     if body.reply_to_id:
-        source = db.scalar(select(InspectionMessage).where(InspectionMessage.id == body.reply_to_id, pair(actor, peer)))
+        source = db.scalar(select(InspectionMessage).where(InspectionMessage.id == body.reply_to_id, pair(peer, actor, actor_aliases)))
         if source is None:
             raise HTTPException(404, "Сообщение для ответа недоступно")
         reply = quote(source.id, sender_name(db, source.sender_key), source.body, source.photo_id or source.screenshot_count)
@@ -365,9 +431,9 @@ def send(db, actor, peer, body, contacts, base="/api/inspection", *, external_so
     return message_dict(message, actor, db, base)
 
 
-def mark_read(db, actor, peer, through, aliases=()):
+def mark_read(db, actor, peer, through, aliases=(), *, actor_aliases=()):
     db.execute(update(InspectionMessage).where(InspectionMessage.sender_key.in_([peer, *aliases]),
-        InspectionMessage.recipient_key == actor, InspectionMessage.id <= through, InspectionMessage.read_at.is_(None))
+        InspectionMessage.recipient_key.in_([actor, *actor_aliases]), InspectionMessage.id <= through, InspectionMessage.read_at.is_(None))
         .values(read_at=now()))
     db.commit()
     return {"ok": True}
@@ -379,12 +445,12 @@ def unread_count(db, actor, contacts):
         InspectionMessage.read_at.is_(None)))}
 
 
-def message_photo(db, actor, contacts, message_id, owner=False):
+def message_photo(db, actor, contacts, message_id, owner=False, *, actor_aliases=()):
     message = db.get(InspectionMessage, message_id)
     if not message or not message.photo_id:
         raise HTTPException(404, "Фотография недоступна")
     if not owner:
-        source_message(db, actor, contacts, message_id)
+        source_message(db, actor, contacts, message_id, actor_aliases=actor_aliases)
     if not can_view_photo(db, actor, message.photo_organization_id, message.photo_id):
         raise HTTPException(404, "Фотография недоступна")
     scope = scope_for(db.get(Organization, message.photo_organization_id))
@@ -404,13 +470,19 @@ def inspector_message_screenshot(message_id: int, number: int, db: Db, user: Ins
 def organization_message_screenshot(message_id: int, number: int, user: AdminUser):
     actor, org = admin_identity(user)
     with control_session() as db:
-        return screenshot_response(source_message(db, actor, admin_contacts(db, org), message_id), number)
+        return screenshot_response(source_message(db, actor, admin_contacts(db, org), message_id, actor_aliases=workspace_owner_alias(user, actor)), number)
 
 
 @owner_router.get("/chat/messages/{message_id}/screenshots/{number}")
 def owner_message_screenshot(message_id: int, number: int, db: Db, user: Owner):
     actor = f"o:{user.id}"
-    return screenshot_response(source_message(db, actor, owner_contacts(db), message_id), number)
+    message = db.get(InspectionMessage, message_id)
+    if message:
+        for key in (message.sender_key, message.recipient_key):
+            if key.startswith("i:"):
+                aliases = owner_inboxes(db, user.id, int(key.split(":")[1]))
+                return screenshot_response(source_message(db, actor, owner_contacts(db, user.id), message_id, actor_aliases=aliases), number)
+    return screenshot_response(source_message(db, actor, owner_contacts(db, user.id), message_id), number)
 
 
 @router.get("/contacts")
@@ -523,14 +595,16 @@ def organization_contacts(user: AdminUser, tenant: Db, photo_organization_id: UU
                 return []
             if photo_id and not can_view_photo(db, actor, str(org), photo_id):
                 return []
-        return contact_previews(db, actor, eligible_contacts(db, actor, contacts, photo_organization_id, photo_id, forward_message_id))
+        aliases = workspace_owner_alias(user, actor)
+        return contact_previews(db, actor, eligible_contacts(db, actor, contacts, photo_organization_id, photo_id,
+                                                            forward_message_id, actor_aliases=aliases), inboxes=lambda _: aliases)
 
 
 @admin_router.get("/unread")
 def organization_chat_unread(user: AdminUser):
     actor, org = admin_identity(user)
     with control_session() as db:
-        return unread_count(db, actor, admin_contacts(db, org))
+        return {"unread": sum(item["unread"] for item in contact_previews(db, actor, admin_contacts(db, org), inboxes=lambda _: workspace_owner_alias(user, actor)))}
 
 
 @admin_router.get("/messages")
@@ -540,7 +614,7 @@ def organization_messages(user: AdminUser, peer: str = Query(max_length=100),
     actor, org = admin_identity(user)
     with control_session() as db:
         validate_peer(admin_contacts(db, org), peer)
-        return messages(db, actor, peer, before_id, after_id, workspace_url("/api/inspection-admin"))
+        return messages(db, actor, peer, before_id, after_id, workspace_url("/api/inspection-admin"), actor_aliases=workspace_owner_alias(user, actor))
 
 
 @admin_router.get("/contact-avatar")
@@ -559,7 +633,7 @@ def organization_send(body: AdminMessageInput, user: AdminUser, tenant: Db, peer
         if body.forward_task_message_id:
             content, screenshots, name = personal_forward_source(db, user, body.forward_task_message_id)
             source = (content, None, None, screenshots, name)
-        return send(db, actor, peer, body, admin_contacts(db, org), workspace_url("/api/inspection-admin"), external_source=source)
+        return send(db, actor, peer, body, admin_contacts(db, org), workspace_url("/api/inspection-admin"), external_source=source, actor_aliases=workspace_owner_alias(user, actor))
 
 
 @admin_router.post("/messages/read")
@@ -567,14 +641,91 @@ def organization_read(body: ReadInput, user: AdminUser, peer: str = Query(max_le
     actor, org = admin_identity(user)
     with control_session() as db:
         validate_peer(admin_contacts(db, org), peer)
-        return mark_read(db, actor, peer, body.through_id)
+        return mark_read(db, actor, peer, body.through_id, actor_aliases=workspace_owner_alias(user, actor))
 
 
 @admin_router.get("/messages/{message_id}/photo")
 def organization_message_photo(message_id: int, user: AdminUser):
     actor, org = admin_identity(user)
     with control_session() as db:
-        return message_photo(db, actor, admin_contacts(db, org), message_id)
+        return message_photo(db, actor, admin_contacts(db, org), message_id, actor_aliases=workspace_owner_alias(user, actor))
+
+
+def staff_owner_identity(user, db):
+    org = current_organization()
+    if org is None or is_platform_owner(user):
+        raise HTTPException(404)
+    record = db.get(Organization, org.id)
+    if not record or record.status != "ACTIVE" or user.id == org.owner_user_id or (record.legacy and db.get(PlatformOwner, user.id)):
+        raise HTTPException(404)
+    return f"a:{org.id}:{user.id}", platform_contacts(db, base=workspace_url("/api/inspection-admin/owners"))
+
+
+@admin_router.get("/owners/contacts")
+def staff_owners(user: CurrentUser, photo_organization_id: UUID | None = None,
+                 photo_id: Annotated[int | None, Query(gt=0)] = None,
+                 forward_message_id: Annotated[int | None, Query(gt=0)] = None):
+    if current_organization() is None or is_platform_owner(user):
+        return []
+    with control_session() as db:
+        actor, contacts = staff_owner_identity(user, db)
+        return contact_previews(db, actor, eligible_contacts(db, actor, contacts, photo_organization_id, photo_id, forward_message_id))
+
+
+@admin_router.get("/owners/unread")
+def staff_owner_unread(user: CurrentUser):
+    if current_organization() is None or is_platform_owner(user):
+        return {"unread": 0}
+    with control_session() as db:
+        actor, contacts = staff_owner_identity(user, db)
+        return unread_count(db, actor, contacts)
+
+
+@admin_router.get("/owners/messages")
+def staff_owner_messages(user: CurrentUser, peer: str = Query(max_length=100),
+                         before_id: Annotated[int | None, Query(gt=0)] = None,
+                         after_id: Annotated[int | None, Query(ge=0)] = None):
+    with control_session() as db:
+        actor, contacts = staff_owner_identity(user, db)
+        validate_peer(contacts, peer)
+        return messages(db, actor, peer, before_id, after_id, workspace_url("/api/inspection-admin/owners"))
+
+
+@admin_router.post("/owners/messages", status_code=201)
+def staff_owner_send(body: MessageInput, user: CurrentUser, peer: str = Query(max_length=100)):
+    with control_session() as db:
+        actor, contacts = staff_owner_identity(user, db)
+        return send(db, actor, peer, body, contacts, workspace_url("/api/inspection-admin/owners"))
+
+
+@admin_router.post("/owners/messages/read")
+def staff_owner_read(body: ReadInput, user: CurrentUser, peer: str = Query(max_length=100)):
+    with control_session() as db:
+        actor, contacts = staff_owner_identity(user, db)
+        validate_peer(contacts, peer)
+        return mark_read(db, actor, peer, body.through_id)
+
+
+@admin_router.get("/owners/contact-avatar")
+def staff_owner_avatar(user: CurrentUser, peer: str = Query(max_length=100)):
+    with control_session() as db:
+        _, contacts = staff_owner_identity(user, db)
+        validate_peer(contacts, peer)
+        return contact_avatar(db, peer)
+
+
+@admin_router.get("/owners/messages/{message_id}/screenshots/{number}")
+def staff_owner_screenshot(message_id: int, number: int, user: CurrentUser):
+    with control_session() as db:
+        actor, contacts = staff_owner_identity(user, db)
+        return screenshot_response(source_message(db, actor, contacts, message_id), number)
+
+
+@admin_router.get("/owners/messages/{message_id}/photo")
+def staff_owner_photo(message_id: int, user: CurrentUser):
+    with control_session() as db:
+        actor, contacts = staff_owner_identity(user, db)
+        return message_photo(db, actor, contacts, message_id)
 
 
 @owner_router.get("/chat/contacts")
@@ -582,17 +733,21 @@ def owner_chat_contacts(db: Db, user: Owner, photo_organization_id: UUID | None 
                          photo_id: Annotated[int | None, Query(gt=0)] = None,
                          forward_message_id: Annotated[int | None, Query(gt=0)] = None):
     actor = f"o:{user.id}"
-    return contact_previews(db, actor, eligible_contacts(db, actor, owner_contacts(db), photo_organization_id, photo_id, forward_message_id))
+    aliases = owner_message_inboxes(db, user.id, forward_message_id) if forward_message_id else ()
+    return contact_previews(db, actor, eligible_contacts(db, actor, owner_contacts(db, user.id), photo_organization_id, photo_id,
+                                                         forward_message_id, actor_aliases=aliases),
+                            inboxes=lambda peer: owner_inboxes(db, user.id, int(peer.split(":")[1])) if peer.startswith("i:") else ())
 
 
 @owner_router.get("/chat/unread")
 def owner_chat_unread(db: Db, user: Owner):
-    return unread_count(db, f"o:{user.id}", owner_contacts(db))
+    return {"unread": sum(item["unread"] for item in contact_previews(db, f"o:{user.id}", owner_contacts(db, user.id),
+        inboxes=lambda peer: owner_inboxes(db, user.id, int(peer.split(":")[1])) if peer.startswith("i:") else ()))}
 
 
 @owner_router.get("/chat/contact-avatar")
 def owner_chat_avatar(db: Db, user: Owner, peer: str = Query(max_length=100)):
-    validate_peer(owner_contacts(db), peer)
+    validate_peer(owner_contacts(db, user.id), peer)
     return contact_avatar(db, peer)
 
 
@@ -600,24 +755,36 @@ def owner_chat_avatar(db: Db, user: Owner, peer: str = Query(max_length=100)):
 def owner_chat_messages(db: Db, user: Owner, peer: str = Query(max_length=100),
                         before_id: Annotated[int | None, Query(gt=0)] = None,
                         after_id: Annotated[int | None, Query(ge=0)] = None):
-    validate_peer(owner_contacts(db), peer)
-    return messages(db, f"o:{user.id}", peer, before_id, after_id, "/api/platform/inspection/chat")
+    validate_peer(owner_contacts(db, user.id, peer=peer), peer)
+    aliases = owner_inboxes(db, user.id, int(peer.split(":")[1])) if peer.startswith("i:") else ()
+    return messages(db, f"o:{user.id}", peer, before_id, after_id, "/api/platform/inspection/chat", actor_aliases=aliases)
 
 
 @owner_router.post("/chat/messages", status_code=201)
 def owner_chat_send(body: MessageInput, db: Db, user: Owner, peer: str = Query(max_length=100)):
-    return send(db, f"o:{user.id}", peer, body, owner_contacts(db), "/api/platform/inspection/chat")
+    aliases = owner_inboxes(db, user.id, int(peer.split(":")[1])) if peer.startswith("i:") and peer[2:].isdigit() else ()
+    source_aliases = owner_message_inboxes(db, user.id, body.forward_message_id) if body.forward_message_id else ()
+    return send(db, f"o:{user.id}", peer, body, owner_contacts(db, user.id), "/api/platform/inspection/chat",
+                actor_aliases=aliases, source_aliases=source_aliases)
 
 
 @owner_router.post("/chat/messages/read")
 def owner_chat_read(body: ReadInput, db: Db, user: Owner, peer: str = Query(max_length=100)):
-    validate_peer(owner_contacts(db), peer)
-    return mark_read(db, f"o:{user.id}", peer, body.through_id)
+    validate_peer(owner_contacts(db, user.id, peer=peer), peer)
+    aliases = owner_inboxes(db, user.id, int(peer.split(":")[1])) if peer.startswith("i:") else ()
+    return mark_read(db, f"o:{user.id}", peer, body.through_id, actor_aliases=aliases)
 
 
 @owner_router.get("/chat/messages/{message_id}/photo")
 def owner_chat_photo(message_id: int, db: Db, user: Owner):
-    return message_photo(db, f"o:{user.id}", owner_contacts(db), message_id, owner=True)
+    actor = f"o:{user.id}"
+    message = db.get(InspectionMessage, message_id)
+    if not message:
+        raise HTTPException(404)
+    aliases = next((owner_inboxes(db, user.id, int(key[2:])) for key in (message.sender_key, message.recipient_key)
+                    if key.startswith("i:")), ())
+    peer = message.recipient_key if message.sender_key in (actor, *aliases) else message.sender_key
+    return message_photo(db, actor, owner_contacts(db, user.id, peer=peer), message_id, actor_aliases=aliases)
 
 
 @owner_router.get("/accounts/{account_id}/messages")

@@ -650,7 +650,7 @@ def test_inspector_has_one_owner_chat_with_both_histories_and_scoped_replies(ins
     quote_id = quoted.json()["id"]
     assert owner.post(platform + "/read", params={"peer": inspector_peer}, json={"through_id": quote_id}).status_code == 200
     receipts = inspector.get(endpoint, params={"peer": owner_peer, "after_id": quote_id}).json()
-    assert receipts["peer_read_through_id"] == 0 and receipts["peer_read_ids"] == [quote_id]
+    assert receipts["peer_read_through_id"] == quote_id
 
     assert clients[1].get(endpoint, params={"peer": admin_peer}).status_code == 404
     revoked = owner.delete(f'/api/platform/inspection/accounts/{accounts[0]["id"]}/grants/{scope.id}')
@@ -685,3 +685,41 @@ def test_inspector_contacts_merge_each_owner_in_the_legacy_organization(inspecti
         assert owners[f"o:{id}"]["aliases"] == [f"a:{scope.id}:{id}"]
     assert owners[f"o:{scope.owner_user_id}"]["unread"] == 1
     assert owners[f"o:{developer_id}"]["unread"] == 0
+
+
+def test_owner_inbox_includes_direct_employee_messages_and_mirrors_inspector_history(inspection):
+    owner, scopes, operators, _, accounts, clients = inspection
+    scope, staff, inspector = scopes[0], operators[0], clients[0]
+    grant(owner, inspector, scope)
+    platform = "/api/platform/inspection/chat"
+    workspace = scope.prefix + "/api/inspection-admin"
+    owner_key = next(item["key"] for item in staff.get(workspace + "/owners/contacts").json())
+    inspector_key = f'i:{accounts[0]["id"]}'
+    response = staff.post(workspace + "/owners/messages", params={"peer": owner_key}, json={
+        "body": "От сотрудника", "client_id": str(uuid4()),
+    })
+    assert response.status_code == 201, response.text
+    contact = next(item for item in owner.get(platform + "/contacts").json() if item["name"] == "Operator 0")
+    assert contact["unread"] == 1
+    received = owner.get(platform + "/messages", params={"peer": contact["key"]}).json()["items"]
+    assert received[0]["body"] == "От сотрудника"
+    response = owner.post(platform + "/messages", params={"peer": contact["key"]}, json={
+        "body": "От владельца", "client_id": str(uuid4()), "reply_to_id": received[0]["id"],
+    })
+    assert response.status_code == 201, response.text
+    assert staff.get(workspace + "/owners/messages", params={"peer": owner_key}).json()["items"][-1]["body"] == "От владельца"
+    assert operators[1].get(scopes[1].prefix + "/api/inspection-admin/owners/messages",
+                            params={"peer": owner_key}).json()["items"] == []
+
+    message = inspector.post("/api/inspection/messages", params={"peer": owner_key}, json={
+        "body": "Из кабинета проверяющего", "client_id": str(uuid4()),
+    })
+    assert message.status_code == 201, message.text
+    assert owner.get(workspace + "/messages", params={"peer": inspector_key}).json()["items"][0]["id"] == message.json()["id"]
+    sent = owner.post(workspace + "/messages", params={"peer": inspector_key}, json={
+        "body": "Из организации", "client_id": str(uuid4()),
+    })
+    assert sent.status_code == 201, sent.text
+    assert [item["id"] for item in owner.get(platform + "/messages", params={"peer": inspector_key}).json()["items"]] == [
+        message.json()["id"], sent.json()["id"],
+    ]

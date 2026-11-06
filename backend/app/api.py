@@ -56,7 +56,7 @@ from app.chat_access import (
 )
 from app.chat_senders import photo_sender_name
 from app.chat_senders import router as chat_senders_router
-from app.config import settings
+from app.config import base_settings, settings
 from app.daily_reports import router as daily_reports_router
 from app.day_reviews import router as day_reviews_router
 from app.disk_accounts import router as disk_accounts_router
@@ -827,7 +827,15 @@ def edit_district(district_id: int, body: DistrictInput, db: Db, user: DistrictE
 
 @app.get("/api/users")
 def users(db: Db, user: AdminUser):
-    return [user_dict(u) for u in db.scalars(select(User).order_by(User.id))]
+    organization = current_organization()
+    if organization:
+        from app.models import PlatformOwner
+        owner_ids = set(db.scalars(select(PlatformOwner.user_id))) if organization.database_url == base_settings().database_url else set()
+        owner_ids.add(organization.owner_user_id)
+    else:
+        owner_ids = set()
+    return [user_dict(u, workspace_profile=False) | ({"managed_by_platform": True} if u.id in owner_ids else {})
+            for u in db.scalars(select(User).order_by(User.id))]
 
 
 @app.post("/api/users", status_code=201)
@@ -855,8 +863,11 @@ def create_user(body: UserCreate, db: Db, user: AdminUser):
 
 @app.patch("/api/users/{user_id}")
 def update_user(user_id: int, body: UserUpdate, db: Db, user: AdminUser):
-    if current_organization() and user_id == current_organization().owner_user_id:
-        raise HTTPException(403, "Аккаунт владельца настраивается в общем кабинете")
+    organization = current_organization()
+    if organization:
+        from app.models import PlatformOwner
+        if user_id == organization.owner_user_id or (organization.database_url == base_settings().database_url and db.get(PlatformOwner, user_id)):
+            raise HTTPException(403, "Аккаунт владельца настраивается в общем кабинете")
     db.execute(text("SELECT pg_advisory_xact_lock(7004, 1)"))
     record = db.get(User, user_id)
     if not record:

@@ -14,16 +14,19 @@ import { mergeMessages, messagePreview, operatorPhotoLink } from './operatorChat
 import type { ContactPage, MessagePage, OperatorMessage } from './operatorChatData';
 
 const inspectionBase = '/inspection-admin';
+const ownersBase = inspectionBase + '/owners';
+const isOwner = (key: string) => key.startsWith('o:');
 type WorkspaceMessage = (OperatorMessage | Message);
 const isInspector = (key: string) => /^i:[1-9]\d*$/.test(key);
-const chatKey = (value: string) => /^([1-9]\d*|i:[1-9]\d*)$/.test(value) ? value : '';
+const chatKey = (value: string) => /^([1-9]\d*|[io]:[1-9]\d*)$/.test(value) ? value : '';
 function messagePath(key: string, filters: Record<string, string> = {}) {
-  const path = isInspector(key) ? inspectionBase + '/messages' : `/operator-chats/${key}/messages`;
-  const query = new URLSearchParams(isInspector(key) ? {peer: key, ...filters} : filters);
+  const base = isOwner(key) ? ownersBase : isInspector(key) ? inspectionBase : '';
+  const path = base ? base + '/messages' : `/operator-chats/${key}/messages`;
+  const query = new URLSearchParams(base ? {peer: key, ...filters} : filters);
   return query.size ? path + '?' + query : path;
 }
 function readPath(key: string) {
-  return isInspector(key) ? inspectionBase + '/messages/read?' + new URLSearchParams({peer: key}) : `/operator-chats/${key}/read`;
+  return isOwner(key) || isInspector(key) ? (isOwner(key) ? ownersBase : inspectionBase) + '/messages/read?' + new URLSearchParams({peer: key}) : `/operator-chats/${key}/read`;
 }
 
 export default function OperatorChats({includeInspectors = false}: {includeInspectors?: boolean}) {
@@ -39,6 +42,7 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
   const [messages, setMessages] = useState<WorkspaceMessage[]>([]), [historyError, setHistoryError] = useState('');
   const [loading, setLoading] = useState(false), [hasOlder, setHasOlder] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false), [readThrough, setReadThrough] = useState(0);
+  const [readIds, setReadIds] = useState<number[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({}), [sendError, setSendError] = useState('');
   const [sending, setSending] = useState(false), [revision, setRevision] = useState(0);
   const [forwarding, setForwarding] = useState<{messages: WorkspaceMessage[]; sent: () => void} | null>(null);
@@ -66,12 +70,13 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
           preview: contact.last_message ? (contact.last_message.sender_id === user.id ? 'Вы: ' : '') + messagePreview(contact.last_message) : null,
           preview_at: contact.last_message?.created_at,
         }))),
-        ...(includeInspectors ? [api<Contact[]>(inspectionBase + '/contacts', 'GET', undefined, controller.signal).then(items => items.map(contact => ({
-          key: contact.key, name: contact.name, avatar_url: contact.avatar_url, active: true, unread: contact.unread,
-          subtitle: contact.kind, organization: contact.organization_name,
-          preview: contact.last_message ? (contact.last_message_outgoing ? 'Вы: ' : '') + contact.last_message : null,
-          preview_at: contact.last_message_at,
-        })))] : []),
+        ...[...(includeInspectors ? [inspectionBase] : []), ...(meta.organization && !user.is_platform_owner ? [ownersBase] : [])]
+          .map(base => api<Contact[]>(base + '/contacts', 'GET', undefined, controller.signal).then(items => items.map(contact => ({
+            key: contact.key, name: contact.name, avatar_url: contact.avatar_url, active: true, unread: contact.unread,
+            subtitle: contact.kind, organization: contact.organization_name,
+            preview: contact.last_message ? (contact.last_message_outgoing ? 'Вы: ' : '') + contact.last_message : null,
+            preview_at: contact.last_message_at,
+          })))),
       ];
       const results = await Promise.allSettled(requests);
       busy = false;
@@ -80,7 +85,7 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
       const failed = results.find(result => result.status === 'rejected');
       setContactError(failed ? (failed.reason as Error).message : '');
       setContacts(previous => results.flatMap((result, index) => result.status === 'fulfilled'
-        ? result.value : previous.filter(contact => isInspector(contact.key) === (index === 1)))
+        ? result.value : previous.filter(contact => index === 0 ? !isInspector(contact.key) && !isOwner(contact.key) : index === 1 && includeInspectors ? isInspector(contact.key) : isOwner(contact.key)))
         .sort((a, b) => (b.preview_at || '').localeCompare(a.preview_at || '') || a.name.localeCompare(b.name, 'ru')));
     };
     const visible = () => {void refresh();};
@@ -88,19 +93,19 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
     const timer = window.setInterval(visible, 5000);
     document.addEventListener('visibilitychange', visible);
     return () => {controller.abort(); window.clearInterval(timer); document.removeEventListener('visibilitychange', visible);};
-  }, [revision, includeInspectors, user.id]);
+  }, [revision, includeInspectors, user.id, user.is_platform_owner, meta.organization?.id]);
 
   async function load(key: string, filters: Record<string, string>, signal: AbortSignal) {
     const path = messagePath(key, filters);
-    if (isInspector(key)) {
+    if (isInspector(key) || isOwner(key)) {
       const page = await api<ConversationPage>(path, 'GET', undefined, signal);
-      return {items: page.items, has_older: !!page.next_before_id, peer_read_through_id: page.peer_read_through_id};
+      return {items: page.items, has_older: !!page.next_before_id, peer_read_through_id: page.peer_read_through_id, peer_read_ids: page.peer_read_ids};
     }
     return api<MessagePage>(path, 'GET', undefined, signal);
   }
 
   useEffect(() => {
-    setMessages([]); setHistoryError(''); setSendError(''); setHasOlder(false); setReadThrough(0);
+    setMessages([]); setHistoryError(''); setSendError(''); setHasOlder(false); setReadThrough(0); setReadIds([]);
     setLoadingOlder(false); scrollAnchor.current = null; stickToBottom.current = true;
     if (!peerKey) {setLoading(false); return;}
     const controller = new AbortController();
@@ -121,7 +126,7 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
         }
         if (initial) setHasOlder(result.has_older);
         initial = false;
-        setReadThrough(result.peer_read_through_id); setHistoryError(''); setLoading(false);
+        setReadThrough(result.peer_read_through_id); setReadIds("peer_read_ids" in result ? result.peer_read_ids || [] : []); setHistoryError(''); setLoading(false);
         if (cursor > acknowledged && !document.hidden) {
           await api(readPath(peerKey), 'POST', {through_id: cursor}, controller.signal);
           acknowledged = cursor;
@@ -205,7 +210,7 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
         const url = photo?.available ? ('detail_url' in photo ? photo.detail_url : operatorPhotoLink(photo.id, Number(peerKey))) : null;
         const href = url?.replace(/^\/org\/[0-9a-f-]{36}(?=\/)/, '');
         return {...message, outgoing, author: outgoing ? user.name : peer?.name || 'Собеседник',
-          canForward: !photo || photo.available, read: !!message.read_at || message.id <= readThrough,
+          canForward: !photo || photo.available, read: !!message.read_at || message.id <= readThrough || readIds.includes(message.id),
           attachment: photo && (href ? <Link className="operator-message-photo" to={href} state={{conversation: peerKey}} aria-label={'Открыть фотографию №' + photo.id}>
             {photo.preview_url ? <img src={photo.preview_url} loading="lazy" alt={'Фотография №' + photo.id}/> : <span className="operator-message-photo-placeholder"><Camera size={30}/></span>}
             <span>Фотография #{photo.id}<small>Открыть карточку</small></span>
@@ -217,7 +222,7 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
       sending={sending} sendError={sendError} timezone={meta.timezone}
       forwardedTo={forwardedTo} dismissForwarded={() => setForwardedTo(null)}
       forward={(ids, sent) => setForwarding({messages: messages.filter(message => ids.includes(message.id)), sent})}/>
-    {!!forwarding?.messages.length && <Forward base={inspectionBase} messages={forwarding.messages} unified={includeInspectors}
+    {!!forwarding?.messages.length && <Forward base={isOwner(peerKey) ? ownersBase : inspectionBase} messages={forwarding.messages} unified={includeInspectors && !isOwner(peerKey)}
       onClose={() => setForwarding(null)} onSent={(peer, count) => {
         forwarding.sent(); setForwarding(null); setForwardedTo(count === undefined ? peer : {key: peerKey, name: 'Чатов: ' + count});
       }}/>}

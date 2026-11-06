@@ -148,7 +148,7 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
     finally {sending.current = false; setSendingPeer('');}
   }
   return <>
-    {base !== '/inspection' && <div className="section-title"><h2>Чаты</h2><button aria-label="Обновить чаты" onClick={() => setRefreshKey(value => value + 1)}><RefreshCw size={18}/></button></div>}
+    {base !== '/inspection' && base !== '/platform/inspection/chat' && <div className="section-title"><h2>Чаты</h2><button aria-label="Обновить чаты" onClick={() => setRefreshKey(value => value + 1)}><RefreshCw size={18}/></button></div>}
     <ChatPanel contacts={contacts.map(item => ({key: item.key, name: item.name, avatar_url: item.avatar_url, active: true, unread: item.unread,
       subtitle: [item.kind, item.organization_name].filter(Boolean).join(' · '), organization: item.organization_name,
       preview: item.last_message ? (item.last_message_outgoing ? 'Вы: ' : '') + item.last_message : null, preview_at: item.last_message_at}))}

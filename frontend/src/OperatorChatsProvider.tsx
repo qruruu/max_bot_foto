@@ -5,7 +5,7 @@ import { api } from './api';
 const Context = createContext<{unread: number; refreshUnread: () => Promise<void>}>(null!);
 export const useOperatorChats = () => useContext(Context);
 
-export function OperatorChatsProvider({children, endpoint = '/operator-chats/unread', additionalEndpoint}: {children: ReactNode; endpoint?: string; additionalEndpoint?: string}) {
+export function OperatorChatsProvider({children, endpoint = '/operator-chats/unread', additionalEndpoint, ownerEndpoint}: {children: ReactNode; endpoint?: string; additionalEndpoint?: string; ownerEndpoint?: string}) {
   const [unread, setUnread] = useState(0);
   const counts = useRef<Record<string, number>>({});
   const request = useRef<AbortController | null>(null);
@@ -13,14 +13,14 @@ export function OperatorChatsProvider({children, endpoint = '/operator-chats/unr
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
-    const endpoints = additionalEndpoint ? [endpoint, additionalEndpoint] : [endpoint];
+    const endpoints = [endpoint, additionalEndpoint, ownerEndpoint].filter((path): path is string => !!path);
     const results = await Promise.allSettled(endpoints.map(path => api<{unread: number}>(path, 'GET', undefined, controller.signal)));
     if (controller.signal.aborted) return;
     results.forEach((result, index) => {
       if (result.status === 'fulfilled') counts.current[endpoints[index]] = result.value.unread;
     });
     setUnread(endpoints.reduce((total, path) => total + (counts.current[path] || 0), 0));
-  }, [endpoint, additionalEndpoint]);
+  }, [endpoint, additionalEndpoint, ownerEndpoint]);
 
   useEffect(() => {
     const refresh = () => {if (!document.hidden) void refreshUnread();};

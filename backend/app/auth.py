@@ -153,7 +153,7 @@ ExchangeManager = Annotated[User, Depends(require_permission(Permission.EXCHANGE
 LearningManager = Annotated[User, Depends(require_permission(Permission.LEARNING_MANAGE))]
 
 
-def user_dict(user: User):
+def user_dict(user: User, *, workspace_profile=True):
     result = {
         "id": user.id,
         "login": user.login,
@@ -171,7 +171,7 @@ def user_dict(user: User):
         result.update(is_platform_owner=getattr(user, "_platform_owner", False),
                       organization={"id": organization.id, "name": organization.name} if organization else None)
         result["managed_by_platform"] = bool(organization and organization.owner_user_id == user.id)
-        if organization and getattr(user, "_platform_user_id", None):
+        if workspace_profile and organization and getattr(user, "_platform_user_id", None):
             from app.organization_registry import control_session
             with control_session() as control:
                 owner = control.get(User, user._platform_user_id)
