@@ -15,10 +15,10 @@ import type { ContactPage, MessagePage, OperatorMessage } from './operatorChatDa
 
 const inspectionBase = '/inspection-admin';
 const ownersBase = inspectionBase + '/owners';
-const isOwner = (key: string) => key.startsWith('o:');
+const isOwner = (key: string) => /^[oa]:/.test(key);
 type WorkspaceMessage = (OperatorMessage | Message);
 const isInspector = (key: string) => /^i:[1-9]\d*$/.test(key);
-const chatKey = (value: string) => /^([1-9]\d*|[io]:[1-9]\d*)$/.test(value) ? value : '';
+const chatKey = (value: string) => /^([1-9]\d*|[io]:[1-9]\d*|a:[0-9a-f-]{36}:[1-9]\d*)$/.test(value) ? value : '';
 function messagePath(key: string, filters: Record<string, string> = {}) {
   const base = isOwner(key) ? ownersBase : isInspector(key) ? inspectionBase : '';
   const path = base ? base + '/messages' : `/operator-chats/${key}/messages`;
@@ -70,7 +70,7 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
           preview: contact.last_message ? (contact.last_message.sender_id === user.id ? 'Вы: ' : '') + messagePreview(contact.last_message) : null,
           preview_at: contact.last_message?.created_at,
         }))),
-        ...[...(includeInspectors ? [inspectionBase] : []), ...(meta.organization && !user.is_platform_owner ? [ownersBase] : [])]
+        ...[...(includeInspectors ? [inspectionBase] : []), ...(meta.organization ? [ownersBase] : [])]
           .map(base => api<Contact[]>(base + '/contacts', 'GET', undefined, controller.signal).then(items => items.map(contact => ({
             key: contact.key, name: contact.name, avatar_url: contact.avatar_url, active: true, unread: contact.unread,
             subtitle: contact.kind, organization: contact.organization_name,

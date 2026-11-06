@@ -125,10 +125,9 @@ def admin_identity(user):
     if not org:
         raise HTTPException(404)
     if is_platform_owner(user):
-        with control_session() as db:
-            primary_id = db.scalar(select(Organization.owner_user_id).where(Organization.legacy).limit(1))
-        if primary_id is not None and user._platform_user_id != primary_id:
-            # A second owner's workspace session must not write as the shared primary account.
+        from app.operator_chats import uses_workspace_inbox
+
+        if not uses_workspace_inbox(user):
             return f"o:{user._platform_user_id}", org.id
     return f"a:{org.id}:{user.id}", org.id
 
@@ -179,9 +178,8 @@ def owner_message_inboxes(db, owner_id, message_id):
     return ()
 
 
-def owner_contacts(db, owner_id, *, peer=None):
-    base = "/api/platform/inspection/chat"
-    contacts = [contact(f"i:{account.id}", account.name, "Проверяющий", agency.name, account.avatar_image, base)
+def owner_contacts(db, owner_id, *, peer=None, organization_id=None, staff_only=False, base="/api/platform/inspection/chat"):
+    contacts = [] if staff_only else [contact(f"i:{account.id}", account.name, "Проверяющий", agency.name, account.avatar_image, base)
                 for account, agency in db.execute(select(Inspector, InspectionAgency).join(InspectionAgency)
                     .where(Inspector.active, InspectionAgency.active).order_by(InspectionAgency.name, Inspector.name))]
     contacts += platform_contacts(db, owner_id)
@@ -189,6 +187,8 @@ def owner_contacts(db, owner_id, *, peer=None):
         return contacts
     owner_ids = set(db.scalars(select(PlatformOwner.user_id)))
     organizations = select(Organization).where(Organization.status == "ACTIVE").order_by(Organization.name)
+    if organization_id:
+        organizations = organizations.where(Organization.id == organization_id)
     if peer:
         organizations = organizations.where(Organization.id == peer.split(":")[1])
     for org in db.scalars(organizations):
@@ -665,8 +665,16 @@ def organization_message_photo(message_id: int, user: AdminUser):
 
 def staff_owner_identity(user, db):
     org = current_organization()
-    if org is None or is_platform_owner(user):
+    if org is None:
         raise HTTPException(404)
+    if is_platform_owner(user):
+        owner_id = user._platform_user_id
+        base = workspace_url("/api/inspection-admin/owners")
+        from app.operator_chats import uses_workspace_inbox
+
+        contacts = (platform_contacts(db, owner_id, base) if uses_workspace_inbox(user)
+                    else owner_contacts(db, owner_id, organization_id=org.id, staff_only=True, base=base))
+        return f"o:{owner_id}", contacts
     record = db.get(Organization, org.id)
     if not record or record.status != "ACTIVE" or user.id == org.owner_user_id or (record.legacy and db.get(PlatformOwner, user.id)):
         raise HTTPException(404)
@@ -677,7 +685,7 @@ def staff_owner_identity(user, db):
 def staff_owners(user: CurrentUser, photo_organization_id: UUID | None = None,
                  photo_id: Annotated[int | None, Query(gt=0)] = None,
                  forward_message_id: Annotated[int | None, Query(gt=0)] = None):
-    if current_organization() is None or is_platform_owner(user):
+    if current_organization() is None:
         return []
     with control_session() as db:
         actor, contacts = staff_owner_identity(user, db)
@@ -686,7 +694,7 @@ def staff_owners(user: CurrentUser, photo_organization_id: UUID | None = None,
 
 @admin_router.get("/owners/unread")
 def staff_owner_unread(user: CurrentUser):
-    if current_organization() is None or is_platform_owner(user):
+    if current_organization() is None:
         return {"unread": 0}
     with control_session() as db:
         actor, contacts = staff_owner_identity(user, db)

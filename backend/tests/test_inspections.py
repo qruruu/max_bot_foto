@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from test_organizations import companies as companies
 
-from app.auth import digest
+from app.auth import digest, hasher
 from app.db import engine
 from app.domain import now
 from app.media import media_path
@@ -755,3 +755,43 @@ def test_deleting_inspector_and_employee_removes_their_personal_chats(inspection
     assert staff.get(workspace + "/owners/contacts").status_code == 401
     with control_session() as db:
         assert db.get(InspectionMessage, sent.json()["id"]) is None
+
+
+def test_second_owner_workspace_cannot_read_primary_chats_and_can_write_to_primary(inspection):
+    from app.api import app
+
+    owner, scopes, operators, _, _, _ = inspection
+    scope, staff = scopes[0], operators[0]
+    with control_session() as db:
+        primary = db.scalar(select(PlatformOwner.user_id))
+        developer = User(login="developer", name="Разработчик", password_hash=hasher.hash(PASSWORD),
+                         role="ADMIN_OPERATOR", active=True)
+        db.add(developer)
+        db.flush()
+        developer_id = developer.id
+        db.add(PlatformOwner(user_id=developer_id))
+        db.commit()
+    local = scope.prefix + "/api/operator-chats"
+    primary_message = staff.post(f"{local}/{scope.owner_user_id}/messages", json={
+        "client_id": str(uuid4()), "body": "Переписка основного владельца",
+    })
+    assert primary_message.status_code == 201, primary_message.text
+    staff_id = primary_message.json()["sender_id"]
+    assert owner.get(f"{local}/{staff_id}/messages").json()["items"]
+    with TestClient(app) as second:
+        login = second.post("/api/auth/login", json={"login": "developer", "password": PASSWORD})
+        assert login.status_code == 200, login.text
+        second.headers["X-CSRF-Token"] = second.cookies["platform_csrf"]
+        assert second.get(local).json() == {"items": [], "unread": 0}
+        assert second.get(f"{local}/{staff_id}/messages").status_code == 404
+        direct = scope.prefix + "/api/inspection-admin/owners"
+        contacts = second.get(direct + "/contacts").json()
+        assert f"o:{primary}" in {item["key"] for item in contacts}
+        assert f"o:{developer_id}" not in {item["key"] for item in contacts}
+        staff_key = f"a:{scope.id}:{staff_id}"
+        assert second.get(direct + "/messages", params={"peer": staff_key}).json()["items"] == []
+        sent = second.post(direct + "/messages", params={"peer": f"o:{primary}"},
+                           json={"client_id": str(uuid4()), "body": "Лично владельцу"})
+        assert sent.status_code == 201, sent.text
+        history = owner.get(direct + "/messages", params={"peer": f"o:{developer_id}"}).json()["items"]
+        assert [item["id"] for item in history] == [sent.json()["id"]]

@@ -11,12 +11,12 @@ from sqlalchemy import and_, case, func, or_, select, text, update
 from sqlalchemy.orm import load_only
 
 from app.appeal_events import personal_forward_source
-from app.auth import CurrentUser, Db, admin_user
+from app.auth import CurrentUser, Db, admin_user, is_platform_owner
 from app.chat_access import chat_condition
 from app.chat_messages import Screenshots, prepare_screenshots, quote, screenshot_response
 from app.domain import now
-from app.models import OperatorMessage, Photo, User
-from app.organization_context import workspace_url
+from app.models import OperatorMessage, Organization, Photo, PlatformOwner, User
+from app.organization_context import current_organization, workspace_url
 from app.organization_registry import control_session
 from app.permissions import Permission, has_permission
 from app.photo_scope import active_cohort_condition
@@ -51,6 +51,21 @@ class MessageInput(StrictModel):
 
 class ReadInput(StrictModel):
     through_id: int = Field(gt=0)
+
+
+def uses_workspace_inbox(user):
+    if not is_platform_owner(user) or current_organization() is None:
+        return True
+    with control_session() as db:
+        primary = db.scalar(select(Organization.owner_user_id).where(Organization.legacy).limit(1))
+        if primary is not None:
+            return primary == user._platform_user_id
+        return db.scalar(select(func.count()).select_from(PlatformOwner)) == 1
+
+
+def require_workspace_inbox(user):
+    if not uses_workspace_inbox(user):
+        raise HTTPException(404, "Переписка недоступна")
 
 
 def conversation(user_id: int, peer_id: int):
@@ -107,6 +122,7 @@ def message_dict(message, photos=None):
 
 
 def source_message(db, user, message_id):
+    require_workspace_inbox(user)
     source = db.get(OperatorMessage, message_id)
     if not source or user.id not in (source.sender_id, source.recipient_id):
         raise HTTPException(404, "Сообщение недоступно")
@@ -137,6 +153,8 @@ def contacts(db: Db, user: CurrentUser, photo_id: Annotated[int | None, Query(gt
              forward_message_id: Annotated[int | None, Query(gt=0)] = None,
              forward_inspection_message_id: Annotated[int | None, Query(gt=0)] = None,
              forward_task_message_id: Annotated[int | None, Query(gt=0)] = None):
+    if not uses_workspace_inbox(user):
+        return {"items": [], "unread": 0}
     if sum(value is not None for value in (photo_id, forward_message_id, forward_inspection_message_id, forward_task_message_id)) > 1:
         raise HTTPException(422, "Выберите сообщение или фотографию")
     if forward_task_message_id:
@@ -175,7 +193,16 @@ def contacts(db: Db, user: CurrentUser, photo_id: Annotated[int | None, Query(gt
     ).all()
     photos = visible_photos(db, user, [latest.photo_id for _, latest, _ in rows if latest])
     items = []
+    owner_ids = set()
+    org = current_organization()
+    if org and is_platform_owner(user):
+        from app.config import base_settings
+
+        owner_ids = set(db.scalars(select(PlatformOwner.user_id))) if org.database_url == base_settings().database_url else set()
+        owner_ids.add(org.owner_user_id)
     for peer, latest, unread in rows:
+        if peer.id in owner_ids and latest is None:
+            continue
         if photo_id is not None and (not peer.active or photo_id not in visible_photos(db, peer, [photo_id])):
             continue
         avatar = workspace_url(f"/api/operator-chats/avatars/{peer.id}?v={hashlib.sha256(peer.avatar_image).hexdigest()[:16]}") \
@@ -190,6 +217,8 @@ def contacts(db: Db, user: CurrentUser, photo_id: Annotated[int | None, Query(gt
 
 @router.get("/unread")
 def unread_count(db: Db, user: CurrentUser):
+    if not uses_workspace_inbox(user):
+        return {"unread": 0}
     return {"unread": db.scalar(
         select(func.count()).select_from(OperatorMessage).where(
             OperatorMessage.recipient_id == user.id, OperatorMessage.read_at.is_(None),
@@ -199,6 +228,7 @@ def unread_count(db: Db, user: CurrentUser):
 
 @router.get("/avatars/{peer_id}")
 def peer_avatar(peer_id: int, db: Db, user: CurrentUser):
+    require_workspace_inbox(user)
     peer = db.get(User, peer_id)
     if not peer or not peer.active or not peer.avatar_image:
         raise HTTPException(404, "Аватарка не установлена")
@@ -212,6 +242,7 @@ def messages(
     after_id: Annotated[int | None, Query(ge=0)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ):
+    require_workspace_inbox(user)
     peer_user(db, user.id, peer_id)
     if before_id is not None and after_id is not None:
         raise HTTPException(422, "Выберите одно направление загрузки сообщений")
@@ -242,6 +273,7 @@ def messages(
 
 @router.post("/{peer_id}/messages", status_code=201)
 def send_message(peer_id: int, body: MessageInput, db: Db, user: CurrentUser):
+    require_workspace_inbox(user)
     peer = peer_user(db, user.id, peer_id, sending=True)
     content, photo_id = body.body, body.photo_id
     forward_name, reply = None, None
@@ -299,6 +331,7 @@ def send_message(peer_id: int, body: MessageInput, db: Db, user: CurrentUser):
 
 @router.post("/{peer_id}/read")
 def mark_read(peer_id: int, body: ReadInput, db: Db, user: CurrentUser):
+    require_workspace_inbox(user)
     peer_user(db, user.id, peer_id)
     if not db.scalar(select(OperatorMessage.id).where(
         OperatorMessage.id == body.through_id, conversation(user.id, peer_id),

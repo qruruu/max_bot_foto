@@ -30,8 +30,8 @@ type WorkType = {code: string; name: string};
 const statuses = appealStatuses;
 const moment = (value: string) => new Date(value).toLocaleString('ru-RU', {dateStyle: 'short', timeStyle: 'short'});
 
-export default function OwnerAppeals({organization = false, endpoint: customEndpoint, readOnly = false, refreshKey = 0, onCreate, composer, administrators = []}: {
-  organization?: boolean; endpoint?: string; readOnly?: boolean; refreshKey?: number; onCreate?: () => void; composer?: ReactNode; administrators?: string[];
+export default function OwnerAppeals({organization = false, endpoint: customEndpoint, readOnly = false, refreshKey = 0, onCreate, composer}: {
+  organization?: boolean; endpoint?: string; readOnly?: boolean; refreshKey?: number; onCreate?: () => void; composer?: ReactNode;
 }) {
   const endpoint = customEndpoint || (organization ? '/appeals' : '/platform/appeals');
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -254,7 +254,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
               {detail.description.length > 450 && <button className="appeal-description-toggle" aria-expanded={descriptionOpen} onClick={() => setDescriptionOpen(value => !value)}>{descriptionOpen ? 'Свернуть текст' : 'Показать весь текст'}<ChevronDown size={15}/></button>}
               <dl className="appeal-request-facts">
                 <div><dt><MapPin size={18}/>Адрес:</dt><dd>{[detail.city, detail.address === 'Без территории' ? '' : detail.address].filter(Boolean).join(', ') || '—'}{detail.place && <small>{detail.place}</small>}</dd></div>
-                <div><dt><Building2 size={17}/>{inspectionTask ? 'Кому передано' : 'Организация'}</dt><dd>{inspectionTask ? recipient(detail) : detail.organization_name || detail.organization_hint || 'Не назначена'}{inspectionTask && !!administrators.length && <small>{administrators.join(', ')}</small>}</dd></div>
+                <div><dt><Building2 size={17}/>{inspectionTask ? 'Кому передано' : 'Организация'}</dt><dd>{inspectionTask ? recipient(detail) : detail.organization_name || detail.organization_hint || 'Не назначена'}</dd></div>
 
                 {inspectionTask && detail.inspector_due_date && <div><dt><CalendarDays size={17}/>Срок задачи</dt><dd>{deadlineLabel(detail.inspector_due_date)}</dd></div>}
                 {detail.source !== 'admin' && !detail.submitted_by_inspector_name && !readOnly && detail.can_manage !== false && !detail.can_execute && <div><dt><UserRound size={18}/>Контакт:</dt><dd>{detail.contact || 'Не оставлен'}</dd></div>}

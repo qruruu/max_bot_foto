@@ -14,8 +14,8 @@ type Catalog = {organization: PublicOrganization; yandex_maps_api_key: string};
 type Receipt = {id: number; number: string; is_public: false};
 type Photo = StoredPhoto & {url: string};
 
-export default function InspectionAppealForm({organizationId, inspectorId, created, onClose, administrators = []}: {
-  organizationId: string; inspectorId: number; created: () => void; onClose?: () => void; administrators?: string[];
+export default function InspectionAppealForm({organizationId, inspectorId, created, onClose}: {
+  organizationId: string; inspectorId: number; created: () => void; onClose?: () => void;
 }) {
   const endpoint = '/inspection/organizations/' + organizationId + '/appeals';
   const storageKey = 'inspector:' + inspectorId + ':' + organizationId;
@@ -127,7 +127,7 @@ export default function InspectionAppealForm({organizationId, inspectorId, creat
       : !loaded || !catalog ? !error && <p className="loading">Загружаем форму…</p> : <form className={!address ? 'no-territory' : undefined} onSubmit={event => void submit(event)}>
         {pending && <p className="hint" role="status">Проверяем отправку. Повторная попытка не создаст дубль.</p>}
         <fieldset disabled={locked}>
-          <div className="inspector-task-recipient"><Building2 size={19}/><div><span>Кому передать</span><strong>Администраторы «{organization?.name}»</strong>{!!administrators.length && <small>{administrators.join(', ')}</small>}</div></div>
+          <div className="inspector-task-recipient"><Building2 size={19}/><div><span>Кому передать</span><strong>Администраторы «{organization?.name}»</strong></div></div>
           <label>Территория <small>необязательно</small><select value={form.address_id} onChange={event => {const id = event.target.value; const selected = organization?.addresses?.find(item => item.id === id); setForm(current => ({...current, address_id: id, address: selected?.label || '', latitude: null, longitude: null}));}}><option value="">Без территории</option>{organization?.addresses?.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
           <p className="hint">{!organization?.city ? 'У организации не указан город. Его должен добавить владелец сервиса.' : organization?.addresses?.length
             ? 'Выберите территорию этой организации и отметьте на карте место проблемы.' : 'У организации пока нет активных территорий на карте.'}</p>

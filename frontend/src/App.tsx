@@ -100,7 +100,7 @@ export default function App() {
   const protectedPage = (code:string, element:ReactNode) => hasPermission(user,code) ? element : denied;
   return <Context.Provider value={{user,meta,refresh,notify:setToast,updateUser:setUser}}>
     <NewsNotificationsProvider key={user.id} enabled={hasPermission(user,'news_view')}>
-    <OperatorChatsProvider key={user.id} additionalEndpoint={admin && meta.organization ? '/inspection-admin/unread' : undefined} ownerEndpoint={meta.organization && !user.is_platform_owner ? '/inspection-admin/owners/unread' : undefined}>
+    <OperatorChatsProvider key={user.id} additionalEndpoint={admin && meta.organization ? '/inspection-admin/unread' : undefined} ownerEndpoint={meta.organization ? '/inspection-admin/owners/unread' : undefined}>
     <PhotoNotificationsProvider key={user.id + ":" + meta.intake_cohort} userId={user.id} canViewPhotos={hasPermission(user,'photos_view')}>
     <div className={'app ' + (sidebar.collapsed ? 'sidebar-collapsed' : 'sidebar-expanded')}>
       {!sidebar.collapsed&&<button type="button" className="sidebar-backdrop" aria-label="Закрыть боковую панель" onClick={sidebar.toggle}/>}
