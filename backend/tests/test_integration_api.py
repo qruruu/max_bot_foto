@@ -16,7 +16,7 @@ from app.db import engine
 from app.domain import now
 from app.integration_access import PREFIX
 from app.integration_api import read_cursor, sign_cursor
-from app.models import Inbox, IntegrationChange, IntegrationKey, Organization, Photo
+from app.models import Inbox, IntegrationChange, IntegrationKey, Organization, Photo, WorkType
 from app.organization_context import organization_scope
 from app.organization_registry import control_session
 
@@ -66,6 +66,22 @@ def snapshot(owner, key, **body):
     response = owner.post(PREFIX+'/snapshots', json=body, headers=headers(key))
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def test_work_types_are_read_from_the_organization_catalog_without_photos(companies):
+    owner, (alpha, beta), _ = companies
+    for scope, code, name in ((alpha, 'MOWING', 'Покос травы'), (beta, 'WATERING', 'Полив')):
+        with organization_scope(scope), Session(engine()) as db:
+            db.add(WorkType(code=code, name=name, filename_label=name, model_index=0, sort_order=1))
+            db.commit()
+
+    path = PREFIX + '/work-types'
+    key = issue(owner, alpha, ['work_types:read'])
+    response = owner.get(path, headers={**headers(key), 'X-Organization-Id': beta.id})
+    assert response.status_code == 200
+    assert response.json() == {'items': [{'code': 'MOWING', 'name': 'Покос травы', 'active': True}]}
+    assert owner.get(path, headers=headers(issue(owner, alpha))).status_code == 403
+    assert owner.post(path, headers=headers(key), json={}).status_code == 405
 
 
 def test_keys_isolation_scopes_revocation_and_limits(companies, monkeypatch):

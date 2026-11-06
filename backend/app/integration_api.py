@@ -34,6 +34,7 @@ from app.models import (
     IntegrationSnapshotRow,
     Photo,
 )
+from app.work_types import catalog_rows
 
 router = APIRouter(prefix=PREFIX, tags=['Read-only integrations v1'], route_class=IntegrationRoute)
 RETENTION = timedelta(days=30)
@@ -236,6 +237,14 @@ def geozone(zone_id: int, request: Request, db: Db):
     if data is None:
         raise HTTPException(404, 'Геозона не найдена')
     return data
+
+
+@router.get('/work-types')
+def list_work_types(request: Request, db: Db):
+    require_scope(request, 'work_types:read')
+    # Every configured work type is active in the current catalog model.
+    items = [{'code': row.code, 'name': row.name, 'active': True} for row in catalog_rows(db)]
+    return bounded_response({'items': items})
 
 
 @router.get('/photos/{photo_id}/original')

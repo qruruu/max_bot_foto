@@ -173,6 +173,7 @@ class SecurityTelemetry:
                            operation="original" if scope["path"].endswith("/original") else
                            "changes" if scope["path"].endswith("/changes") else
                            "geozones" if "/geozones" in scope["path"] else
+                           "work_types" if scope["path"].endswith("/work-types") else
                            "photos" if "/photos" in scope["path"] else "snapshot")
             try:
                 self.emit(row)

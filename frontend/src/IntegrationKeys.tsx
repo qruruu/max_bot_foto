@@ -6,7 +6,8 @@ import {ErrorBox, useApp} from './App';
 type Key = {id:string; name:string; cohort:string; scopes:string[]; expires_at:string; revoked_at:string|null; last_used_at:string|null};
 const permissions = [
   ['photos:read', 'Фотографии'], ['geozones:read', 'Геозоны (микрорайоны)'],
-  ['changes:read', 'Изменения и удаления'], ['originals:read', 'Скачивание оригиналов'],
+  ['work_types:read', 'Справочник видов работ'],
+  ['changes:read', 'Журнал изменений и удалений'], ['originals:read', 'Скачивание оригиналов'],
 ];
 export default function IntegrationKeys() {
   const {meta} = useApp();

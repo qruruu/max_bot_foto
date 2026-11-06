@@ -25,7 +25,7 @@ from app.photo_scope import active_cohort
 from app.security_telemetry import VerifiedApplication
 
 PREFIX = '/api/integration/v1'
-SCOPES = {'photos:read', 'geozones:read', 'changes:read', 'originals:read'}
+SCOPES = {'photos:read', 'geozones:read', 'work_types:read', 'changes:read', 'originals:read'}
 RECORD_BYTES = 2 * 1024 * 1024
 FILE_BYTES = 50 * 1024 * 1024
 TOKEN = re.compile(r'^Bearer (metka_([0-9a-f-]{36})_[A-Za-z0-9_-]{64})$')
@@ -78,7 +78,7 @@ def key_dict(key):
 
 class CreateKey(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    scopes: list[str] = Field(min_length=1, max_length=4)
+    scopes: list[str] = Field(min_length=1, max_length=len(SCOPES))
     expires_days: int = Field(default=90, ge=1, le=365)
 
 
