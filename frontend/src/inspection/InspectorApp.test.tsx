@@ -199,13 +199,13 @@ it('opens photo forwarding from the read-only card',async()=>{
   expect(vi.mocked(api).mock.calls.some(([path])=>path==='/inspection/contacts?photo_organization_id=company&photo_id=85')).toBe(true);
 });
 
-it('ignores a legacy work-type filter and removes work-type selection from the inspector archive',async()=>{
+it('applies the work-type filter in the inspector archive',async()=>{
   await mount('/inspection?org=company&tab=photos&work_type=CLEAN');
-  expect(element.querySelector('[aria-label="Вид работы"]')).toBeNull();
-  expect(element.textContent).not.toContain('Все виды работ');
+  expect(element.querySelector('[aria-label="Вид работы"]')).not.toBeNull();
+  expect(element.textContent).toContain('Все виды работ');
   const requests=vi.mocked(api).mock.calls.filter(([path])=>path.includes('/photos?'));
   expect(requests.length).toBeGreaterThan(0);
-  expect(requests.every(([path])=>!path.includes('work_type='))).toBe(true);
+  expect(requests.every(([path])=>path.includes('work_type=CLEAN'))).toBe(true);
   expect(element.querySelector('.export')).toBeNull();
 });
 

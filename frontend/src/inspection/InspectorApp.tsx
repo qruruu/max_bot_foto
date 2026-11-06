@@ -52,7 +52,7 @@ export default function InspectorApp() {
   const filterQuery=filters.toString(),base='/inspection/organizations/'+org;
   const appealOrganization = org || organizations[0]?.id || '';
   const appeals = useAppealNotifications(!!user && organizations.length > 0, user?.id, '/inspection/appeals/notifications');
-  useEffect(()=>{if(params.has('work_type')||params.get('tab')==='reports')setParams(previous=>{const next=new URLSearchParams(previous);next.delete('work_type');if(next.get('tab')==='reports')next.set('tab','photos');return next;},{replace:true});},[params,setParams]);
+  useEffect(()=>{if(params.get('tab')==='reports')setParams(previous=>{const next=new URLSearchParams(previous);next.set('tab','photos');return next;},{replace:true});},[params,setParams]);
   useLayoutEffect(()=>{if(!viewingPhoto&&photoPosition.current){const previous=photoPosition.current;photoPosition.current=null;window.scrollTo(0,previous.scrollY);const log=document.querySelector<HTMLElement>('.operator-message-list'),table=document.querySelector<HTMLElement>('.inspection-photos .table-scroll');if(log&&previous.chatScrollTop!==undefined)log.scrollTop=previous.chatScrollTop;if(table&&previous.tableScrollLeft!==undefined)table.scrollLeft=previous.tableScrollLeft;if(previous.focus?.isConnected)previous.focus.focus({preventScroll:true});}},[viewingPhoto]);
   function signedIn(account: User) {if(account.role==='INSPECTOR')setUser(account as Inspector);else window.location.replace(signInDestination(account));}
   async function loadOrganizations(){const list=await api<Organization[]>('/inspection/organizations');setOrganizations(list);return list;}
