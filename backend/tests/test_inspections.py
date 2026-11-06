@@ -188,7 +188,7 @@ def test_closure_gates_every_photo_route_and_reports_are_unavailable(inspection)
         assert client.get(base + suffix).status_code == 404
 
 
-def test_owner_created_accounts_only_can_delegate_without_inheriting_grants(inspection):
+def test_owner_created_accounts_only_can_delegate_and_copy_their_grants(inspection):
     from app.api import app
 
     owner, scopes, _, agency, accounts, clients = inspection
@@ -204,11 +204,19 @@ def test_owner_created_accounts_only_can_delegate_without_inheriting_grants(insp
     with TestClient(app) as child:
         assert child.post("/api/auth/login", json={"login": body["login"], "password": PASSWORD}).status_code == 200
         child.headers["X-CSRF-Token"] = child.cookies["inspection_csrf"]
-        assert child.get("/api/inspection/organizations").json() == []
+        assert [org["id"] for org in child.get("/api/inspection/organizations").json()] == [scopes[0].id]
         assert child.post("/api/inspection/accounts", json={**body, "login": "grandchild"}).status_code == 403
         assert child.get("/api/inspection/accounts").status_code == 403
-        grant(owner, child, scopes[0])
-        assert len(child.get("/api/inspection/organizations").json()) == 1
+        assert child.get(f"/api/inspection/organizations/{scopes[1].id}/photos").status_code == 404
+        assert child.get("/api/inspection/contacts").status_code == 200
+        access = f'/api/platform/inspection/accounts/{created.json()["id"]}/grants'
+        endpoint = f"{access}/{scopes[1].id}"
+        assert clients[0].put(endpoint).status_code in (401, 403)
+        assert owner.put(endpoint).status_code == 200
+        assert owner.put(endpoint).status_code == 200
+        assert {org["id"] for org in child.get("/api/inspection/organizations").json()} == {scope.id for scope in scopes}
+        assert owner.delete(f"{access}/{scopes[0].id}").status_code == 200
+        assert [org["id"] for org in child.get("/api/inspection/organizations").json()] == [scopes[1].id]
     listed = owner.get(f'/api/platform/inspection/agencies/{agency["id"]}/accounts').json()
     assert len(listed) == 3
     assert owner.patch(f'/api/platform/inspection/accounts/{accounts[0]["id"]}', json={"active": False}).status_code == 200

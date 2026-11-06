@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import Field, field_validator
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import delete, func, insert, literal, select, text, update
 from sqlalchemy.orm import Session
 
 from app import appeal_reporting as reporting
@@ -172,8 +172,24 @@ def owner_grants(account_id: int, db: Db, user: Owner):
         select(InspectionGrant, Organization).join(Organization).where(InspectionGrant.inspector_id == account_id))]
 
 
+@owner_router.put("/accounts/{account_id}/grants/{organization_id}")
+def owner_grant(account_id: int, organization_id: UUID, db: Db, user: Owner):
+    lock_inspector(db, account_id)
+    if not db.get(Inspector, account_id):
+        raise HTTPException(404, "Проверяющий не найден")
+    org = db.get(Organization, str(organization_id))
+    if not org or org.status != "ACTIVE":
+        raise HTTPException(404, "Организация недоступна")
+    if not db.get(InspectionGrant, (account_id, org.id)):
+        db.add(InspectionGrant(inspector_id=account_id, organization_id=org.id))
+        audit(db, user.id, "INSPECTION_ACCESS_GRANTED", "inspector", account_id, None, {"organization_id": org.id})
+    db.commit()
+    return {"ok": True}
+
+
 @owner_router.delete("/accounts/{account_id}/grants/{organization_id}")
 def owner_revoke(account_id: int, organization_id: UUID, db: Db, user: Owner):
+    lock_inspector(db, account_id)
     db.execute(delete(InspectionGrant).where(InspectionGrant.inspector_id == account_id,
                                             InspectionGrant.organization_id == str(organization_id)))
     audit(db, user.id, "INSPECTION_ACCESS_REVOKED", "inspector", account_id, None,
@@ -209,6 +225,10 @@ def create_account(body: AccountInput, db: Db, user: InspectorUser):
     if not user.can_create_accounts:
         raise HTTPException(403, "Создавать аккаунты могут только проверяющие, добавленные владельцем")
     account = add_account(db, body, user.agency_id, creator=user.id)
+    grants = select(literal(account.id), InspectionGrant.organization_id).join(Organization).where(
+        InspectionGrant.inspector_id == user.id, Organization.status == "ACTIVE",
+    )
+    db.execute(insert(InspectionGrant).from_select(["inspector_id", "organization_id"], grants))
     audit(db, None, "INSPECTOR_CREATED_BY_INSPECTOR", "inspector", account.id, None, {"created_by": user.id})
     db.commit()
     return account_view(db, account)
