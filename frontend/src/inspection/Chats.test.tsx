@@ -131,3 +131,26 @@ it('uses the organization administrator endpoints with the same view and handles
   expect(element.querySelector('textarea')).toBeNull();
   expect(vi.mocked(api).mock.calls.some(([path])=>path.startsWith('/inspection/messages'))).toBe(false);
 });
+
+it('opens the merged administrator from an old link and reloads history when organization access changes', async () => {
+  let authorized = true;
+  const fallback = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async (path, method, body, signal) => {
+    if (path.endsWith('/contacts')) return [{...contacts[1], key: 'o:1', aliases: authorized ? ['a:org:3'] : []}];
+    if (path.includes('/messages?') && method === 'GET') {
+      if (path.includes('after_id=')) return {...page([]), peer_read_ids: [2]};
+      return authorized ? page([message(1, 'Общий кабинет'), message(2, 'Из организации')]) : page([message(1, 'Общий кабинет')]);
+    }
+    return fallback(path, method, body, signal);
+  });
+  await mount('/inspection?org=org&tab=messages&with=a%3Aorg%3A3');
+  expect(element.querySelectorAll('.operator-chat-contact')).toHaveLength(1);
+  expect(element.querySelector('#location')?.textContent).toContain('with=o%3A1');
+  expect(element.querySelector('.operator-message-list')?.textContent).toContain('Из организации');
+  await act(async () => {await vi.advanceTimersByTimeAsync(3000);});
+  expect(element.querySelector('.operator-message.own [aria-label="Прочитано"]')).not.toBeNull();
+  authorized = false;
+  await act(async () => {await vi.advanceTimersByTimeAsync(2000);});
+  expect(element.querySelector('.operator-message-list')?.textContent).not.toContain('Из организации');
+  expect(element.querySelector('.operator-message-list')?.textContent).toContain('Общий кабинет');
+});

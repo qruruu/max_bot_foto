@@ -20,6 +20,7 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
   const [contacts, setContacts] = useState<Contact[]>([]), [contactLoading, setContactLoading] = useState(true), [contactError, setContactError] = useState('');
   const [items, setItems] = useState<Message[]>([]), [before, setBefore] = useState<number | null>(null);
   const [loading, setLoading] = useState(false), [loadingOlder, setLoadingOlder] = useState(false), [readThrough, setReadThrough] = useState(0);
+  const [readIds, setReadIds] = useState<number[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({}), [sendError, setSendError] = useState(''), [historyError, setHistoryError] = useState('');
   const [sendingPeer, setSendingPeer] = useState(''), [refreshKey, setRefreshKey] = useState(0);
   const [forwarding,setForwarding]=useState<{messages: Message[]; sent: () => void}|null>(null);
@@ -33,6 +34,7 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
   currentPeer.current = peerKey;
   const chatVisible=useRef(active);chatVisible.current=active;
   const contact = contacts.find(item => item.key === peerKey), draft = drafts[peerKey] || '';
+  const inboxes = contact?.aliases?.slice().sort().join('|') || '';
   function select(key: string) {setForwardedTo(null); setParams(previous => {const next = new URLSearchParams(previous); key ? next.set('with', key) : next.delete('with'); return next;});}
 
   useEffect(() => {
@@ -45,7 +47,10 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
         const result = await api<Contact[]>(base + '/contacts', 'GET', undefined, controller.signal);
         if (controller.signal.aborted) return;
         setContacts(result); setContactError('');
-        if (currentPeer.current && !result.some(item => item.key === currentPeer.current)) select('');
+        if (currentPeer.current && !result.some(item => item.key === currentPeer.current)) {
+          const merged = result.find(item => item.aliases?.includes(currentPeer.current));
+          select(merged?.key || '');
+        }
       } catch (error) {
         if (!controller.signal.aborted) {setContactError((error as Error).message); if (error instanceof ApiError && [401, 403, 404].includes(error.status)) {setContacts([]); select('');}}
       } finally {busy = false; if (!controller.signal.aborted) setContactLoading(false);}
@@ -58,7 +63,7 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
   }, [base]);
 
   useEffect(() => {
-    setItems([]); setBefore(null); setHistoryError(''); setSendError(''); setReadThrough(0); setLoadingOlder(false);
+    setItems([]); setBefore(null); setHistoryError(''); setSendError(''); setReadThrough(0); setReadIds([]); setLoadingOlder(false);
     scrollAnchor.current = null; stickToBottom.current = true;
     if (!peerKey) {setLoading(false); refreshMessages.current = async () => {}; return;}
     const controller = new AbortController();
@@ -80,7 +85,8 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
             cursor = Math.max(cursor, ...result.items.map(message => message.id));
           }
           if (initial) setBefore(result.next_before_id);
-          initial = false; setReadThrough(result.peer_read_through_id); setHistoryError(''); setLoading(false);
+          initial = false; setReadThrough(result.peer_read_through_id); setReadIds(result.peer_read_ids || []);
+          setHistoryError(''); setLoading(false);
           if (cursor > acknowledged && !document.hidden && chatVisible.current) {
             await api(base + '/messages/read?' + new URLSearchParams({peer: peerKey}), 'POST', {through_id: cursor}, controller.signal);
             if (controller.signal.aborted) return;
@@ -102,7 +108,7 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
     const timer = window.setInterval(() => void refresh(), 3000), visible = () => {void refresh();};
     document.addEventListener('visibilitychange', visible);
     return () => {controller.abort(); olderRequest.current?.abort(); window.clearInterval(timer); document.removeEventListener('visibilitychange', visible);};
-  }, [base, peerKey]);
+  }, [base, peerKey, inboxes]);
 
   useEffect(() => {if(active){void refreshContacts.current(); void refreshMessages.current();}}, [revision, refreshKey, active]);
   useLayoutEffect(() => {
@@ -146,7 +152,7 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
     <ChatPanel contacts={contacts.map(item => ({key: item.key, name: item.name, avatar_url: item.avatar_url, active: true, unread: item.unread,
       subtitle: [item.kind, item.organization_name].filter(Boolean).join(' · '), organization: item.organization_name,
       preview: item.last_message ? (item.last_message_outgoing ? 'Вы: ' : '') + item.last_message : null, preview_at: item.last_message_at}))}
-      selected={peerKey} select={select} contactLoading={contactLoading} contactError={contactError} messages={items.map(item => ({...item, author: item.outgoing ? 'Вы' : contact?.name || 'Собеседник', read: !!item.read_at || item.id <= readThrough,
+      selected={peerKey} select={select} contactLoading={contactLoading} contactError={contactError} messages={items.map(item => ({...item, author: item.outgoing ? 'Вы' : contact?.name || 'Собеседник', read: !!item.read_at || item.id <= readThrough || readIds.includes(item.id),
         canForward: !item.photo || item.photo.available,
         attachment: item.photo && (item.photo.available && item.photo.detail_url ? (base==='/inspection' ? <Link className="operator-message-photo" to={item.photo.detail_url} onClick={event=>{if(openPhotoLink){event.preventDefault();openPhotoLink(item.photo!.detail_url!);}}}>
           {item.photo.preview_url?<img src={item.photo.preview_url} loading="lazy" alt={'Фотография №'+item.photo.id}/>:<span className="operator-message-photo-placeholder"><Camera size={30}/></span>}<span>Фотография #{item.photo.id}<small>{item.photo.organization_name} · Открыть карточку</small></span>

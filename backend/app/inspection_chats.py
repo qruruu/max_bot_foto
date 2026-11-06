@@ -74,9 +74,14 @@ class ReadInput(StrictModel):
     through_id: int = Field(gt=0)
 
 
-def pair(actor, peer):
-    return or_(and_(InspectionMessage.sender_key == actor, InspectionMessage.recipient_key == peer),
-               and_(InspectionMessage.sender_key == peer, InspectionMessage.recipient_key == actor))
+def pair(actor, peer, aliases=()):
+    peers = [peer, *aliases]
+    return or_(and_(InspectionMessage.sender_key == actor, InspectionMessage.recipient_key.in_(peers)),
+               and_(InspectionMessage.sender_key.in_(peers), InspectionMessage.recipient_key == actor))
+
+
+def other_participant(message, actor):
+    return message.recipient_key if message.sender_key == actor else message.sender_key
 
 
 def contact(key, name, kind, organization, avatar, base="/api/inspection"):
@@ -89,6 +94,8 @@ def inspector_contacts(db, account):
     contacts = [contact(f"o:{owner.id}", owner.name, "Владелец сервиса", None, owner.avatar_image)
                 for owner in db.scalars(select(User).join(PlatformOwner, PlatformOwner.user_id == User.id)
                                         .where(User.active).order_by(User.name))]
+    # The shared workspace account cannot be attributed to a specific owner when there is more than one.
+    single_owner = contacts[0] if len(contacts) == 1 and db.scalar(select(func.count()).select_from(PlatformOwner)) == 1 else None
     contacts += [contact(f"i:{a.id}", a.name, "Проверяющий", None, a.avatar_image)
                  for a in db.scalars(select(Inspector).where(Inspector.agency_id == account.agency_id,
                                      Inspector.id != account.id, Inspector.active).order_by(Inspector.name))]
@@ -98,8 +105,12 @@ def inspector_contacts(db, account):
         scope = scope_for(org)
         with Session(database_engine(scope.database_url)) as tenant:
             for admin in tenant.scalars(select(User).where(User.active, User.role == "ADMIN_OPERATOR").order_by(User.name)):
+                key = f"a:{org.id}:{admin.id}"
+                if single_owner is not None and admin.id == scope.owner_user_id:
+                    single_owner.setdefault("aliases", []).append(key)
+                    continue
                 name = "Администратор" if admin.id == scope.owner_user_id and admin.name == "Владелец сервиса" else admin.name
-                contacts.append(contact(f"a:{org.id}:{admin.id}", name,
+                contacts.append(contact(key, name,
                                         "Администратор организации", org.name, admin.avatar_image))
     return contacts
 
@@ -128,9 +139,15 @@ def owner_contacts(db):
                 .where(Inspector.active, InspectionAgency.active).order_by(InspectionAgency.name, Inspector.name))]
 
 
+def contact_keys(item):
+    return [item["key"], *item.get("aliases", ())]
+
+
 def validate_peer(contacts, peer):
-    if not any(c["key"] == peer for c in contacts):
-        raise HTTPException(404, "Собеседник недоступен")
+    for item in contacts:
+        if peer in contact_keys(item):
+            return item
+    raise HTTPException(404, "Собеседник недоступен")
 
 
 def can_view_photo(db, actor, org_id, photo_id, cache=None):
@@ -173,7 +190,7 @@ def source_message(db, actor, contacts, message_id):
     source = db.get(InspectionMessage, message_id)
     if not source or actor not in (source.sender_key, source.recipient_key):
         raise HTTPException(404, "Сообщение недоступно")
-    validate_peer(contacts, source.recipient_key if source.sender_key == actor else source.sender_key)
+    validate_peer(contacts, other_participant(source, actor))
     return source
 
 
@@ -190,7 +207,7 @@ def eligible_contacts(db, actor, contacts, org_id=None, photo_id=None, forward_i
         cache = {}
         if not can_view_photo(db, actor, org_id, photo_id, cache):
             raise HTTPException(404, "Фотография недоступна")
-        contacts = [c for c in contacts if can_view_photo(db, c["key"], org_id, photo_id, cache)]
+        contacts = [c for c in contacts if any(can_view_photo(db, key, org_id, photo_id, cache) for key in contact_keys(c))]
     return contacts
 
 
@@ -215,7 +232,7 @@ def forwarded_author(db, message):
     return (message.forwarded_name or sender_name(db, message.sender_key)) if message else "Бывший собеседник"
 
 
-def message_dict(message, actor, db, base="/api/inspection", cache=None, viewer=None):
+def message_dict(message, actor, db, base="/api/inspection", cache=None, viewer=None, peer_key=None):
     result = {"id": message.id, "body": message.body, "created_at": message.created_at,
               "outgoing": message.sender_key == actor, "read_at": message.read_at, "client_id": message.client_id,
               "forwarded": bool(message.forwarded_from_id or message.forwarded_name), "photo": None, "reply": message.reply,
@@ -228,7 +245,7 @@ def message_dict(message, actor, db, base="/api/inspection", cache=None, viewer=
                  "organization_name": None, "preview_url": None, "detail_url": None}
         if available:
             org = db.get(Organization, message.photo_organization_id)
-            other = message.recipient_key if message.sender_key == actor else message.sender_key
+            other = peer_key or other_participant(message, actor)
             photo.update(organization_id=org.id, organization_name=org.name,
                          preview_url=f"{base}/messages/{message.id}/photo",
                          detail_url=f"/inspection/photos/{message.photo_id}?" + urlencode({
@@ -241,20 +258,21 @@ def message_dict(message, actor, db, base="/api/inspection", cache=None, viewer=
 def contact_previews(db, actor, contacts):
     for item in contacts:
         peer = item["key"]
-        latest = db.scalar(select(InspectionMessage).where(pair(actor, peer)).order_by(InspectionMessage.id.desc()).limit(1))
+        latest = db.scalar(select(InspectionMessage).where(pair(actor, peer, item.get("aliases", ())))
+                           .order_by(InspectionMessage.id.desc()).limit(1))
         item["last_message"] = ((f"Фото #{latest.photo_id}" + (" · " if latest.body else "") if latest.photo_id else "") + (latest.body or ("Скриншот" if latest.screenshot_count else "")))[:140] if latest else None
         item["last_message_at"] = latest.created_at if latest else None
         item["last_message_outgoing"] = latest.sender_key == actor if latest else False
         item["unread"] = db.scalar(select(func.count()).select_from(InspectionMessage).where(
-            InspectionMessage.sender_key == peer, InspectionMessage.recipient_key == actor, InspectionMessage.read_at.is_(None)))
+            InspectionMessage.sender_key.in_(contact_keys(item)), InspectionMessage.recipient_key == actor, InspectionMessage.read_at.is_(None)))
     return sorted(contacts, key=lambda c: (c["last_message_at"] is not None,
                   c["last_message_at"].timestamp() if c["last_message_at"] else 0), reverse=True)
 
 
-def messages(db, actor, peer, before_id, after_id=None, base="/api/inspection"):
+def messages(db, actor, peer, before_id, after_id=None, base="/api/inspection", *, aliases=()):
     if before_id and after_id is not None:
         raise HTTPException(422, "Выберите одно направление загрузки истории")
-    condition = [pair(actor, peer)]
+    condition = [pair(actor, peer, aliases)]
     if before_id:
         condition.append(InspectionMessage.id < before_id)
     if after_id is not None:
@@ -262,13 +280,22 @@ def messages(db, actor, peer, before_id, after_id=None, base="/api/inspection"):
     order = InspectionMessage.id.asc() if after_id is not None else InspectionMessage.id.desc()
     rows = list(db.scalars(select(InspectionMessage).where(*condition).order_by(order).limit(51)))
     more, rows = len(rows) > 50, rows[:50]
-    read_through = db.scalar(select(func.max(InspectionMessage.id)).where(
-        InspectionMessage.sender_key == actor, InspectionMessage.recipient_key == peer,
-        InspectionMessage.read_at.is_not(None))) or 0
+    outgoing = (InspectionMessage.sender_key == actor, InspectionMessage.recipient_key.in_([peer, *aliases]))
+    read = select(func.max(InspectionMessage.id)).where(*outgoing, InspectionMessage.read_at.is_not(None))
+    if aliases:
+        # A receipt from one inbox cannot acknowledge messages sent to another inbox.
+        unread = select(func.min(InspectionMessage.id)).where(*outgoing, InspectionMessage.read_at.is_(None)).scalar_subquery()
+        read = read.where(or_(unread.is_(None), InspectionMessage.id < unread))
+    read_through = db.scalar(read) or 0
+    receipts = list(db.scalars(select(InspectionMessage.id).where(
+        *outgoing, InspectionMessage.read_at.is_not(None), InspectionMessage.id > read_through,
+    ).order_by(InspectionMessage.id.desc()).limit(100))) if aliases else []
     cache = {}
-    return {"items": [message_dict(m, actor, db, base, cache) for m in (rows if after_id is not None else reversed(rows))],
+    return {"items": [message_dict(m, actor, db, base, cache, peer_key=peer if aliases else None)
+                      for m in (rows if after_id is not None else reversed(rows))],
             "next_before_id": rows[-1].id if more and after_id is None else None,
-            "has_newer": bool(after_id is not None and more), "peer_read_through_id": read_through}
+            "has_newer": bool(after_id is not None and more), "peer_read_through_id": read_through,
+            **({"peer_read_ids": receipts} if receipts else {})}
 
 
 def contact_avatar(db, peer):
@@ -284,6 +311,13 @@ def contact_avatar(db, peer):
     if not image:
         raise HTTPException(404, "Аватарка не установлена")
     return Response(image, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
+
+
+def lock_inspector_inboxes(db, actor, peer):
+    inspector = actor if actor.startswith("i:") else peer
+    if actor.startswith("i:") != peer.startswith("i:"):
+        # The inspector reads all owner inboxes with a shared message-ID cursor.
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:inspector, 7012))"), {"inspector": inspector})
 
 
 def send(db, actor, peer, body, contacts, base="/api/inspection", *, external_source=None):
@@ -305,6 +339,7 @@ def send(db, actor, peer, body, contacts, base="/api/inspection", *, external_so
     if photo_id is not None and not all(can_view_photo(db, key, org_id, photo_id) for key in (actor, peer)):
         raise HTTPException(404, "Фотография недоступна отправителю или получателю")
     # Commit in conversation order so polling by ID cannot miss an incoming message.
+    lock_inspector_inboxes(db, actor, peer)
     db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:pair, 7010))"), {"pair": "|".join(sorted((actor, peer)))})
     db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:actor, 7011))"), {"actor": actor})
     existing = db.scalar(select(InspectionMessage).where(InspectionMessage.sender_key == actor,
@@ -325,8 +360,8 @@ def send(db, actor, peer, body, contacts, base="/api/inspection", *, external_so
     return message_dict(message, actor, db, base)
 
 
-def mark_read(db, actor, peer, through):
-    db.execute(update(InspectionMessage).where(InspectionMessage.sender_key == peer,
+def mark_read(db, actor, peer, through, aliases=()):
+    db.execute(update(InspectionMessage).where(InspectionMessage.sender_key.in_([peer, *aliases]),
         InspectionMessage.recipient_key == actor, InspectionMessage.id <= through, InspectionMessage.read_at.is_(None))
         .values(read_at=now()))
     db.commit()
@@ -335,7 +370,7 @@ def mark_read(db, actor, peer, through):
 
 def unread_count(db, actor, contacts):
     return {"unread": db.scalar(select(func.count()).select_from(InspectionMessage).where(
-        InspectionMessage.recipient_key == actor, InspectionMessage.sender_key.in_([c["key"] for c in contacts]),
+        InspectionMessage.recipient_key == actor, InspectionMessage.sender_key.in_([key for item in contacts for key in contact_keys(item)]),
         InspectionMessage.read_at.is_(None)))}
 
 
@@ -396,19 +431,53 @@ def inspector_unread(db: Db, user: InspectorUser):
 def get_messages(db: Db, user: InspectorUser, peer: str = Query(max_length=100),
                  before_id: Annotated[int | None, Query(gt=0)] = None,
                  after_id: Annotated[int | None, Query(ge=0)] = None):
-    validate_peer(inspector_contacts(db, user), peer)
-    return messages(db, f"i:{user.id}", peer, before_id, after_id)
+    item = validate_peer(inspector_contacts(db, user), peer)
+    return messages(db, f"i:{user.id}", item["key"], before_id, after_id, aliases=item.get("aliases", ()))
+
+
+def inspector_send_peer(db, actor, requested, item, body, contacts):
+    keys = contact_keys(item)
+    existing = db.scalar(select(InspectionMessage.recipient_key).where(
+        InspectionMessage.sender_key == actor, InspectionMessage.client_id == str(body.client_id)))
+    if existing in keys:
+        return existing
+    history = select(InspectionMessage).where(pair(actor, item["key"], item["aliases"]))
+    if body.reply_to_id:
+        quoted = db.scalar(history.where(InspectionMessage.id == body.reply_to_id))
+        if quoted is None:
+            raise HTTPException(404, "Сообщение для ответа недоступно")
+        return other_participant(quoted, actor)
+    if requested != item["key"]:
+        return requested
+    org_id, photo_id = body.photo_organization_id, body.photo_id
+    if body.forward_message_id:
+        source = source_message(db, actor, contacts, body.forward_message_id)
+        org_id, photo_id = source.photo_organization_id, source.photo_id
+    if photo_id:
+        keys = [key for key in keys if can_view_photo(db, key, str(org_id), photo_id)]
+    if not keys:
+        return requested
+    latest = db.scalar(select(InspectionMessage).where(pair(actor, keys[0], keys[1:]))
+                       .order_by(InspectionMessage.id.desc()).limit(1))
+    return other_participant(latest, actor) if latest else requested
 
 
 @router.post("/messages", status_code=201)
 def post_message(body: MessageInput, db: Db, user: InspectorUser, peer: str = Query(max_length=100)):
-    return send(db, f"i:{user.id}", peer, body, inspector_contacts(db, user))
+    actor = f"i:{user.id}"
+    contacts = inspector_contacts(db, user)
+    item = validate_peer(contacts, peer)
+    aliases = item.get("aliases", ())
+    if aliases:
+        lock_inspector_inboxes(db, actor, item["key"])
+        peer = inspector_send_peer(db, actor, peer, item, body, contacts)
+    return send(db, actor, peer, body, contacts)
 
 
 @router.post("/messages/read")
 def read_messages(body: ReadInput, db: Db, user: InspectorUser, peer: str = Query(max_length=100)):
-    validate_peer(inspector_contacts(db, user), peer)
-    return mark_read(db, f"i:{user.id}", peer, body.through_id)
+    item = validate_peer(inspector_contacts(db, user), peer)
+    return mark_read(db, f"i:{user.id}", item["key"], body.through_id, item.get("aliases", ()))
 
 
 @router.get("/messages/{message_id}/photo")
