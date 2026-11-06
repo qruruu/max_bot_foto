@@ -42,6 +42,7 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
   const [drafts, setDrafts] = useState<Record<string, string>>({}), [sendError, setSendError] = useState('');
   const [sending, setSending] = useState(false), [revision, setRevision] = useState(0);
   const [forwarding, setForwarding] = useState<WorkspaceMessage | null>(null);
+  const [forwardedTo, setForwardedTo] = useState<{key: string; name: string} | null>(null);
   const {extras, update, clearSent} = useChatExtras(peerKey);
   const pending = useRef<{key: string; body: string; extras: ChatExtras; clientId: string} | null>(null);
   const sendingNow = useRef(false);
@@ -50,7 +51,7 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
   const olderRequest = useRef<AbortController | null>(null);
   const peer = contacts.find(contact => contact.key === peerKey);
   const draft = drafts[peerKey] || '';
-  function select(key: string) {setParams(key ? {with: key} : {});}
+  function select(key: string) {setForwardedTo(null); setParams(key ? {with: key} : {});}
 
   useEffect(() => {
     const controller = new AbortController();
@@ -214,9 +215,10 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
       changeDraft={value => {if (peerKey) setDrafts(previous => ({...previous, [peerKey]: value})); setSendError('');}}
       send={send} extras={extras} changeExtras={update} reply={value => update({reply: value})}
       sending={sending} sendError={sendError} timezone={meta.timezone}
+      forwardedTo={forwardedTo} dismissForwarded={() => setForwardedTo(null)}
       forward={id => setForwarding(messages.find(message => message.id === id) || null)}/>
     {forwarding && <Forward key={forwarding.id} base={inspectionBase}
       {...('sender_id' in forwarding ? {operatorMessage: forwarding} : {message: forwarding})}
-      onClose={() => setForwarding(null)} onSent={peer => {setForwarding(null); select(peer.key); setRevision(value => value + 1);}}/>}
+      onClose={() => setForwarding(null)} onSent={peer => {setForwarding(null); setForwardedTo(peer);}}/>}
   </>;
 }

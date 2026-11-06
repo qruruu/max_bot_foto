@@ -26,6 +26,9 @@ it('lets the owner read and reply in a separate inspector conversation',async()=
     await act(async()=>{Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!.set!.call(field,'Ответ владельца');field.dispatchEvent(new Event('input',{bubbles:true}));});
     await act(async()=>field.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})));
     expect(api).toHaveBeenCalledWith('/platform/inspection/chat/messages?peer=i%3A2','POST',{body:'Ответ владельца',client_id:expect.any(String)});
-    expect(element.querySelector('button[aria-label="Переслать сообщение №1"]')).not.toBeNull();
+    const message = element.querySelector('[data-message-id="1"]')!;
+    expect(message.querySelector('button[aria-label*="Переслать"]')).toBeNull();
+    await act(async () => {message.dispatchEvent(new MouseEvent('contextmenu', {bubbles: true, cancelable: true}));});
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain('Переслать');
   }finally{await act(async()=>root.unmount());element.remove();vi.mocked(api).mockReset();}
 });

@@ -3,7 +3,8 @@ import { History, LockKeyhole } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { appealStatuses } from './Wall';
 import ChatComposer from '../ChatComposer';
-import { ChatMessageActions, ChatMessageContent, revealMessage } from '../ChatMessageContent';
+import { ChatMessageContent, revealMessage } from '../ChatMessageContent';
+import ChatMessageMenu from '../ChatMessageMenu';
 import { encodeScreenshots, useChatExtras } from '../chatContent';
 import type { ChatContent } from '../chatContent';
 import Forward from '../inspection/Forward';
@@ -94,18 +95,18 @@ export default function AppealDiscussion({endpoint, archived, channel, title = '
       stickToBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 90;
     }} role="log" aria-label={tab === 'chat' ? 'Сообщения по обращению' : 'События обращения'} aria-live="polite">
       {loading ? <p className="hint">Загружаем…</p> : !visible.length ? <p className="hint">{tab === 'chat' ? 'Сообщений пока нет.' : 'Событий пока нет.'}</p>
-        : visible.map(item => <article key={item.id} data-message-id={item.id} tabIndex={-1} className={'appeal-event ' + (item.kind === 'COMMENT' ? 'appeal-message' : '')}>
+        : visible.map(item => <ChatMessageMenu as="article" key={item.id} id={item.id} className={'appeal-event ' + (item.kind === 'COMMENT' ? 'appeal-message' : '')}
+          reply={item.kind === 'COMMENT' && tab === 'chat' && !archived && allowed && !pending
+            ? () => update({reply: {id: item.id, author: item.actor_name, body: item.comment.slice(0, 180) || 'Скриншот'}}) : undefined}
+          forward={item.kind === 'COMMENT' && tab === 'chat' && openTask ? () => setForwarding(item) : undefined}>
           <span className="appeal-message-avatar" aria-hidden="true">{initials(item.actor_name)}</span>
           <div className="appeal-message-body">
             <header><strong title={roles[item.actor_role]}>{item.actor_name}</strong><time dateTime={item.created_at}>{date(item.created_at)}</time></header>
             {tab === 'history' && <p className="appeal-event-kind">{kinds[item.kind] || item.kind}{item.status && ' · ' + (appealStatuses[item.status] || item.status)}</p>}
             <ChatMessageContent message={{...item, forwarded: !!item.forwarded_name, screenshots: item.files?.map(file => file.url)}} jump={item.reply && visibleMessageIds.has(item.reply.id) ? id => revealMessage(log.current, id) : undefined}/>
             {item.comment && <p className="owner-appeal-text">{item.comment}</p>}
-            {item.kind === 'COMMENT' && tab === 'chat' && <ChatMessageActions id={item.id}
-              reply={!archived && allowed && !pending ? () => update({reply: {id: item.id, author: item.actor_name, body: item.comment.slice(0, 180) || 'Скриншот'}}) : undefined}
-              forward={openTask ? () => setForwarding(item) : undefined}/>}
           </div>
-        </article>)}
+        </ChatMessageMenu>)}
     </div>
     {tab === 'chat' && (archived || !allowed ? <p className="hint appeal-discussion-readonly">{readonlyReason || 'Переписка доступна для чтения.'}</p>
       : <ChatComposer label="Сообщение по обращению" draft={text} changeDraft={value => {setText(value); setError('');}}

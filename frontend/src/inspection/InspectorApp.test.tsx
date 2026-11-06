@@ -194,7 +194,7 @@ it('opens photo forwarding from the read-only card',async()=>{
   await act(async()=>{element.querySelector<HTMLButtonElement>('#inspection-photo-85')!.click();await tick();});
   await act(async()=>{button('Переслать фото').click();await tick();});
   expect(element.querySelector('[role=dialog] h2')?.textContent).toBe('Переслать фото');
-  expect(element.querySelector('option[value="o:1"]')?.textContent).toContain('Владелец сервиса');
+  expect(element.querySelector('.forward-destinations button')?.textContent).toContain('Владелец сервиса');
   expect(vi.mocked(api).mock.calls.some(([path])=>path==='/inspection/contacts?photo_organization_id=company&photo_id=85')).toBe(true);
 });
 

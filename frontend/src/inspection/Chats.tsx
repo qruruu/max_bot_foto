@@ -23,6 +23,7 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
   const [drafts, setDrafts] = useState<Record<string, string>>({}), [sendError, setSendError] = useState(''), [historyError, setHistoryError] = useState('');
   const [sendingPeer, setSendingPeer] = useState(''), [refreshKey, setRefreshKey] = useState(0);
   const [forwarding,setForwarding]=useState<Message|null>(null);
+  const [forwardedTo, setForwardedTo] = useState<{key: string; name: string} | null>(null);
   const {extras, update, clearSent} = useChatExtras(peerKey);
   const retry = useRef<{body: string; peer: string; extras: ChatExtras; id: string} | null>(null);
   const sending = useRef(false);
@@ -32,7 +33,7 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
   currentPeer.current = peerKey;
   const chatVisible=useRef(active);chatVisible.current=active;
   const contact = contacts.find(item => item.key === peerKey), draft = drafts[peerKey] || '';
-  function select(key: string) {setParams(previous => {const next = new URLSearchParams(previous); key ? next.set('with', key) : next.delete('with'); return next;});}
+  function select(key: string) {setForwardedTo(null); setParams(previous => {const next = new URLSearchParams(previous); key ? next.set('with', key) : next.delete('with'); return next;});}
 
   useEffect(() => {
     const controller = new AbortController();
@@ -155,7 +156,8 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
       historyError={historyError} loading={loading} hasOlder={!!before} loadingOlder={loadingOlder} older={older} listRef={list}
       draft={draft} changeDraft={value => {setDrafts(previous => ({...previous, [peerKey]: value})); setSendError('');}}
       send={send} extras={extras} changeExtras={update} reply={value => update({reply: value})} sending={!!sendingPeer} sendError={sendError} timezone={timezone} labels={labels}
+      forwardedTo={forwardedTo} dismissForwarded={() => setForwardedTo(null)}
       forward={id=>setForwarding(items.find(item=>item.id===id)||null)}/>
-    {forwarding&&<InspectionForward key={forwarding.id} base={base} message={forwarding} onClose={()=>setForwarding(null)} onSent={peer=>{setForwarding(null);select(peer.key);void refreshContacts.current();void refreshMessages.current();}}/>}
+    {forwarding&&<InspectionForward key={forwarding.id} base={base} message={forwarding} onClose={()=>setForwarding(null)} onSent={peer=>{setForwarding(null);setForwardedTo(peer);void refreshContacts.current();void refreshMessages.current();}}/>}
   </>;
 }

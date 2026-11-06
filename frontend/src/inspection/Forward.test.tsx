@@ -23,8 +23,8 @@ it('offers the permitted recipients and retries photo forwarding with the same o
   });
   await act(async()=>root.render(<InspectionForward photo={{id:85,organization_id:'company',preview_url:'/safe-photo'}} onClose={()=>{}} onSent={onSent}/>));
   expect(vi.mocked(api).mock.calls[0][0]).toBe('/inspection/contacts?photo_organization_id=company&photo_id=85');
-  expect(element.querySelector('option[value="o:1"]')?.textContent).toContain('Владелец сервиса');
-  await input('select','o:1');await input('textarea','Проверьте работу');await send();
+  expect(element.querySelector('.forward-destinations button')?.textContent).toContain('Владелец сервиса');
+  await act(async () => element.querySelector<HTMLButtonElement>('.forward-destinations button')!.click());await input('textarea','Проверьте работу');await send();
   expect(element.querySelector('textarea')?.value).toBe('Проверьте работу');expect(onSent).not.toHaveBeenCalled();
   await send();expect(attempts[0]).toEqual(attempts[1]);
   expect(attempts[1]).toMatchObject({photo_id:85,photo_organization_id:'company',body:'Проверьте работу',client_id:expect.any(String)});
@@ -37,6 +37,24 @@ it('forwards the source message by id without accepting changed text or author m
   await act(async()=>root.render(<InspectionForward base="/platform/inspection/chat" message={source} onClose={()=>{}} onSent={()=>{}}/>));
   expect(element.querySelector('textarea')).toBeNull();
   expect(element.textContent).toContain(source.body);
-  await input('select','i:2');await send();
+  await act(async () => element.querySelector<HTMLButtonElement>('.forward-destinations button')!.click());await send();
   expect(api).toHaveBeenCalledWith('/platform/inspection/chat/messages?peer=i%3A2','POST',{client_id:expect.any(String),forward_message_id:10});
+});
+
+it('filters allowed recipients locally and sends a photo from the operator card', async () => {
+  vi.mocked(api).mockImplementation(async (_path, method) => method === 'POST' ? {id: 1}
+    : {items: [{id: 1, name: 'Ирина', active: true, role: 'OPERATOR'}, {id: 2, name: 'Анна', active: true, role: 'ADMIN_OPERATOR'}]});
+  await act(async () => root.render(<InspectionForward photo={{id: 85, preview_url: null}} onClose={() => {}} onSent={() => {}}/>));
+  const search = element.querySelector<HTMLInputElement>('input[type="search"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'администратор');
+    search.dispatchEvent(new Event('input', {bubbles: true}));
+  });
+  const recipients = element.querySelectorAll<HTMLButtonElement>('.forward-destinations button');
+  expect(recipients).toHaveLength(1);
+  expect(recipients[0].textContent).toContain('Анна');
+  await act(async () => recipients[0].click());
+  await send();
+  expect(api).toHaveBeenCalledTimes(2);
+  expect(api).toHaveBeenLastCalledWith('/operator-chats/2/messages', 'POST', {photo_id: 85, body: '', client_id: expect.any(String)});
 });

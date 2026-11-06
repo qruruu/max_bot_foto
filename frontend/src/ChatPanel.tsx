@@ -1,10 +1,11 @@
 import { Fragment, useState } from 'react';
 import type { FormEvent, ReactNode, RefObject } from 'react';
-import { ArrowLeft, Check, CheckCheck, MessageCircle, Search } from 'lucide-react';
+import { ArrowLeft, Check, CheckCheck, MessageCircle, Search, X } from 'lucide-react';
 import { ErrorBox } from './App';
 import Avatar from './Avatar';
 import ChatComposer from './ChatComposer';
-import { ChatMessageActions, ChatMessageContent, revealMessage } from './ChatMessageContent';
+import { ChatMessageContent, revealMessage } from './ChatMessageContent';
+import ChatMessageMenu from './ChatMessageMenu';
 import type { ChatContent, ChatExtras, MessageQuote } from './chatContent';
 import { messageDay, messageTime } from './operatorChatData';
 import './operator-chats.css';
@@ -26,6 +27,8 @@ type Props = {
   reply: (value: MessageQuote) => void;
   sending: boolean; sendError: string; timezone: string;
   forward?: (id: number) => void;
+  forwardedTo?: {key: string; name: string} | null;
+  dismissForwarded?: () => void;
   labels?: {contacts: string; search: string; loading: string; none: string; empty: string; back: string; message: string};
 };
 const operatorLabels = {
@@ -57,6 +60,11 @@ export default function ChatPanel(props: Props) {
     <div className="operator-conversation">
       {!selected ? <div className="operator-chat-empty"><MessageCircle size={44}/><h2>Выберите собеседника</h2><p>Откройте диалог из списка, чтобы начать переписку.</p></div> : <>
         <div className="operator-conversation-header"><button type="button" className="operator-chat-back" aria-label={labels.back} onClick={() => select('')}><ArrowLeft size={18}/></button><Avatar name={peer?.name || 'Собеседник'} src={peer?.avatar_url || null}/><div><strong>{peer?.name || 'Переписка'}</strong><span>{peer?.subtitle || 'Загружаем…'}</span></div></div>
+        {props.forwardedTo && <div className="chat-forwarded-notice">
+          <span role="status">Переслано · {props.forwardedTo.name}</span>
+          {props.forwardedTo.key !== selected && <button type="button" className="text-button" onClick={() => select(props.forwardedTo!.key)}>Открыть чат</button>}
+          <button type="button" className="chat-forwarded-close" aria-label="Скрыть подтверждение" onClick={props.dismissForwarded}><X size={15}/></button>
+        </div>}
         <ErrorBox error={props.historyError}/>
         <div className="operator-message-list" ref={listRef}>
           {props.hasOlder && <button type="button" className="operator-chat-older" onClick={props.older} disabled={props.loadingOlder}>{props.loadingOlder ? 'Загружаем…' : 'Более ранние сообщения'}</button>}
@@ -67,21 +75,20 @@ export default function ChatPanel(props: Props) {
               const day = messageDay(message.created_at, timezone);
               return <Fragment key={message.id}>
                 {(index === 0 || messageDay(messages[index - 1].created_at, timezone) !== day) && <li className="operator-message-day">{day}</li>}
-                <li className={`operator-message ${message.outgoing ? 'own' : ''}`} data-message-id={message.id} tabIndex={-1}>
-                  <div className="operator-message-bubble">
+                <ChatMessageMenu as="li" id={message.id} className={`operator-message ${message.outgoing ? 'own' : ''}`}
+                  reply={peer?.active && !props.sending ? () => props.reply({id: message.id, author: message.author,
+                    body: message.body.slice(0, 180) || 'Вложение'}) : undefined}
+                  forward={message.canForward !== false && props.forward ? () => props.forward?.(message.id) : undefined}>
+                  <div className={'operator-message-bubble' + (message.screenshots?.length && !message.body && !message.attachment ? ' media-only' : '')}>
                     <ChatMessageContent message={message} jump={message.reply && visibleMessageIds.has(message.reply.id) ? id => revealMessage(listRef.current, id) : undefined}/>
                     {message.attachment}{message.body && <p>{message.body}</p>}
                     <div className="operator-message-meta">
-                      <ChatMessageActions id={message.id}
-                        reply={peer?.active && !props.sending ? () => props.reply({id: message.id, author: message.author,
-                          body: message.body.slice(0, 180) || 'Вложение'}) : undefined}
-                        forward={message.canForward !== false && props.forward ? () => props.forward?.(message.id) : undefined}/>
                       <time dateTime={message.created_at}>{messageTime(message.created_at, timezone)}</time>
                       {message.outgoing && <span className={message.read ? 'message-read' : ''} aria-label={message.read ? 'Прочитано' : 'Отправлено'}>
                         {message.read ? <CheckCheck size={14} aria-hidden="true"/> : <Check size={14} aria-hidden="true"/>}</span>}
                     </div>
                   </div>
-                </li>
+                </ChatMessageMenu>
               </Fragment>;
             })}
           </ol>
