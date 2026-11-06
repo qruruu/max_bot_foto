@@ -42,9 +42,8 @@ export default function DiskFolderSettings({onSaved}: {onSaved: () => void}) {
         <div><dt>Рабочие фотографии</dt><dd>{preview.photo_root||'—'}</dd></div>
         <div><dt>Тестовые и учебные фото</dt><dd>{preview.training_root}</dd></div>
         <div><dt>Спам</dt><dd>{preview.spam_root}</dd></div>
-        <div><dt>Обмен с АРМ</dt><dd>{preview.exchange_root}</dd></div>
       </dl>}
-      <p className="hint disk-folder-scope">После сохранения новые загрузки пойдут в указанные папки. Уже сохранённые фотографии останутся в прежнем архиве и будут открываться по прежним ссылкам. Их исправление и перенос в спам продолжат использовать папки того архива. Если АРМ читает JSON, обновите в ней путь к новой папке обмена.</p>
+      <p className="hint disk-folder-scope">После сохранения новые загрузки пойдут в указанные папки. Уже сохранённые фотографии останутся в прежнем архиве и будут открываться по прежним ссылкам. Их исправление и перенос в спам продолжат использовать папки того архива.</p>
       <button className="primary" type="submit" disabled={busy||!changed||!name.trim()}>{busy?'Проверяем и создаём папки…':'Сохранить названия папок'}</button>
     </form>}
   </section>;

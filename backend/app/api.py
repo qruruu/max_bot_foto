@@ -84,7 +84,6 @@ from app.models import (
     Job,
     LoginSession,
     Photo,
-    Publication,
     User,
 )
 from app.news import router as news_router
@@ -954,13 +953,13 @@ def jobs(db: Db, user: JobManager):
             "next_run_at": j.next_run_at,
             "can_retry": can_retry_job(user, j.kind),
         }
-        for j in db.scalars(select(Job).where(Job.status != "DONE", job_chat_condition(user)).order_by(Job.next_run_at).limit(200))
+        for j in db.scalars(select(Job).where(Job.status != "DONE", Job.kind.not_in(["PUBLISH", "EXCHANGE_GC"]), job_chat_condition(user)).order_by(Job.next_run_at).limit(200))
     ]
 
 
 @app.post("/api/jobs/{job_id}/retry")
 def retry_job(job_id: int, db: Db, user: JobManager):
-    job = db.scalar(select(Job).where(Job.id == job_id, job_chat_condition(user)))
+    job = db.scalar(select(Job).where(Job.id == job_id, Job.kind.not_in(["PUBLISH", "EXCHANGE_GC"]), job_chat_condition(user)))
     if not job:
         raise HTTPException(404, "Задача не найдена")
     if not can_retry_job(user, job.kind):
@@ -1011,8 +1010,6 @@ def ml_train(db: Db, user: LearningManager):
 
 @app.get("/api/exchange")
 def exchange_status(db: Db, user: ExchangeManager):
-    from app.exchange import exchange_root
-
     state = db.get(ExchangeState, 1)
     cfg = current_disk_roots(db)
     counts = dict(db.execute(select(Photo.cohort, func.count()).group_by(Photo.cohort)).all())
@@ -1020,29 +1017,11 @@ def exchange_status(db: Db, user: ExchangeManager):
         "intake_cohort": state.intake_cohort,
         "production_started_at": state.production_started_at,
         "source_timezone": state.source_timezone,
-        "roots": {c: exchange_root(state, c, cfg) for c in ("test", "production")},
         "photo_root": f"disk:/{cfg.photo_root}",
         "training_root": f"disk:/{cfg.training_root}",
         "spam_root": f"disk:/{cfg.spam_root}",
         "organizing": db.scalar(select(Job.status).where(Job.dedupe_key == ARCHIVE_JOB_KEY)),
         "counts": {c: counts.get(c, 0) for c in ("test", "production")},
-        "publications": [
-            {
-                key: getattr(p, key)
-                for key in (
-                    "id",
-                    "cohort",
-                    "status",
-                    "created_at",
-                    "as_of",
-                    "finished_at",
-                    "photo_count",
-                    "index_path",
-                    "last_error",
-                )
-            }
-            for p in db.scalars(select(Publication).order_by(Publication.id.desc()).limit(30))
-        ],
     }
 
 
@@ -1058,28 +1037,6 @@ def exchange_mode(body: ExchangeModeInput, db: Db, user: ExchangeManager):
     )
     db.commit()
     return {"intake_cohort": body.cohort}
-
-
-@app.post("/api/exchange/publish", status_code=202)
-def exchange_publish(body: ExchangeModeInput, db: Db, user: ExchangeManager):
-    # Prevent double clicks/concurrent requests from creating duplicate pending jobs.
-    db.execute(text("SELECT pg_advisory_xact_lock(7009, 1)"))
-    pub = db.scalar(
-        select(Publication)
-        .where(Publication.cohort == body.cohort, Publication.status.in_(["PENDING", "UPLOADING", "RETRY"]))
-        .order_by(Publication.id.desc())
-        .limit(1)
-    )
-    if pub is None:
-        pub = Publication(cohort=body.cohort, requested_by=user.id)
-        db.add(pub)
-        db.flush()
-        enqueue(db, "PUBLISH", pub.id, f"publish:{pub.id}")
-        audit(
-            db, user.id, "EXCHANGE_PUBLICATION_REQUESTED", "publication", pub.id, None, {"cohort": pub.cohort}
-        )
-    db.commit()
-    return {"id": pub.id, "status": pub.status, "cohort": pub.cohort}
 
 
 @app.post("/api/exchange/organize", status_code=202)

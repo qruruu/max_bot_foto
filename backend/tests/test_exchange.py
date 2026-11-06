@@ -150,7 +150,6 @@ def test_chat_fixed_input_and_permissions(db, admin, client):
     client.headers["X-CSRF-Token"] = client.cookies["csrf"]
     assert client.get("/api/exchange").status_code == 403
     assert client.put("/api/exchange/mode", json={"cohort": "production"}).status_code == 403
-    assert client.post("/api/exchange/publish", json={"cohort": "test"}).status_code == 403
 
 
 def test_cutover_does_not_export_tests_or_duplicate_against_them(db, admin):
@@ -339,23 +338,14 @@ def test_older_retry_cannot_regress_newer_index_and_parallel_workers(db):
     assert latest.status == "DONE"
 
 
-def test_empty_production_and_button_is_durable_no_timer(db, admin):
+def test_archive_settings_remain_available_after_json_export_is_removed(db, admin):
     setup_chat(db)
     intake_photo(db)
-    assert db.scalar(select(Publication.id)) is None
-    first = admin.post("/api/exchange/publish", json={"cohort": "production"})
-    again = admin.post("/api/exchange/publish", json={"cohort": "production"})
-    assert first.status_code == 202 and first.json()["id"] == again.json()["id"]
-    jobs = list(db.scalars(select(Job).where(Job.kind == "PUBLISH")))
-    assert len(jobs) == 1
-    pub = db.get(Publication, first.json()["id"])
-    disk = FakeDisk()
-    publish(pub.id, disk)
-    index, items = index_and_items(disk, pub, db)
-    assert index.photo_count == 0 and index.partitions == [] and items == []
+    assert admin.post("/api/exchange/publish", json={"cohort": "production"}).status_code == 404
+    assert db.scalar(select(Job.id).where(Job.kind == "PUBLISH")) is None
     status = admin.get("/api/exchange").json()
     assert status["counts"] == {"test": 1, "production": 0}
-    assert status["publications"][0]["status"] == "DONE"
+    assert "publications" not in status
 
 
 def test_trigger_versions_exported_changes_but_not_attachment_cleanup(db):
@@ -449,7 +439,7 @@ def test_500_photos_full_snapshot_matches_sql_count(db):
     assert len({i.source_photo_id for i in items}) == 500
 
 
-def test_worker_routes_publications_to_dedicated_publisher(db, monkeypatch):
+def test_workers_leave_retired_publication_jobs_untouched(db, admin, monkeypatch):
     from app import worker
     from app.domain import enqueue
 
@@ -459,7 +449,10 @@ def test_worker_routes_publications_to_dedicated_publisher(db, monkeypatch):
     assert worker.run_once() is False
     seen = []
     monkeypatch.setattr("app.exchange.publish", lambda object_id: seen.append(object_id))
-    assert worker.run_once(["PUBLISH"]) is True
-    assert seen == [pub.id]
+    assert worker.run_once(["PUBLISH"]) is False
+    assert seen == []
     db.expire_all()
-    assert db.scalar(select(Job).where(Job.kind == "PUBLISH")).status == "DONE"
+    job = db.scalar(select(Job).where(Job.kind == "PUBLISH"))
+    assert job.status == "PENDING"
+    assert all(item["id"] != job.id for item in admin.get("/api/jobs").json())
+    assert admin.post(f"/api/jobs/{job.id}/retry").status_code == 404

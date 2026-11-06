@@ -143,7 +143,6 @@ def test_no_permissions_leaves_only_account_and_denies_all_function_endpoints(cl
         ("POST", "/api/ml/train", None),
         ("GET", "/api/exchange", None),
         ("PUT", "/api/exchange/mode", {"cohort": "test"}),
-        ("POST", "/api/exchange/publish", {"cohort": "test"}),
         ("POST", "/api/exchange/organize", None),
     ]
     for method, path, body in routes:
@@ -254,7 +253,6 @@ def test_delegated_actions_and_admin_only_user_management(client, users, db):
     assert client.post("/api/chats", json={"max_chat_id": "456", "name": "Delegated"}).status_code == 201
     assert db.scalar(select(Chat).where(Chat.max_chat_id == 456)) is not None
     assert client.put("/api/exchange/mode", json={"cohort": "production"}).status_code == 200
-    assert client.post("/api/exchange/publish", json={"cohort": "production"}).status_code == 202
     assert client.post("/api/exchange/organize").status_code == 202
     district = setup_district(db)
     data = client.get("/api/districts").json()["features"][0]
@@ -269,8 +267,6 @@ def test_delegated_actions_and_admin_only_user_management(client, users, db):
 @pytest.mark.parametrize(
     ("kind", "required"),
     [
-        ("PUBLISH", ["exchange_manage"]),
-        ("EXCHANGE_GC", ["exchange_manage"]),
         ("ARCHIVE_ORGANIZE", ["exchange_manage"]),
         ("TRAIN", ["learning_manage"]),
         ("REGEO", ["districts_view", "districts_edit"]),

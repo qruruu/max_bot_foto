@@ -46,7 +46,8 @@ def run_once(kinds: list[str] | None = None) -> bool:
                 .where(
                     Job.status.in_(["PENDING", "RUNNING"]),
                     Job.next_run_at <= now(),
-                    Job.kind.in_(kinds) if kinds else Job.kind.not_in(["TRAIN", "PUBLISH", "EXCHANGE_GC", "ARCHIVE_ORGANIZE"]),
+                    Job.kind.not_in(["PUBLISH", "EXCHANGE_GC"]),
+                    Job.kind.in_(kinds) if kinds else Job.kind.not_in(["TRAIN", "ARCHIVE_ORGANIZE"]),
                 )
                 .order_by(Job.next_run_at, Job.id)
                 .limit(30)
@@ -79,14 +80,6 @@ def run_once(kinds: list[str] | None = None) -> bool:
                         send_reply(object_id)
                     elif kind == "REGEO":
                         regeo_all()
-                    elif kind == "PUBLISH":
-                        from app.exchange import publish
-
-                        publish(object_id)
-                    elif kind == "EXCHANGE_GC":
-                        from app.exchange_housekeeping import collect_generations
-
-                        collect_generations()
                     elif kind == "ARCHIVE_ORGANIZE":
                         from app.exchange_housekeeping import organize_archive
 

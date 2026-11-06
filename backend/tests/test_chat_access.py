@@ -272,7 +272,7 @@ def test_global_data_requires_all_chat_access(access_api,path):
 
 @pytest.mark.parametrize("method,path,body", [
     ("POST","/api/ml/train",None), ("PUT","/api/exchange/mode",{"cohort":"test"}),
-    ("POST","/api/exchange/publish",{"cohort":"test"}), ("POST","/api/exchange/organize",None),
+    ("POST","/api/exchange/organize",None),
     ("POST","/api/chats",{"max_chat_id":300,"name":"Новый чат"}),
     ("PATCH","/api/users/2",{"allowed_chat_ids":None}),
 ])

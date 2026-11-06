@@ -80,7 +80,7 @@ PERMISSIONS = {
     Permission.CHATS_MANAGE: ("Добавление и настройка чатов MAX", "Настройка сервиса", ()),
     Permission.AUDIT_VIEW: ("Журнал действий", "Настройка сервиса", ()),
     Permission.JOBS_MANAGE: ("Очередь обработки и повтор задач", "Настройка сервиса", ()),
-    Permission.EXCHANGE_MANAGE: ("Обмен с АРМ и структура папок", "Настройка сервиса", ()),
+    Permission.EXCHANGE_MANAGE: ("Фотоархив и структура папок", "Настройка сервиса", ()),
     Permission.LEARNING_MANAGE: ("Обучение нейросети", "Настройка сервиса", ()),
     Permission.NEWS_VIEW: ("Просмотр новостей", "Информация", ()),
 }
