@@ -11,6 +11,7 @@ from pydantic import Field, model_validator
 from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.orm import Session
 
+from app.appeal_events import personal_forward_source
 from app.auth import AdminUser, Db
 from app.chat_messages import Screenshots, prepare_screenshots, quote, screenshot_response
 from app.db import database_engine
@@ -43,16 +44,30 @@ class MessageInput(StrictModel):
     screenshots: Screenshots = Field(default_factory=list)
     reply_to_id: int | None = Field(default=None, gt=0)
 
+    def forwarded_id(self):
+        return self.forward_message_id
+
     @model_validator(mode="after")
     def content(self):
         self.body = self.body.strip()
         if (self.photo_id is None) != (self.photo_organization_id is None):
             raise ValueError("Укажите фотографию и её организацию")
-        if self.forward_message_id and (self.body or self.photo_id or self.screenshots or self.reply_to_id):
+        if self.forwarded_id() and (self.body or self.photo_id or self.screenshots or self.reply_to_id):
             raise ValueError("Пересылаемое сообщение нельзя изменять")
-        if not (self.body or self.photo_id or self.forward_message_id or self.screenshots):
+        if not (self.body or self.photo_id or self.forwarded_id() or self.screenshots):
             raise ValueError("Напишите сообщение или выберите фотографию")
         return self
+
+
+class AdminMessageInput(MessageInput):
+    forward_operator_message_id: int | None = Field(default=None, gt=0)
+    forward_task_message_id: int | None = Field(default=None, gt=0)
+
+    def forwarded_id(self):
+        forwards = [self.forward_message_id, self.forward_operator_message_id, self.forward_task_message_id]
+        if sum(value is not None for value in forwards) > 1:
+            raise ValueError("Выберите одно исходное сообщение")
+        return next((value for value in forwards if value is not None), None)
 
 
 class ReadInput(StrictModel):
@@ -203,8 +218,8 @@ def forwarded_author(db, message):
 def message_dict(message, actor, db, base="/api/inspection", cache=None, viewer=None):
     result = {"id": message.id, "body": message.body, "created_at": message.created_at,
               "outgoing": message.sender_key == actor, "read_at": message.read_at, "client_id": message.client_id,
-              "forwarded": message.forwarded_from_id is not None, "photo": None, "reply": message.reply,
-              "forwarded_name": forwarded_author(db, message) if message.forwarded_from_id else None,
+              "forwarded": bool(message.forwarded_from_id or message.forwarded_name), "photo": None, "reply": message.reply,
+              "forwarded_name": message.forwarded_name or (forwarded_author(db, message) if message.forwarded_from_id else None),
               "screenshots": [f"{base}/messages/{message.id}/screenshots/{number}"
                               for number in range(1, message.screenshot_count + 1)]}
     if message.photo_id is not None:
@@ -271,7 +286,7 @@ def contact_avatar(db, peer):
     return Response(image, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
 
 
-def send(db, actor, peer, body, contacts, base="/api/inspection"):
+def send(db, actor, peer, body, contacts, base="/api/inspection", *, external_source=None):
     validate_peer(contacts, peer)
     content, org_id, photo_id = body.body, str(body.photo_organization_id) if body.photo_organization_id else None, body.photo_id
     forward_name, reply = None, None
@@ -280,6 +295,8 @@ def send(db, actor, peer, body, contacts, base="/api/inspection"):
         source = source_message(db, actor, contacts, body.forward_message_id)
         content, org_id, photo_id = source.body, source.photo_organization_id, source.photo_id
         screenshots, forward_name = source.screenshots, forwarded_author(db, source)
+    if external_source:
+        content, org_id, photo_id, screenshots, forward_name = external_source
     if body.reply_to_id:
         source = db.scalar(select(InspectionMessage).where(InspectionMessage.id == body.reply_to_id, pair(actor, peer)))
         if source is None:
@@ -296,6 +313,8 @@ def send(db, actor, peer, body, contacts, base="/api/inspection"):
         if (existing.recipient_key, existing.body, existing.photo_organization_id, existing.photo_id,
                 existing.forwarded_from_id, (existing.reply or {}).get("id"), existing.screenshots) != (
                 peer, content, org_id, photo_id, body.forward_message_id, body.reply_to_id, screenshots):
+            raise HTTPException(409, "Идентификатор сообщения уже использован")
+        if not body.forward_message_id and existing.forwarded_name != forward_name:
             raise HTTPException(409, "Идентификатор сообщения уже использован")
         return message_dict(existing, actor, db, base)
     message = InspectionMessage(sender_key=actor, recipient_key=peer, client_id=str(body.client_id), body=content,
@@ -397,13 +416,40 @@ def inspector_message_photo(message_id: int, db: Db, user: InspectorUser):
     return message_photo(db, f"i:{user.id}", inspector_contacts(db, user), message_id)
 
 
+def operator_forward(db, user, org, message_id):
+    from app import operator_chats
+
+    source = operator_chats.source_message(db, user, message_id)
+    if source.photo_id and source.photo_id not in operator_chats.visible_photos(db, user, [source.photo_id]):
+        raise HTTPException(422, "Фотография недоступна для пересылки")
+    name = source.forwarded_name or db.get(User, source.sender_id).name
+    return source.body, str(org) if source.photo_id else None, source.photo_id, source.screenshots, name
+
+
 @admin_router.get("/contacts")
-def organization_contacts(user: AdminUser, photo_organization_id: UUID | None = None,
+def organization_contacts(user: AdminUser, tenant: Db, photo_organization_id: UUID | None = None,
                           photo_id: Annotated[int | None, Query(gt=0)] = None,
-                          forward_message_id: Annotated[int | None, Query(gt=0)] = None):
+                          forward_message_id: Annotated[int | None, Query(gt=0)] = None,
+                          forward_operator_message_id: Annotated[int | None, Query(gt=0)] = None,
+                          forward_task_message_id: Annotated[int | None, Query(gt=0)] = None):
     actor, org = admin_identity(user)
+    sources = [photo_id or photo_organization_id, forward_message_id, forward_operator_message_id, forward_task_message_id]
+    if sum(value is not None for value in sources) > 1:
+        raise HTTPException(422, "Выберите одно исходное сообщение")
     with control_session() as db:
-        return contact_previews(db, actor, eligible_contacts(db, actor, admin_contacts(db, org), photo_organization_id, photo_id, forward_message_id))
+        contacts = admin_contacts(db, org)
+        if forward_task_message_id:
+            personal_forward_source(db, user, forward_task_message_id, include_content=False)
+        if forward_operator_message_id:
+            try:
+                _, photo_organization_id, photo_id, _, _ = operator_forward(tenant, user, org, forward_operator_message_id)
+            except HTTPException as error:
+                if error.status_code != 422:
+                    raise
+                return []
+            if photo_id and not can_view_photo(db, actor, str(org), photo_id):
+                return []
+        return contact_previews(db, actor, eligible_contacts(db, actor, contacts, photo_organization_id, photo_id, forward_message_id))
 
 
 @admin_router.get("/unread")
@@ -432,10 +478,14 @@ def organization_contact_avatar(user: AdminUser, peer: str = Query(max_length=10
 
 
 @admin_router.post("/messages", status_code=201)
-def organization_send(body: MessageInput, user: AdminUser, peer: str = Query(max_length=100)):
+def organization_send(body: AdminMessageInput, user: AdminUser, tenant: Db, peer: str = Query(max_length=100)):
     actor, org = admin_identity(user)
+    source = operator_forward(tenant, user, org, body.forward_operator_message_id) if body.forward_operator_message_id else None
     with control_session() as db:
-        return send(db, actor, peer, body, admin_contacts(db, org), workspace_url("/api/inspection-admin"))
+        if body.forward_task_message_id:
+            content, screenshots, name = personal_forward_source(db, user, body.forward_task_message_id)
+            source = (content, None, None, screenshots, name)
+        return send(db, actor, peer, body, admin_contacts(db, org), workspace_url("/api/inspection-admin"), external_source=source)
 
 
 @admin_router.post("/messages/read")

@@ -73,3 +73,24 @@ it('opens by long touch but ignores a swipe and the tap after a long touch', asy
   await act(async () => menu()!.querySelector('button')!.click());
   expect(reply).toHaveBeenCalledOnce();
 });
+
+it('replies by double click on the message without hijacking the attachment', async () => {
+  const double = () => new MouseEvent('dblclick', {bubbles: true, cancelable: true});
+  await act(async () => {host.querySelector('a')!.dispatchEvent(double());});
+  expect(reply).not.toHaveBeenCalled();
+  await act(async () => {host.querySelector('article')!.dispatchEvent(double());});
+  expect(reply).toHaveBeenCalledOnce();
+});
+
+it('replies by double tap without opening the touch menu', async () => {
+  const message = host.querySelector('article')!;
+  await act(async () => {
+    for (const type of ['pointerdown', 'pointerup', 'pointerdown', 'pointerup']) {
+      const event = new MouseEvent(type, {clientX: 20, clientY: 20, bubbles: true});
+      Object.defineProperty(event, 'pointerType', {value: 'touch'});
+      message.dispatchEvent(event);
+    }
+  });
+  expect(reply).toHaveBeenCalledOnce();
+  expect(menu()).toBeNull();
+});

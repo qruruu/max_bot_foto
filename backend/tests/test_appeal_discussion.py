@@ -366,3 +366,32 @@ def test_operator_updates_only_their_current_assignment_and_loses_access_after_r
     assert operators[0].get(inbox).json()['total'] == 0
     assert operators[0].post(mine + '/task-status', json={'status': 'IN_PROGRESS', 'expected_version': 4}).status_code == 404
     assert multipart(operators[0], mine + '/result', {'status': 'CANCELLED', 'comment': 'Уже переназначено', 'expected_version': 4}).status_code == 404
+
+
+def test_read_checks_and_personal_forwarding_do_not_grant_task_chat_access(workflow):
+    owner, scopes, operators, operator_ids, addresses, inspectors = workflow
+    scope = scopes[0]
+    inspection_base = f"/api/inspection/organizations/{scope.id}/appeals"
+    created = multipart(inspectors[0], inspection_base, inspector_metadata(scope, addresses[0]))
+    appeal_id = created.json()["id"]
+    inspection_endpoint = f"{inspection_base}/{appeal_id}"
+    endpoint = scope.prefix + f"/api/appeals/{appeal_id}"
+    sent = inspectors[0].post(inspection_endpoint + "/comments",
+                             json={"client_id": str(uuid4()), "comment": "Важное уточнение"})
+    message_id = sent.json()["id"]
+    through = {"through_id": message_id, "channel": "inspector"}
+    assert owner.get(endpoint + "/events?channel=inspector").json()["unanswered_comments"] == 1
+    assert operators[0].post(endpoint + "/events/read", json=through).status_code == 404
+    assert owner.post(endpoint + "/events/read", json=through).status_code == 200
+    assert owner.get(endpoint + "/events?channel=inspector").json()["unanswered_comments"] == 1
+    inspector_history = inspectors[0].get(inspection_endpoint + "/events", params={"after": message_id}).json()
+    assert inspector_history["items"] == [] and inspector_history["read_ids"] == [message_id]
+    path = scope.prefix + f"/api/operator-chats/{operator_ids[0]}/messages"
+    payload = {"client_id": str(uuid4()), "forward_task_message_id": message_id}
+    forwarded = owner.post(path, json=payload)
+    assert forwarded.status_code == 201, forwarded.text
+    assert forwarded.json()["forwarded_name"] == "Проверяющий 0"
+    assert forwarded.json()["body"] == "Важное уточнение"
+    assert owner.post(path, json=payload).json()["id"] == forwarded.json()["id"]
+    assert operators[0].get(endpoint + "/events?channel=inspector").status_code == 404
+    assert owner.post(scopes[1].prefix + f"/api/operator-chats/{operator_ids[1]}/messages", json=payload).status_code == 404

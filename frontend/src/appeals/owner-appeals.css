@@ -352,3 +352,8 @@
 
 .appeal-copy-link { flex: none; width: 36px; height: 36px; padding: 0; }
 .appeal-copy-status { margin: 6px 0; }
+
+.appeal-message-meta, .appeal-message-meta > span { display:inline-flex; align-items:center; gap:5px; }
+.appeal-message-meta { color:var(--muted); }
+.appeal-message-meta .message-read { color:var(--appeal-link); }
+.appeal-event.chat-message-selectable { align-items:center; padding-inline:8px; }

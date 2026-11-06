@@ -7,7 +7,7 @@ from uuid import UUID
 
 from fastapi import HTTPException
 from pydantic import Field, field_validator
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.orm import aliased
 
 from app.chat_messages import quote
@@ -29,6 +29,11 @@ class CommentInput(StrictModel):
     @classmethod
     def nonempty(cls, value):
         return value.strip()
+
+
+class CommentReadInput(StrictModel):
+    through_id: int = Field(gt=0)
+    channel: Literal["inspector", "executor"] | None = None
 
 
 def actor_fields(user=None, *, inspector=False):
@@ -78,8 +83,8 @@ def unanswered_comments(db, appeal_ids, user, *, inspector=False, channel=None):
 
 
 def event_page(db, appeal, *, user=None, inspector=False, before=0, after=0, channel=None):
-    conditions = [AppealEvent.appeal_id == appeal.id]
-    conditions.extend(visible_conditions(appeal, user=user, inspector=inspector, channel=channel))
+    scope = [AppealEvent.appeal_id == appeal.id, *visible_conditions(appeal, user=user, inspector=inspector, channel=channel)]
+    conditions = list(scope)
     if before:
         conditions.append(AppealEvent.id < before)
     if after:
@@ -95,13 +100,37 @@ def event_page(db, appeal, *, user=None, inspector=False, before=0, after=0, cha
     from app.models import AppealFile
     url = (lambda path: f"/api/inspection/organizations/{appeal.organization_id}/appeals" + path) if inspector else private_url
     files = list(db.scalars(select(AppealFile).where(AppealFile.event_id.in_([row.id for row in rows]))))
-    return {"items": [{"files": [file_dict(file, url) for file in files if file.event_id == row.id],
+    actor = actor_fields(user, inspector=inspector)
+    receipts = list(db.scalars(select(AppealEvent.id).where(
+        *scope, AppealEvent.kind == "COMMENT", AppealEvent.read_at.is_not(None),
+        AppealEvent.actor_type == actor["actor_type"], AppealEvent.actor_id == actor["actor_id"],
+    ).order_by(AppealEvent.id.desc()).limit(100)))
+    return {"items": [{"outgoing": row.actor_type == actor["actor_type"] and row.actor_id == actor["actor_id"],
+        "files": [file_dict(file, url) for file in files if file.event_id == row.id],
         **{key: getattr(row, key) for key in (
-        "id", "kind", "actor_name", "actor_role", "status", "comment", "visibility", "created_at", "reply", "forwarded_name")}} for row in rows],
-        "has_more": more,
+        "id", "kind", "actor_name", "actor_role", "status", "comment", "visibility", "created_at", "reply", "forwarded_name", "read_at")}} for row in rows],
+        "has_more": more, "read_ids": receipts,
         "unanswered_comments": unanswered_comments(db, [appeal.id], user, inspector=inspector,
             channel=resolve_channel(appeal, user=user, inspector=inspector, channel=channel)).get(appeal.id, 0),
         "can_comment": appeal.archived_at is None and (not inspector or bool(appeal.submitted_by_inspector_id))}
+
+
+def mark_comments_read(db, appeal, body, user, *, inspector=False):
+    if inspector and not appeal.submitted_by_inspector_id:
+        raise HTTPException(403, "Переписка недоступна")
+    channel = resolve_channel(appeal, user=user, inspector=inspector, channel=body.channel)
+    scope = [AppealEvent.appeal_id == appeal.id, AppealEvent.kind == "COMMENT",
+             *visible_conditions(appeal, user=user, inspector=inspector, channel=channel)]
+    if not db.scalar(select(AppealEvent.id).where(*scope, AppealEvent.id == body.through_id)):
+        raise HTTPException(404, "Сообщение недоступно")
+    actor = actor_fields(user, inspector=inspector)
+    db.execute(update(AppealEvent).where(
+        *scope, AppealEvent.id <= body.through_id, AppealEvent.read_at.is_(None),
+        AppealEvent.visibility != "ADMIN",
+        or_(AppealEvent.actor_type != actor["actor_type"], AppealEvent.actor_id != actor["actor_id"]),
+    ).values(read_at=now()))
+    db.commit()
+    return {"ok": True}
 
 
 def add_comment(db, appeal, body, user, *, inspector=False):
@@ -196,12 +225,35 @@ def visible_conditions(appeal, *, user=None, inspector=False, channel=None):
                 AppealEvent.visibility == "ADMIN" if user.role != "OPERATOR" else False)]
 
 
+def require_forwardable_comment(db, message_id):
+    source = db.get(AppealEvent, message_id)
+    if not source or source.kind != "COMMENT" or source.visibility not in {"STAFF", "INSPECTOR", "TASK"}:
+        raise HTTPException(404, "Сообщение недоступно")
+    return source
+
+
+def personal_forward_source(db, user, message_id, *, include_content=True):
+    from app.appeals import find_appeal
+    from app.auth import admin_user
+    from app.models import AppealFile
+
+    admin_user(user)
+    if current_organization() is None:
+        raise HTTPException(404, "Сообщение недоступно")
+    source = require_forwardable_comment(db, message_id)
+    find_appeal(db, source.appeal_id, user=user)
+    if not include_content:
+        return
+    screenshots = list(db.scalars(select(AppealFile.content).where(
+        AppealFile.event_id == source.id, AppealFile.media_type == "image/jpeg",
+    ).order_by(AppealFile.id)))
+    return source.comment, screenshots or None, source.forwarded_name or source.actor_name
+
+
 def forward_source(db, destination, message_id, user, *, inspector, channel):
     from app.appeals import find_appeal
     from app.inspections import find_inspector_appeal
-    source = db.get(AppealEvent, message_id)
-    if source is None or source.kind != "COMMENT" or source.visibility not in {"STAFF", "INSPECTOR", "TASK"}:
-        raise HTTPException(404, "Сообщение недоступно")
+    source = require_forwardable_comment(db, message_id)
     appeal = (find_inspector_appeal(db, destination.organization_id, source.appeal_id) if inspector
               else find_appeal(db, source.appeal_id, user=user))
     if (not destination.organization_id or appeal.organization_id != destination.organization_id or

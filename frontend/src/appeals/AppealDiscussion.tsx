@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { History, LockKeyhole } from 'lucide-react';
+import { Check, CheckCheck, History, LockKeyhole, X } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { appealStatuses } from './Wall';
 import ChatComposer from '../ChatComposer';
 import { ChatMessageContent, revealMessage } from '../ChatMessageContent';
 import ChatMessageMenu from '../ChatMessageMenu';
+import { ChatSelectionBar, useChatSelection } from '../ChatSelection';
 import { encodeScreenshots, useChatExtras } from '../chatContent';
 import type { ChatContent } from '../chatContent';
 import Forward from '../inspection/Forward';
 
 type AppealEvent = ChatContent & {id: number; kind: string; actor_name: string; actor_role: string; status: string;
-  comment: string; visibility: string; created_at: string; files?: {id: string; name: string; url: string}[]};
-type EventPage = {items: AppealEvent[]; has_more: boolean; can_comment: boolean; unanswered_comments?: number};
+  comment: string; outgoing?: boolean; read_at?: string | null; visibility: string; created_at: string; files?: {id: string; name: string; url: string}[]};
+type EventPage = {items: AppealEvent[]; has_more: boolean; can_comment: boolean; unanswered_comments?: number; read_ids?: number[]};
 const kinds: Record<string, string> = {CREATED: 'Обращение создано', ASSIGNED: 'Назначен исполнитель',
   INSTRUCTION: 'Комментарий к задаче', STATUS: 'Изменён статус', RESULT: 'Получен результат исполнителя',
   CLOSED: 'Обращение закрыто', ARCHIVED: 'Перенесено в архив', RESTORED: 'Возвращено из архива',
@@ -20,12 +21,16 @@ const roles: Record<string, string> = {INSPECTOR: 'Проверяющий', ADMI
 const date = (value: string) => new Date(value).toLocaleString('ru-RU', {dateStyle: 'short', timeStyle: 'short'});
 const initials = (name: string) => (name.match(/[\p{L}\p{N}]+/gu) || []).slice(0, 2).map(part => part[0]).join('').toUpperCase();
 
-export default function AppealDiscussion({endpoint, archived, channel, title = 'Внутреннее обсуждение', readonlyReason, onUnreadChange, openTask}: {endpoint: string; archived: boolean; channel?: 'inspector' | 'executor'; title?: string; readonlyReason?: string; onUnreadChange?: (count: number) => void; openTask?: (id: number) => void}) {
+export default function AppealDiscussion({endpoint, archived, channel, title = 'Внутреннее обсуждение', readonlyReason, onUnreadChange, openTask, visibleTab = true, forwardToContacts = false}: {endpoint: string; archived: boolean; channel?: 'inspector' | 'executor'; title?: string; readonlyReason?: string; onUnreadChange?: (count: number) => void; openTask?: (id: number) => void; visibleTab?: boolean; forwardToContacts?: boolean}) {
   const eventsUrl = endpoint + '/events';
   const query = (suffix = '') => eventsUrl + (channel ? '?channel=' + channel + (suffix ? '&' + suffix : '') : suffix ? '?' + suffix : '');
   const {extras, update, clearSent} = useChatExtras(endpoint + ':' + channel);
   const [encodedFiles, setEncodedFiles] = useState<string[] | null>(null);
-  const [forwarding, setForwarding] = useState<AppealEvent | null>(null);
+  const [forwardNotice, setForwardNotice] = useState('');
+  const [forwarding, setForwarding] = useState<AppealEvent[] | null>(null);
+  const selection = useChatSelection(endpoint + ':' + channel);
+  const [receipts, setReceipts] = useState<Set<number>>(() => new Set());
+  const markedThrough = useRef(0), marking = useRef(false);
   const log = useRef<HTMLDivElement>(null), stickToBottom = useRef(true);
   const [events, setEvents] = useState<AppealEvent[]>([]), [tab, setTab] = useState<'chat' | 'history'>('chat');
   const [loading, setLoading] = useState(true), [more, setMore] = useState(false), [allowed, setAllowed] = useState(!archived);
@@ -37,6 +42,7 @@ export default function AppealDiscussion({endpoint, archived, channel, title = '
   const clientId = useRef<string>(crypto.randomUUID()), newest = useRef(0), oldest = useRef(0), active = useRef(true), sending = useRef(false);
   function merge(value: EventPage, older = false) {
     if (!active.current) return;
+    if (value.read_ids?.length) setReceipts(current => new Set([...current, ...value.read_ids!]));
     if (value.unanswered_comments !== undefined) unreadCallback.current?.(value.unanswered_comments);
     setEvents(current => [...new Map([...current, ...value.items].map(item => [item.id, item])).values()].sort((a, b) => a.id - b.id));
     for (const item of value.items) {newest.current = Math.max(newest.current, item.id); oldest.current = oldest.current ? Math.min(oldest.current, item.id) : item.id;}
@@ -44,7 +50,7 @@ export default function AppealDiscussion({endpoint, archived, channel, title = '
     setAllowed(value.can_comment); setLoading(false);
   }
   useEffect(() => {
-    active.current = true; newest.current = oldest.current = 0; setError(''); setEvents([]);
+    active.current = true; newest.current = oldest.current = markedThrough.current = 0; setError(''); setEvents([]); setReceipts(new Set());
     const controller = new AbortController(); let refreshing = false;
     api<EventPage>(query(), 'GET', undefined, controller.signal).then(value => {merge(value); setMore(value.has_more);})
       .catch(reason => {if (!controller.signal.aborted) {setError(reason.message); setLoading(false);}});
@@ -58,6 +64,29 @@ export default function AppealDiscussion({endpoint, archived, channel, title = '
     window.addEventListener('focus', refresh);
     return () => {active.current = false; controller.abort(); window.clearInterval(timer); window.removeEventListener('focus', refresh);};
   }, [endpoint, channel]);
+  useEffect(() => {
+    if (!visibleTab || tab !== 'chat') return;
+    const controller = new AbortController();
+    async function acknowledge() {
+      if (document.hidden || !stickToBottom.current || marking.current) return;
+      const through = events.filter(item => item.kind === 'COMMENT' && item.outgoing === false && !item.read_at).at(-1)?.id || 0;
+      if (through <= markedThrough.current) return;
+      marking.current = true;
+      try {
+        await api(eventsUrl + '/read', 'POST', {through_id: through, channel}, controller.signal);
+        if (!controller.signal.aborted) markedThrough.current = through;
+      } catch {} finally {marking.current = false;}
+    }
+    void acknowledge();
+    document.addEventListener('visibilitychange', acknowledge);
+    log.current?.addEventListener('scroll', acknowledge);
+    const element = log.current;
+    return () => {
+      controller.abort();
+      document.removeEventListener('visibilitychange', acknowledge);
+      element?.removeEventListener('scroll', acknowledge);
+    };
+  }, [events, channel, eventsUrl, tab, visibleTab]);
   async function older() {
     if (busy) return; stickToBottom.current = false; setBusy(true); setError('');
     try {merge(await api<EventPage>(query('before=' + oldest.current)), true);}
@@ -86,9 +115,10 @@ export default function AppealDiscussion({endpoint, archived, channel, title = '
   const visible = tab === 'chat' ? events.filter(item => item.kind === 'COMMENT') : events;
   const visibleMessageIds = new Set(visible.map(item => item.id));
   return <section className="panel appeal-discussion" aria-label={title}>
-    <div className="appeal-discussion-heading"><h3>Переписка</h3><span title={channel === 'inspector'
+    <div className="appeal-discussion-heading"><h3>{title}</h3><span title={channel === 'inspector'
       ? 'Доступно администратору и проверяющему' : 'Доступно администратору и исполнителю'}><LockKeyhole size={15}/></span></div>
-    <div className="appeal-discussion-toolbar"><div role="tablist" aria-label="Обсуждение и события"><button role="tab" aria-selected={tab === 'chat'} onClick={() => setTab('chat')}>Сообщения</button><button role="tab" aria-selected={tab === 'history'} onClick={() => setTab('history')}><History size={15}/>История</button></div></div>
+    <div className="appeal-discussion-toolbar"><div role="tablist" aria-label="Обсуждение и события"><button role="tab" aria-selected={tab === 'chat'} onClick={() => setTab('chat')}>Сообщения</button><button role="tab" aria-selected={tab === 'history'} onClick={() => {selection.clear(); setTab('history');}}><History size={15}/>История</button></div></div>
+    {forwardNotice && <div className="chat-forwarded-notice"><span role="status">{forwardNotice}</span><button type="button" className="chat-forwarded-close" aria-label="Скрыть подтверждение" onClick={() => setForwardNotice('')}><X size={15}/></button></div>}
     {more && <button disabled={busy} onClick={() => void older()}>Показать более ранние события</button>}
     <div className={`appeal-event-list${!loading && !visible.length ? ' is-empty' : ''}`} ref={log} onScroll={event => {
       const element = event.currentTarget;
@@ -98,26 +128,36 @@ export default function AppealDiscussion({endpoint, archived, channel, title = '
         : visible.map(item => <ChatMessageMenu as="article" key={item.id} id={item.id} className={'appeal-event ' + (item.kind === 'COMMENT' ? 'appeal-message' : '')}
           reply={item.kind === 'COMMENT' && tab === 'chat' && !archived && allowed && !pending
             ? () => update({reply: {id: item.id, author: item.actor_name, body: item.comment.slice(0, 180) || 'Скриншот'}}) : undefined}
-          forward={item.kind === 'COMMENT' && tab === 'chat' && openTask ? () => setForwarding(item) : undefined}>
+          forward={item.kind === 'COMMENT' && tab === 'chat' && openTask ? () => setForwarding([item]) : undefined}
+          select={item.kind === 'COMMENT' && tab === 'chat' && openTask ? () => selection.toggle(item.id) : undefined}
+          selected={selection.ids.length ? selection.ids.includes(item.id) : undefined}>
           <span className="appeal-message-avatar" aria-hidden="true">{initials(item.actor_name)}</span>
           <div className="appeal-message-body">
-            <header><strong title={roles[item.actor_role]}>{item.actor_name}</strong><time dateTime={item.created_at}>{date(item.created_at)}</time></header>
+            <header><strong title={roles[item.actor_role]}>{item.actor_name}</strong><span className="appeal-message-meta"><time dateTime={item.created_at}>{date(item.created_at)}</time>
+              {tab === 'chat' && item.outgoing && (item.read_at || receipts.has(item.id)
+                ? <span className="message-read" aria-label="Прочитано участником" title="Прочитано участником"><CheckCheck size={16}/></span>
+                : <span aria-label="Отправлено" title="Отправлено"><Check size={16}/></span>)}</span></header>
             {tab === 'history' && <p className="appeal-event-kind">{kinds[item.kind] || item.kind}{item.status && ' · ' + (appealStatuses[item.status] || item.status)}</p>}
             <ChatMessageContent message={{...item, forwarded: !!item.forwarded_name, screenshots: item.files?.map(file => file.url)}} jump={item.reply && visibleMessageIds.has(item.reply.id) ? id => revealMessage(log.current, id) : undefined}/>
             {item.comment && <p className="owner-appeal-text">{item.comment}</p>}
           </div>
         </ChatMessageMenu>)}
     </div>
-    {tab === 'chat' && (archived || !allowed ? <p className="hint appeal-discussion-readonly">{readonlyReason || 'Переписка доступна для чтения.'}</p>
+    {tab === 'chat' && selection.ids.length > 0 && <ChatSelectionBar count={selection.ids.length} cancel={selection.clear}
+      forward={() => setForwarding(visible.filter(item => selection.ids.includes(item.id)))}/>}
+    {tab === 'chat' && <div hidden={selection.ids.length > 0}>{archived || !allowed ? <p className="hint appeal-discussion-readonly">{readonlyReason || 'Переписка доступна для чтения.'}</p>
       : <ChatComposer label="Сообщение по обращению" draft={text} changeDraft={value => {setText(value); setError('');}}
         extras={extras} changeExtras={values => {update(values); setEncodedFiles(null); setError('');}}
-        send={() => void send()} sending={busy} pending={pending} error={error}/>)}
+        send={() => void send()} sending={busy} pending={pending} error={error}/>}</div>}
     {error && (tab === 'history' || archived || !allowed) && <p className="error" role="alert">{error}</p>}
-    {forwarding && <Forward key={forwarding.id} appeal={{endpoint, channel, id: forwarding.id, body: forwarding.comment, screenshots: forwarding.files?.map(file => file.url)}}
-      onClose={() => setForwarding(null)} onSent={peer => {
-        setForwarding(null);
+    {!!forwarding?.length && <Forward appeal={{endpoint, channel, personal: forwardToContacts, messages: forwarding.map(item => ({
+      id: item.id, body: item.comment, screenshots: item.files?.map(file => file.url),
+    }))}}
+      onClose={() => setForwarding(null)} onSent={(peer, count) => {
+        selection.clear(); setForwarding(null);
         window.dispatchEvent(new Event('appeal-discussion-changed'));
-        openTask?.(Number(peer.key));
+        if (!count && peer.key.startsWith('task:')) openTask?.(Number(peer.key.slice(5)));
+        else setForwardNotice(count ? 'Переслано в чаты · ' + count : 'Переслано · ' + peer.name);
       }}/>}
   </section>;
 }

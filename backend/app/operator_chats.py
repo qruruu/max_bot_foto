@@ -10,12 +10,14 @@ from pydantic import Field, model_validator
 from sqlalchemy import and_, case, func, or_, select, text, update
 from sqlalchemy.orm import load_only
 
-from app.auth import CurrentUser, Db
+from app.appeal_events import personal_forward_source
+from app.auth import CurrentUser, Db, admin_user
 from app.chat_access import chat_condition
 from app.chat_messages import Screenshots, prepare_screenshots, quote, screenshot_response
 from app.domain import now
 from app.models import OperatorMessage, Photo, User
 from app.organization_context import workspace_url
+from app.organization_registry import control_session
 from app.permissions import Permission, has_permission
 from app.photo_scope import active_cohort_condition
 from app.schemas import StrictModel
@@ -31,12 +33,18 @@ class MessageInput(StrictModel):
     screenshots: Screenshots = Field(default_factory=list)
     reply_to_id: int | None = Field(default=None, gt=0)
     forward_message_id: int | None = Field(default=None, gt=0)
+    forward_inspection_message_id: int | None = Field(default=None, gt=0)
+    forward_task_message_id: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def content(self):
-        if self.forward_message_id and (self.body or self.photo_id or self.screenshots or self.reply_to_id):
+        forwards = [self.forward_message_id, self.forward_inspection_message_id, self.forward_task_message_id]
+        if sum(value is not None for value in forwards) > 1:
+            raise ValueError("Выберите одно исходное сообщение")
+        forward = any(forwards)
+        if forward and (self.body or self.photo_id or self.screenshots or self.reply_to_id):
             raise ValueError("Пересылаемое сообщение нельзя изменять")
-        if not (self.body or self.photo_id or self.screenshots or self.forward_message_id):
+        if not (self.body or self.photo_id or self.screenshots or forward):
             raise ValueError("Напишите сообщение или выберите фотографию")
         return self
 
@@ -83,7 +91,7 @@ def message_dict(message, photos=None):
     return {
         "id": message.id, "sender_id": message.sender_id, "recipient_id": message.recipient_id,
         "client_id": message.client_id, "body": message.body,
-        "reply": message.reply, "forwarded": message.forwarded_from_id is not None,
+        "reply": message.reply, "forwarded": bool(message.forwarded_from_id or message.forwarded_name),
         "forwarded_name": message.forwarded_name,
         "screenshots": [workspace_url(f"/api/operator-chats/messages/{message.id}/screenshots/{number}")
                         for number in range(1, message.screenshot_count + 1)],
@@ -105,6 +113,20 @@ def source_message(db, user, message_id):
     return source
 
 
+def inspection_forward(user, message_id):
+    from app import inspection_chats
+
+    admin_user(user)
+    actor, org = inspection_chats.admin_identity(user)
+    with control_session() as db:
+        contacts = inspection_chats.admin_contacts(db, org)
+        source = inspection_chats.source_message(db, actor, contacts, message_id)
+        if source.photo_id and (source.photo_organization_id != str(org) or not
+                               inspection_chats.can_view_photo(db, actor, str(org), source.photo_id)):
+            raise HTTPException(422, "Фотография недоступна в чатах организации")
+        return source.body, source.photo_id, source.screenshots, inspection_chats.forwarded_author(db, source)
+
+
 @router.get("/messages/{message_id}/screenshots/{number}")
 def message_screenshot(message_id: int, number: int, db: Db, user: CurrentUser):
     return screenshot_response(source_message(db, user, message_id), number)
@@ -112,10 +134,24 @@ def message_screenshot(message_id: int, number: int, db: Db, user: CurrentUser):
 
 @router.get("")
 def contacts(db: Db, user: CurrentUser, photo_id: Annotated[int | None, Query(gt=0)] = None,
-             forward_message_id: Annotated[int | None, Query(gt=0)] = None):
+             forward_message_id: Annotated[int | None, Query(gt=0)] = None,
+             forward_inspection_message_id: Annotated[int | None, Query(gt=0)] = None,
+             forward_task_message_id: Annotated[int | None, Query(gt=0)] = None):
+    if sum(value is not None for value in (photo_id, forward_message_id, forward_inspection_message_id, forward_task_message_id)) > 1:
+        raise HTTPException(422, "Выберите сообщение или фотографию")
+    if forward_task_message_id:
+        with control_session() as control:
+            personal_forward_source(control, user, forward_task_message_id, include_content=False)
+    if forward_inspection_message_id:
+        try:
+            _, photo_id, _, _ = inspection_forward(user, forward_inspection_message_id)
+        except HTTPException as error:
+            if error.status_code != 422:
+                raise
+            return {"items": []}
+        if photo_id is not None and photo_id not in visible_photos(db, user, [photo_id]):
+            return {"items": []}
     if forward_message_id:
-        if photo_id is not None:
-            raise HTTPException(422, "Выберите сообщение или фотографию")
         photo_id = source_message(db, user, forward_message_id).photo_id
     if photo_id is not None and photo_id not in visible_photos(db, user, [photo_id]):
         raise HTTPException(404, "Фотография недоступна для пересылки")
@@ -214,6 +250,11 @@ def send_message(peer_id: int, body: MessageInput, db: Db, user: CurrentUser):
         source = source_message(db, user, body.forward_message_id)
         content, photo_id, screenshots = source.body, source.photo_id, source.screenshots
         forward_name = source.forwarded_name or db.get(User, source.sender_id).name
+    if body.forward_inspection_message_id:
+        content, photo_id, screenshots, forward_name = inspection_forward(user, body.forward_inspection_message_id)
+    if body.forward_task_message_id:
+        with control_session() as control:
+            content, screenshots, forward_name = personal_forward_source(control, user, body.forward_task_message_id)
     if body.reply_to_id:
         source = db.scalar(select(OperatorMessage).where(
             OperatorMessage.id == body.reply_to_id, conversation(user.id, peer_id)))
@@ -232,6 +273,8 @@ def send_message(peer_id: int, body: MessageInput, db: Db, user: CurrentUser):
         if (existing.recipient_id, existing.body, existing.photo_id, existing.forwarded_from_id,
                 (existing.reply or {}).get("id"), existing.screenshots) != (
                 peer_id, content, photo_id, body.forward_message_id, body.reply_to_id, screenshots):
+            raise HTTPException(409, "Идентификатор сообщения уже использован")
+        if not body.forward_message_id and existing.forwarded_name != forward_name:
             raise HTTPException(409, "Идентификатор сообщения уже использован")
         return message_dict(existing, visible_photos(db, user, [existing.photo_id]))
     photos = visible_photos(db, user, [photo_id])

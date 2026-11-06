@@ -552,3 +552,38 @@ def test_inspector_password_change_revokes_only_own_sessions_and_checks_csrf(ins
     assert client.get('/api/inspection/me').status_code == 401
     assert other.get('/api/inspection/me').status_code == 200
     assert client.post('/api/auth/login', json={'login': 'inspector0', 'password': body['new_password']}).status_code == 200
+
+
+def test_admin_can_forward_between_colleague_and_inspector_chats(inspection):
+    owner, scopes, operators, _, accounts, clients = inspection
+    scope, operator, inspector = scopes[0], operators[0], clients[0]
+    grant(owner, inspector, scope)
+    operator_path = scope.prefix + "/api/operator-chats"
+    inspector_path = scope.prefix + "/api/inspection-admin"
+    inspector_peer = f'i:{accounts[0]["id"]}'
+    colleague = operator.get(operator_path).json()["items"][0]
+    sent = operator.post(f'{operator_path}/{colleague["id"]}/messages',
+                         json={"client_id": str(uuid4()), "body": "От коллеги"})
+    assert sent.status_code == 201, sent.text
+    source_id = sent.json()["id"]
+    forward = {"client_id": str(uuid4()), "forward_operator_message_id": source_id}
+    assert operator.post(inspector_path + "/messages", params={"peer": inspector_peer}, json=forward).status_code == 403
+    recipients = owner.get(inspector_path + "/contacts", params={"forward_operator_message_id": source_id})
+    assert [item["key"] for item in recipients.json()] == [inspector_peer]
+    posted = owner.post(inspector_path + "/messages", params={"peer": inspector_peer}, json=forward)
+    assert posted.status_code == 201, posted.text
+    assert posted.json()["forwarded_name"] == "Operator 0"
+    assert posted.json()["body"] == "От коллеги"
+
+    operator_id = sent.json()["sender_id"]
+    reply = owner.post(inspector_path + "/messages", params={"peer": inspector_peer},
+                       json={"client_id": str(uuid4()), "body": "По проверке"})
+    assert reply.status_code == 201, reply.text
+    reverse = {"client_id": str(uuid4()), "forward_inspection_message_id": reply.json()["id"]}
+    assert operator.get(operator_path, params={"forward_inspection_message_id": reply.json()["id"]}).status_code == 403
+    path = f"{operator_path}/{operator_id}/messages"
+    copied = owner.post(path, json=reverse)
+    assert copied.status_code == 201, copied.text
+    assert copied.json()["forwarded"] and copied.json()["body"] == "По проверке"
+    assert owner.post(path, json=reverse).json()["id"] == copied.json()["id"]
+    assert owner.post(scopes[1].prefix + f"/api/operator-chats/{operator_id}/messages", json=reverse).status_code == 404

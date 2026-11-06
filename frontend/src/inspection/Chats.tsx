@@ -22,7 +22,7 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
   const [loading, setLoading] = useState(false), [loadingOlder, setLoadingOlder] = useState(false), [readThrough, setReadThrough] = useState(0);
   const [drafts, setDrafts] = useState<Record<string, string>>({}), [sendError, setSendError] = useState(''), [historyError, setHistoryError] = useState('');
   const [sendingPeer, setSendingPeer] = useState(''), [refreshKey, setRefreshKey] = useState(0);
-  const [forwarding,setForwarding]=useState<Message|null>(null);
+  const [forwarding,setForwarding]=useState<{messages: Message[]; sent: () => void}|null>(null);
   const [forwardedTo, setForwardedTo] = useState<{key: string; name: string} | null>(null);
   const {extras, update, clearSent} = useChatExtras(peerKey);
   const retry = useRef<{body: string; peer: string; extras: ChatExtras; id: string} | null>(null);
@@ -157,7 +157,9 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
       draft={draft} changeDraft={value => {setDrafts(previous => ({...previous, [peerKey]: value})); setSendError('');}}
       send={send} extras={extras} changeExtras={update} reply={value => update({reply: value})} sending={!!sendingPeer} sendError={sendError} timezone={timezone} labels={labels}
       forwardedTo={forwardedTo} dismissForwarded={() => setForwardedTo(null)}
-      forward={id=>setForwarding(items.find(item=>item.id===id)||null)}/>
-    {forwarding&&<InspectionForward key={forwarding.id} base={base} message={forwarding} onClose={()=>setForwarding(null)} onSent={peer=>{setForwarding(null);setForwardedTo(peer);void refreshContacts.current();void refreshMessages.current();}}/>}
+      forward={(ids, sent) => setForwarding({messages: items.filter(item => ids.includes(item.id)), sent})}/>
+    {!!forwarding?.messages.length && <InspectionForward base={base} messages={forwarding.messages} onClose={()=>setForwarding(null)} onSent={(peer, count) => {
+      forwarding.sent(); setForwarding(null); setForwardedTo(count === undefined ? peer : {key: peerKey, name: 'Чатов: ' + count}); void refreshContacts.current(); void refreshMessages.current();
+    }}/>}
   </>;
 }

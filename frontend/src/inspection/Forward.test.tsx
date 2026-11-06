@@ -58,3 +58,36 @@ it('filters allowed recipients locally and sends a photo from the operator card'
   expect(api).toHaveBeenCalledTimes(2);
   expect(api).toHaveBeenLastCalledWith('/operator-chats/2/messages', 'POST', {photo_id: 85, body: '', client_id: expect.any(String)});
 });
+
+it('forwards selected messages across both chat types and resumes at the first unconfirmed send', async () => {
+  const posts: {path: string; body: unknown}[] = [];
+  const onSent = vi.fn();
+  vi.mocked(api).mockImplementation(async (path, method, body) => {
+    if (method === 'POST') {
+      posts.push({path, body});
+      if (posts.length === 2) throw new Error('offline');
+      return {id: posts.length};
+    }
+    return path.startsWith('/operator-chats?') ? {items: [{id: 5, name: 'Анна', active: true, role: 'OPERATOR'}]}
+      : [{...owner, key: 'i:2', name: 'Ирина', kind: 'Проверяющий'}];
+  });
+  const messages = [41, 42].map(id => ({id, body: 'Сообщение ' + id, sender_id: 8, recipient_id: 9, client_id: String(id), read_at: null,
+    created_at: '2026-10-26T10:00:00Z'}));
+  await act(async () => root.render(<InspectionForward base="/inspection-admin" messages={messages} unified onClose={() => {}} onSent={onSent}/>));
+  expect(api).toHaveBeenCalledWith('/inspection-admin/contacts?forward_operator_message_id=41', 'GET', undefined, expect.any(AbortSignal));
+  const recipients = [...element.querySelectorAll<HTMLButtonElement>('.forward-destinations button')];
+  await act(async () => recipients.forEach(recipient => recipient.click()));
+  await send();
+  expect(element.textContent).toContain('Отправлено 1 из 4');
+  expect(onSent).not.toHaveBeenCalled();
+  await send();
+  expect(posts[1]).toEqual(posts[2]);
+  expect(posts.map(post => post.body)).toEqual([
+    {client_id: expect.any(String), forward_message_id: 41},
+    {client_id: expect.any(String), forward_message_id: 42},
+    {client_id: expect.any(String), forward_message_id: 42},
+    {client_id: expect.any(String), forward_operator_message_id: 41},
+    {client_id: expect.any(String), forward_operator_message_id: 42},
+  ]);
+  expect(onSent).toHaveBeenCalledWith(expect.objectContaining({name: 'Анна'}), 2);
+});

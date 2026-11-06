@@ -180,7 +180,7 @@
   color: var(--accent, var(--green));
 }
 
-[data-message-id][aria-haspopup="menu"] { -webkit-touch-callout: none; }
+[data-message-id][aria-haspopup="menu"] { -webkit-touch-callout: none; touch-action: manipulation; }
 
 .forward-destinations { max-height: min(35dvh, 280px); overflow: auto; margin: 6px 0 14px; }
 .forward-destinations p { margin: 8px 0; color: var(--muted); }
@@ -209,3 +209,40 @@
 }
 .chat-forwarded-notice span { min-width: 0; overflow-wrap: anywhere; }
 .chat-forwarded-close { margin-inline-start: auto; border: 0; padding: 6px; }
+
+.chat-selection-bar { display:flex; align-items:center; gap:10px; padding:10px 14px; border-top:1px solid var(--border); background:var(--surface, #fff); }
+.chat-selection-bar > span { flex:1; color:var(--muted); font-size:var(--ui-meta, 12px); }
+.chat-message-selectable { cursor:pointer; }
+.chat-message-selectable[data-selected=true] { background:var(--accent-surface, #edf4ec); border-radius:8px; }
+.operator-message.chat-message-selectable { display:flex; align-items:center; gap:9px; padding-inline:6px; }
+.operator-message.own.chat-message-selectable { flex-direction:row-reverse; }
+.chat-message-selectable .chat-select-checkbox { appearance:auto; accent-color:var(--green); width:18px; height:18px; min-height:0; margin:0; padding:0; flex:none; }
+.operator-message-meta > span { color:var(--muted); }
+.operator-message-meta > .message-read { color:var(--accent, var(--green)); }
+
+.modal.forward-photo-modal { width:min(100%, 520px); border-radius:18px; padding:20px; }
+.forward-photo-modal .section-title { margin-bottom:12px; }
+.forward-photo-modal .section-title h2 { font-size:clamp(18px, 3.5vw, 22px); }
+.forward-photo-modal .inspection-forward-summary { margin:0 0 12px; max-height:88px; font-size:var(--ui-meta, 12px); }
+.forward-photo-modal .forward-search { display:flex; flex-direction:row; align-items:center; margin:0; padding:0 12px; border:1px solid var(--border); border-radius:10px; background:var(--field, #f7f9f5); }
+.forward-photo-modal .forward-search:focus-within { outline:2px solid var(--focus, var(--green)); }
+.forward-photo-modal .forward-search input { border:0; outline:0; background:transparent; padding:10px 0; width:100%; min-height:44px; font-size:var(--ui-body, 14px); }
+.forward-filters { display:flex; align-items:center; gap:4px; overflow-x:auto; margin-top:10px; border-bottom:1px solid var(--border); }
+.forward-filters button { padding:9px 10px; min-height:40px; background:transparent; border:0; border-bottom:2px solid transparent; border-radius:0; white-space:nowrap; }
+.forward-filters button[aria-pressed=true] { color:var(--accent, var(--green)); border-color:currentColor; }
+.forward-photo-modal .forward-destinations { max-height:min(46dvh, 370px); margin:6px 0 0; padding:2px; }
+.forward-photo-modal .forward-destinations button { display:flex; gap:12px; justify-content:start; align-items:center; padding:8px; min-height:56px; border:0; border-radius:8px; background:transparent; }
+.forward-photo-modal .forward-destinations button:hover, .forward-photo-modal .forward-destinations button[aria-pressed=true] { background:var(--accent-surface, #edf4ec); }
+.forward-destinations .avatar { display:grid; width:38px; height:38px; background:var(--accent-surface, #edf4ec); color:var(--accent, var(--green)); }
+.forward-destinations .avatar img { width:100%; height:100%; object-fit:cover; }
+.forward-recipient { flex:1; }
+.forward-destinations .forward-select-mark { display:grid; place-items:center; flex:none; width:21px; height:21px; border:2px solid var(--muted); border-radius:50%; }
+.forward-destinations [aria-pressed=true] .forward-select-mark { background:var(--green); border-color:var(--green); color:#fff; }
+.forward-selected { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 0; max-height:100px; overflow:auto; }
+.forward-selected button { min-height:32px; padding:5px 8px; font-size:var(--ui-meta, 12px); }
+
+@media (max-width:520px) {
+  .modal.forward-photo-modal { padding:16px; max-height:calc(100dvh - 22px); }
+  .forward-filters button { padding-inline:7px; font-size:var(--ui-meta, 12px); }
+  .forward-photo-modal .forward-search input { font-size:16px; }
+}

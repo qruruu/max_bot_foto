@@ -197,6 +197,7 @@ class AppealEvent(Base):
     client_id: Mapped[str | None] = mapped_column(String(36))
     reply: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     forwarded_name: Mapped[str | None] = mapped_column(String(150))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (
         CheckConstraint("visibility IN ('STAFF', 'ADMIN', 'TASK', 'INSPECTOR')"),

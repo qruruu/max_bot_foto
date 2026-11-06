@@ -16,7 +16,15 @@ from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile
 
 from app.appeal_catalog import organization_catalog, territory_choice_id, validate_recipient
-from app.appeal_events import CommentInput, add_comment, event_page, forward_targets, record_event
+from app.appeal_events import (
+    CommentInput,
+    CommentReadInput,
+    add_comment,
+    event_page,
+    forward_targets,
+    mark_comments_read,
+    record_event,
+)
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS, prepare_upload
 from app.appeal_search import appeal_search
 from app.appeal_statuses import CloseStatus, has_decision, is_final
@@ -757,6 +765,13 @@ def events(appeal_id: int, user: AppealReader, before: int = Query(default=0, ge
            channel: Literal["inspector", "executor"] | None = None):
     with control_session() as db:
         return event_page(db, find_appeal(db, appeal_id, user=user), user=user, before=before, after=after, channel=channel)
+
+
+@owner_router.post("/{appeal_id}/events/read")
+@organization_router.post("/{appeal_id}/events/read")
+def read_comments(appeal_id: int, body: CommentReadInput, user: AppealReader):
+    with control_session() as db:
+        return mark_comments_read(db, find_appeal(db, appeal_id, user=user), body, user)
 
 
 @owner_router.get("/{appeal_id}/forward-targets")

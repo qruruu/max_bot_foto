@@ -6,6 +6,7 @@ import Avatar from './Avatar';
 import ChatComposer from './ChatComposer';
 import { ChatMessageContent, revealMessage } from './ChatMessageContent';
 import ChatMessageMenu from './ChatMessageMenu';
+import { ChatSelectionBar, useChatSelection } from './ChatSelection';
 import type { ChatContent, ChatExtras, MessageQuote } from './chatContent';
 import { messageDay, messageTime } from './operatorChatData';
 import './operator-chats.css';
@@ -26,7 +27,7 @@ type Props = {
   extras: ChatExtras; changeExtras: (value: Partial<ChatExtras>) => void;
   reply: (value: MessageQuote) => void;
   sending: boolean; sendError: string; timezone: string;
-  forward?: (id: number) => void;
+  forward?: (ids: number[], sent: () => void) => void;
   forwardedTo?: {key: string; name: string} | null;
   dismissForwarded?: () => void;
   labels?: {contacts: string; search: string; loading: string; none: string; empty: string; back: string; message: string};
@@ -40,6 +41,7 @@ const operatorLabels = {
 export default function ChatPanel(props: Props) {
   const {contacts, selected, select, messages, listRef, timezone, labels = operatorLabels} = props;
   const [search, setSearch] = useState('');
+  const selection = useChatSelection(selected);
   const visibleMessageIds = new Set(messages.map(message => message.id));
   const peer = contacts.find(contact => contact.key === selected);
   const filtered = contacts.filter(contact => [contact.name, contact.subtitle, contact.organization].filter(Boolean).join(' ').toLocaleLowerCase('ru-RU').includes(search.toLocaleLowerCase('ru-RU')));
@@ -78,7 +80,9 @@ export default function ChatPanel(props: Props) {
                 <ChatMessageMenu as="li" id={message.id} className={`operator-message ${message.outgoing ? 'own' : ''}`}
                   reply={peer?.active && !props.sending ? () => props.reply({id: message.id, author: message.author,
                     body: message.body.slice(0, 180) || 'Вложение'}) : undefined}
-                  forward={message.canForward !== false && props.forward ? () => props.forward?.(message.id) : undefined}>
+                  forward={message.canForward !== false && props.forward ? () => props.forward?.([message.id], selection.clear) : undefined}
+                  select={message.canForward !== false && props.forward ? () => selection.toggle(message.id) : undefined}
+                  selected={selection.ids.length ? selection.ids.includes(message.id) : undefined}>
                   <div className={'operator-message-bubble' + (message.screenshots?.length && !message.body && !message.attachment ? ' media-only' : '')}>
                     <ChatMessageContent message={message} jump={message.reply && visibleMessageIds.has(message.reply.id) ? id => revealMessage(listRef.current, id) : undefined}/>
                     {message.attachment}{message.body && <p>{message.body}</p>}
@@ -93,9 +97,11 @@ export default function ChatPanel(props: Props) {
             })}
           </ol>
         </div>
-        <ChatComposer key={selected} label={labels.message} draft={props.draft} changeDraft={props.changeDraft}
+        {selection.ids.length > 0 && <ChatSelectionBar count={selection.ids.length} cancel={selection.clear}
+          forward={() => props.forward?.(selection.ids, selection.clear)}/>}
+        <div hidden={selection.ids.length > 0}><ChatComposer key={selected} label={labels.message} draft={props.draft} changeDraft={props.changeDraft}
           extras={props.extras} changeExtras={props.changeExtras} send={props.send} sending={props.sending}
-          disabled={!peer?.active || props.loading} error={props.sendError}/>
+          disabled={!peer?.active || props.loading} error={props.sendError}/></div>
       </>}
     </div>
   </section>;

@@ -41,7 +41,7 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
   const [loadingOlder, setLoadingOlder] = useState(false), [readThrough, setReadThrough] = useState(0);
   const [drafts, setDrafts] = useState<Record<string, string>>({}), [sendError, setSendError] = useState('');
   const [sending, setSending] = useState(false), [revision, setRevision] = useState(0);
-  const [forwarding, setForwarding] = useState<WorkspaceMessage | null>(null);
+  const [forwarding, setForwarding] = useState<{messages: WorkspaceMessage[]; sent: () => void} | null>(null);
   const [forwardedTo, setForwardedTo] = useState<{key: string; name: string} | null>(null);
   const {extras, update, clearSent} = useChatExtras(peerKey);
   const pending = useRef<{key: string; body: string; extras: ChatExtras; clientId: string} | null>(null);
@@ -216,9 +216,10 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
       send={send} extras={extras} changeExtras={update} reply={value => update({reply: value})}
       sending={sending} sendError={sendError} timezone={meta.timezone}
       forwardedTo={forwardedTo} dismissForwarded={() => setForwardedTo(null)}
-      forward={id => setForwarding(messages.find(message => message.id === id) || null)}/>
-    {forwarding && <Forward key={forwarding.id} base={inspectionBase}
-      {...('sender_id' in forwarding ? {operatorMessage: forwarding} : {message: forwarding})}
-      onClose={() => setForwarding(null)} onSent={peer => {setForwarding(null); setForwardedTo(peer);}}/>}
+      forward={(ids, sent) => setForwarding({messages: messages.filter(message => ids.includes(message.id)), sent})}/>
+    {!!forwarding?.messages.length && <Forward base={inspectionBase} messages={forwarding.messages} unified={includeInspectors}
+      onClose={() => setForwarding(null)} onSent={(peer, count) => {
+        forwarding.sent(); setForwarding(null); setForwardedTo(count === undefined ? peer : {key: peerKey, name: 'Чатов: ' + count});
+      }}/>}
   </>;
 }

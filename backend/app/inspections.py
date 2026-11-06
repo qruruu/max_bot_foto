@@ -18,9 +18,11 @@ from sqlalchemy.orm import Session
 from app import appeal_reporting as reporting
 from app.appeal_events import (
     CommentInput,
+    CommentReadInput,
     add_comment,
     event_page,
     forward_targets,
+    mark_comments_read,
     record_event,
     unanswered_comments,
 )
@@ -653,6 +655,13 @@ def appeal_events(organization_id: UUID, appeal_id: int, db: Db, user: Inspector
     if not appeal.submitted_by_inspector_id:
         raise HTTPException(403, "Обращения граждан доступны только для просмотра")
     return event_page(db, appeal, user=user, inspector=True, before=before, after=after)
+
+
+@router.post("/organizations/{organization_id}/appeals/{appeal_id}/events/read")
+def read_appeal_comments(organization_id: UUID, appeal_id: int, body: CommentReadInput, db: Db, user: InspectorUser):
+    authorized_organization(db, user, organization_id)
+    appeal = find_inspector_appeal(db, organization_id, appeal_id)
+    return mark_comments_read(db, appeal, body, user, inspector=True)
 
 
 @router.get("/organizations/{organization_id}/appeals/{appeal_id}/forward-targets")
