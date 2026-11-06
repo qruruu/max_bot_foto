@@ -40,7 +40,7 @@ def prepare_document(content, name):
 def prepare_screenshot(content):
     if len(content) > MAX_PHOTO_BYTES:
         raise HTTPException(422, "Скриншот слишком большой")
-    image = prepare_upload(content)
+    image = prepare_upload(content, min_side=1)
     return {"name": "screenshot.jpg", "media_type": "image/jpeg", "content": image["original"]}
 
 

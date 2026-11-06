@@ -20,3 +20,9 @@
 .map-photo-balloon a { display: inline-block; color: #145bbd; margin-top: 8px; }
 .map-photo-preview { display: block; max-width: 220px; width: 100%; height: 150px; object-fit: contain; margin-bottom: 8px; }
 @media (max-width: 600px) { .photo-map-panel { padding: 12px; } .photo-map-canvas { min-height: 360px; height: 60vh; } }
+
+@media (max-width: 600px) {
+  .photo-map-toolbar { gap: 8px; margin-bottom: 10px; }
+  .photo-map-toolbar strong { margin-bottom: 2px; }
+  .photo-map-canvas { min-height: 280px; height: 50dvh; }
+}

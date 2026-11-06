@@ -14,3 +14,9 @@
   .inspector-appeal-form form.no-territory > fieldset:nth-of-type(2) > label:has(textarea),
   .inspector-appeal-form form.no-territory > fieldset:nth-of-type(2) > label:nth-of-type(4) { grid-column:1/-1; }
 }
+
+.inspector-task-recipient { display: flex; gap: 10px; padding: 12px; border-radius: 8px; background: var(--surface-soft, #f1f5ef); }
+.inspector-task-recipient > svg { flex: none; color: var(--accent, var(--green)); }
+.inspector-task-recipient > div { display: grid; gap: 4px; }
+.inspector-task-recipient span, .inspector-task-recipient small { color: var(--muted); font-size: var(--ui-meta, .75rem); }
+.inspector-task-recipient strong { font-size: var(--ui-body, .875rem); }

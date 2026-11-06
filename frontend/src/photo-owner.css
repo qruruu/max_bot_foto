@@ -17,3 +17,35 @@
 .photo-production-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:22px}
 .photo-mode-notice{margin-bottom:22px;padding:14px 18px;border:1px solid var(--border);border-left:3px solid var(--green);border-radius:8px;line-height:1.6}
 @media(max-width:650px){.photo-number-search{padding:18px}.photo-number-search form{display:block}.photo-number-controls{margin-top:9px}.photo-number-controls input{width:100%;flex:1}.photo-production-control{display:block;padding:18px}.photo-production-control>button{margin-top:14px;width:100%;max-width:none}.photo-production-actions button{flex:1}}
+
+.panel.photo-number-search { padding: 0; margin-bottom: 12px; }
+.photo-number-body { padding: 0 14px 14px; }
+.photo-list-actions { flex-wrap: nowrap; }
+@media (max-width: 600px) {
+  .photo-list-actions button { width: 40px; height: 40px; padding: 0; }
+  .photo-list-actions button span { display: none; }
+}
+
+@media (max-width: 600px) {
+  .workspace .photos-table, .workspace .photos-table > tbody { display: block; width: 100%; min-width: 0; }
+  .workspace .photos-table thead { display: none; }
+  .workspace .photos-table tr {
+    display: grid;
+    grid-template-columns: 80px minmax(0, 1fr) auto;
+    gap: 4px 10px;
+    align-items: start;
+    padding: 12px 0;
+    border-top: 1px solid var(--border);
+  }
+  .workspace .photos-table td { display: block; padding: 0; border: 0; min-width: 0; overflow-wrap: anywhere; font-size: var(--ui-meta); }
+  .workspace .photos-table :is(.photo-cell-technical, .photo-cell-open) { display: none; }
+  .workspace .photos-table .photo-cell-preview { grid-column: 1; grid-row: 1 / span 3; }
+  .workspace .photos-table .photo-cell-date { grid-column: 2; grid-row: 1; }
+  .workspace .photos-table .photo-cell-date .photo-received-at { display: none; }
+  .workspace .photos-table .photo-cell-location { grid-column: 2 / -1; grid-row: 2; }
+  .workspace .photos-table .photo-work-cell { grid-column: 2; grid-row: 3; }
+  .workspace .photos-table .photo-cell-status { grid-column: 3; grid-row: 1; text-align: end; }
+  .workspace .photos-table .defect-column { grid-column: 3; grid-row: 3; justify-self: end; width: auto; }
+  .workspace .photos-table .photo-thumb { width: 100%; min-width: 0; padding: 0; }
+  .workspace .photos-table .photo-thumb :is(img, svg) { width: 100%; height: 64px; }
+}

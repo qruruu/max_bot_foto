@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile
 
 from app.appeal_catalog import organization_catalog, territory_choice_id, validate_recipient
-from app.appeal_events import CommentInput, add_comment, event_page, record_event
+from app.appeal_events import CommentInput, add_comment, event_page, forward_targets, record_event
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS, prepare_upload
 from app.appeal_search import appeal_search
 from app.appeal_statuses import CloseStatus, has_decision, is_final
@@ -166,8 +166,8 @@ def latest_task(db, appeal_id):
     return db.scalar(select(AppealTask).where(AppealTask.appeal_id == appeal_id).order_by(AppealTask.id.desc()).limit(1))
 
 
-def workflow_detail(db, appeal, url, *, private, operator_id=None):
-    tasks = list(db.scalars(select(AppealTask).where(AppealTask.appeal_id == appeal.id).order_by(AppealTask.id.desc())))
+def workflow_detail(db, appeal, url, *, private, operator_id=None, show_assignments=True):
+    tasks = list(db.scalars(select(AppealTask).where(AppealTask.appeal_id == appeal.id).order_by(AppealTask.id.desc()))) if show_assignments else []
     attachments = list(db.scalars(select(AppealAttachment).where(AppealAttachment.appeal_id == appeal.id)
                                   .order_by(AppealAttachment.created_at, AppealAttachment.id)))
     def task_dict(task):
@@ -184,7 +184,7 @@ def workflow_detail(db, appeal, url, *, private, operator_id=None):
     parent = db.get(CitizenAppeal, appeal.parent_id) if appeal.parent_id else None
     children = list(db.scalars(select(CitizenAppeal).where(CitizenAppeal.parent_id == appeal.id).order_by(CitizenAppeal.id))) if operator_id is None else []
     def relation(row):
-        current = latest_task(db, row.id)
+        current = latest_task(db, row.id) if show_assignments else None
         return {"id": row.id, "number": receipt(row.id)["number"], "subject": row.subject,
                 "status": row.status, "is_final": is_final(row), "inspector_due_date": row.inspector_due_date,
                 "operator_name": current.operator_name if current else "", "due_date": current.due_date if current else None,
@@ -757,6 +757,14 @@ def events(appeal_id: int, user: AppealReader, before: int = Query(default=0, ge
            channel: Literal["inspector", "executor"] | None = None):
     with control_session() as db:
         return event_page(db, find_appeal(db, appeal_id, user=user), user=user, before=before, after=after, channel=channel)
+
+
+@owner_router.get("/{appeal_id}/forward-targets")
+@organization_router.get("/{appeal_id}/forward-targets")
+def appeal_forward_targets(appeal_id: int, user: AppealReader, message_id: int = Query(gt=0),
+                           channel: Literal["inspector", "executor"] | None = None, q: str = Query("", max_length=200)):
+    with control_session() as db:
+        return forward_targets(db, find_appeal(db, appeal_id, user=user), message_id, user, channel, q)
 
 
 @owner_router.post("/{appeal_id}/comments", status_code=201)

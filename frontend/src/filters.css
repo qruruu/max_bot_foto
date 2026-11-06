@@ -77,3 +77,39 @@
   width: 14px;
   height: 14px;
 }
+
+.photo-filters { margin-bottom: 12px; }
+.filter-panel.photo-filters { margin-bottom: 12px; }
+.photo-period-row { flex-wrap: wrap; gap: 8px 14px; }
+.photo-period-row .quick-period { flex-wrap: wrap; }
+.photo-period-row .date-switch strong { min-width: 0; }
+.photo-period-row .quick-period [aria-pressed=true] { color: var(--accent, var(--green)); background: var(--accent-surface, #edf4ec); }
+.photo-filter-options > summary, .photo-number-search > summary {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--text, #273730);
+  font-size: var(--ui-body, 14px);
+  font-weight: 600;
+}
+.photo-filter-options > summary::-webkit-details-marker,
+.photo-number-search > summary::-webkit-details-marker { display: none; }
+:is(.photo-filter-options, .photo-number-search) .disclosure-chevron { margin-inline-start: auto; color: var(--muted); }
+:is(.photo-filter-options, .photo-number-search)[open] .disclosure-chevron { transform: rotate(180deg); }
+.photo-filter-options[open] > summary { border-bottom: 1px solid var(--border); }
+.photo-filter-options .count-pill { margin-inline-start: 0; }
+@media (max-width: 600px) {
+  .filter-panel .period-row.photo-period-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; padding-inline: 8px; }
+  .photo-period-row .date-switch { gap: 6px; justify-content: space-between; }
+  .photo-period-row .date-switch strong { white-space: normal; overflow-wrap: anywhere; }
+  .photo-period-row .quick-period { grid-row: 2; grid-column: 1 / -1; gap: 0; }
+  .photo-period-row .quick-period button { padding: 6px 7px; min-height: 34px; }
+  .photo-period-row .export { grid-column: 2; grid-row: 1; min-width: 38px; min-height: 38px; padding: 7px; }
+  .photo-period-row .export span { display: none; }
+  .filter-panel .filters :is(input, select) { height: 40px; font-size: 16px; }
+  .filter-panel .filters .counted-select-trigger { height: 40px; font-size: var(--ui-body, 14px); }
+}

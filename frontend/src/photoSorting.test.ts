@@ -13,12 +13,12 @@ describe('administrator-controlled photo sorting', () => {
     }
   });
 
-  it('preserves all four choices for enabled operators and administrators', () => {
+  it('preserves the direction and normalizes legacy receipt-date links', () => {
     for (const user of [{...operator,permissions:['photos_view','photos_sort']}, {...operator,role:'ADMIN_OPERATOR',permissions:[]}]) {
       for (const date_basis of ['photo','received']) for (const sort_order of ['asc','desc']) {
-        expect(photoSortForUser({date_basis,sort_order}, user)).toEqual({date_basis,sort_order});
+        expect(photoSortForUser({date_basis,sort_order}, user)).toEqual({date_basis:'photo',sort_order});
       }
-      expect(photoSortForUser({},user)).toEqual({date_basis:'received',sort_order:'desc'});
+      expect(photoSortForUser({},user)).toEqual({date_basis:'photo',sort_order:'desc'});
     }
   });
 

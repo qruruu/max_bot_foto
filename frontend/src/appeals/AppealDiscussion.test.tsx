@@ -26,9 +26,9 @@ it('shows staff discussion and a status timeline and retries messages with the s
   });
   const input = element.querySelector('textarea')!;
   await act(async () => {Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Проверяю на месте'); input.dispatchEvent(new Event('input', {bubbles: true}));});
-  const send = () => element.querySelector<HTMLButtonElement>('form button')!;
+  const send = () => element.querySelector<HTMLButtonElement>('form button[type=submit]')!;
   await act(async () => {send().click(); await tick();});
-  expect(input.disabled).toBe(true); expect(send().textContent).toContain('Повторить');
+  expect(input.disabled).toBe(true); expect(send().getAttribute('aria-label')).toContain('Повторить');
   await act(async () => {send().click(); await tick();});
   const posts = vi.mocked(api).mock.calls.filter(([, method]) => method === 'POST');
   expect(posts[0][2]).toEqual(posts[1][2]);
@@ -40,5 +40,5 @@ it('shows staff discussion and a status timeline and retries messages with the s
 
 it('keeps archived discussions readable without a send form', async () => {
   await mount(true); expect(element.querySelector('form')).toBeNull();
-  expect(element.textContent).toContain('доступно для чтения');
+  expect(element.textContent).toContain('доступна для чтения');
 });

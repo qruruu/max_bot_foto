@@ -11,4 +11,5 @@ import './filters.css';
 import './notifications.css';
 import './settings.css';
 import './sidebar.css';
+import './workspace-ui.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><ThemeProvider><BrowserRouter basename={workspacePrefix() || '/'}><Application/><UpdateNotice/></BrowserRouter></ThemeProvider></React.StrictMode>);

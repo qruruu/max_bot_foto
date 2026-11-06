@@ -2,22 +2,16 @@ import { hasPermission } from './permissions';
 import type { Filters, User } from './types';
 
 export const photoSortOptions = [
-  {value: 'photo_asc', label: 'Сначала ранние фотографии', basis: 'photo', order: 'asc'},
-  {value: 'photo_desc', label: 'Сначала поздние фотографии', basis: 'photo', order: 'desc'},
-  {value: 'received_asc', label: 'Сначала ранние получения', basis: 'received', order: 'asc'},
-  {value: 'received_desc', label: 'Сначала поздние получения', basis: 'received', order: 'desc'},
+  {value: 'photo_desc', label: 'Сначала поздние фотографии'},
+  {value: 'photo_asc', label: 'Сначала ранние фотографии'},
 ] as const;
 
 export function photoSortValue(filters: Filters): string {
-  // Older links used received_desc independently of the date filter.
-  if (!filters.sort_order || filters.sort_order === 'received_desc') return 'received_desc';
-  const value = `${filters.date_basis || 'photo'}_${filters.sort_order}`;
-  return photoSortOptions.some(option => option.value === value) ? value : 'received_desc';
+  return filters.sort_order === 'asc' ? 'photo_asc' : 'photo_desc';
 }
 
 export function photoSortFilters(value: string): Filters {
-  const option = photoSortOptions.find(option => option.value === value) || photoSortOptions[3];
-  return {date_basis: option.basis, sort_order: option.order};
+  return {date_basis: 'photo', sort_order: value === 'photo_asc' ? 'asc' : 'desc'};
 }
 
 export function photoSortForUser(filters: Filters, user: User): Filters {

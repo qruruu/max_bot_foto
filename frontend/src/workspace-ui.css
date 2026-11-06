@@ -1,0 +1,70 @@
+:root {
+  --ui-meta: 12px;
+  --ui-body: 14px;
+  --ui-title: 16px;
+  --ui-page-title: clamp(22px, 2vw, 28px);
+}
+
+:where(.workspace, .organizations-page) {
+  font-size: var(--ui-body);
+  line-height: 1.5;
+}
+
+:is(.workspace, .organizations-page) .page-header {
+  gap: 12px;
+  margin-block: 22px 16px;
+}
+
+:is(.workspace, .organizations-page) .page-header h1 {
+  font-size: var(--ui-page-title);
+  line-height: 1.2;
+  letter-spacing: -.025em;
+  margin: 0;
+}
+
+:is(.workspace, .organizations-page) .page-header p { margin-block: 5px 0; }
+
+:is(.workspace, .organizations-page) .page-header :where(.eyebrow) {
+  display: none;
+}
+
+.app .workspace .topbar {
+  min-height: 54px;
+  height: auto;
+  padding-block: 8px;
+  font-size: var(--ui-meta);
+}
+
+.workspace .topbar .timezone { font-size: inherit; }
+.workspace .panel :is(.section-title > span, .hint), .workspace .filter-panel label { font-size: var(--ui-meta); }
+.workspace .panel .section-title h2 { font-size: var(--ui-title); line-height: 1.35; }
+.workspace .filter-panel .filters { row-gap: 10px; padding-block: 12px; }
+.workspace .filter-panel .period-row { padding-block: 8px; }
+.workspace .filter-panel .quick-period button { font-size: var(--ui-meta); }
+.archive-mode-actions button + button { margin-inline-start: 8px; }
+
+@media (max-width: 600px) {
+  .app .workspace .topbar { min-height: 44px; }
+  .workspace .topbar .timezone { display: none; }
+  :is(.workspace, .organizations-page) .page-header { margin-block: 15px 12px; }
+}
+
+.workspace .panel table { font-size: var(--ui-body); }
+.workspace .panel th, .workspace .panel td small { font-size: var(--ui-meta); }
+.workspace .page-header :is(button, .button) { min-height: 36px; }
+
+
+.workspace .panel > .empty { min-height: 135px; padding: 22px 16px; }
+.workspace .panel > .empty svg { margin-bottom: 10px; }
+.workspace .panel > .empty p { margin-block-end: 0; }
+.workspace .section-title { min-width: 0; }
+.workspace .section-title > :first-child { min-width: 0; overflow-wrap: anywhere; }
+.workspace .section-title > button { flex-shrink: 0; }
+
+@media (max-width: 600px) {
+  .workspace .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .workspace .minor-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; margin-block: 9px 18px; }
+  .workspace .minor-stats button { border-right: 0; border-bottom: 1px solid var(--border); text-align: start; font-size: var(--ui-meta); }
+  .workspace .two-columns { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .workspace :is(.modal, .settings-content) :is(input:not([type=checkbox]):not([type=radio]), select, textarea) { font-size: 16px; }
+}

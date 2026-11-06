@@ -43,8 +43,7 @@ afterEach(async () => {await act(async () => root.unmount()); element.remove(); 
 it('lets an inspector write without territory, work type or photos and keeps drafts separate', async () => {
   await mount();
   expect(loadDraft).toHaveBeenCalledWith(storageKey);
-  expect(element.textContent).toContain('Только в «Метке»');
-  expect(element.textContent).toContain('На стене «Сигнала» они не появятся');
+  expect(element.textContent).toContain('Администраторы «Демо-организация»');
   expect(element.querySelectorAll('fieldset')[1].disabled).toBe(false);
   expect(element.querySelector<HTMLSelectElement>('select')!.value).toBe('');
   const description = element.querySelector('textarea')!;

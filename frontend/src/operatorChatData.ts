@@ -1,4 +1,6 @@
-export type OperatorMessage = {
+import type { ChatContent } from './chatContent';
+
+export type OperatorMessage = ChatContent & {
   id: number; sender_id: number; recipient_id: number; client_id: string;
   body: string; created_at: string; read_at: string | null;
   photo?: {id: number; available: boolean; preview_url: string | null} | null;
@@ -17,10 +19,10 @@ export function operatorPhotoLink(photoId: number, peerId: number) {
 }
 
 export function messagePreview(message: OperatorMessage) {
-  return message.photo ? `Фото #${message.photo.id}${message.body ? ' · ' + message.body : ''}` : message.body;
+  return message.photo ? `Фото #${message.photo.id}${message.body ? ' · ' + message.body : ''}` : message.body || (message.screenshots?.length ? 'Скриншот' : '');
 }
 
-export function mergeMessages(current: OperatorMessage[], incoming: OperatorMessage[]) {
+export function mergeMessages<T extends {id: number}>(current: T[], incoming: T[]) {
   const byId = new Map(current.map(message => [message.id, message]));
   for (const message of incoming) byId.set(message.id, message);
   return [...byId.values()].sort((left, right) => left.id - right.id);

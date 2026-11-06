@@ -17,7 +17,7 @@ MIN_SHORT_SIDE = 720
 MAX_PIXELS = 16_000_000
 
 
-def prepare_upload(content):
+def prepare_upload(content, *, min_side=200):
     """Normalize gallery/result images and strip EXIF, GPS and original filenames."""
     if len(content) > MAX_PHOTO_BYTES:
         raise HTTPException(413, "Одна фотография должна занимать не больше 25 МБ")
@@ -29,8 +29,8 @@ def prepare_upload(content):
                     raise HTTPException(422, "Загрузите фотографию JPG, PNG, WebP или HEIC")
                 # Some phone JPEGs contain auxiliary frames; retain the primary photo only.
                 source.seek(0)
-                if source.width * source.height > 50_000_000 or min(source.size) < 200:
-                    raise HTTPException(422, "Размер фотографии: от 200 пикселей по каждой стороне до 50 мегапикселей")
+                if source.width * source.height > 50_000_000 or min(source.size) < min_side:
+                    raise HTTPException(422, f"Размер изображения: от {min_side} пикселей по каждой стороне до 50 мегапикселей")
                 source.load()
                 image = ImageOps.exif_transpose(source).convert("RGB")
                 image.thumbnail((2560, 2560), Image.Resampling.LANCZOS)

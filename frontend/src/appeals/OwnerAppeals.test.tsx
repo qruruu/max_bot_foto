@@ -50,7 +50,7 @@ it('keeps message notifications after opening and clears them after a reply with
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(field, text); field.dispatchEvent(new Event('input', {bubbles: true}));
     }
   });
-  await act(async () => {element.querySelector<HTMLButtonElement>('.appeal-discussion-compose button')!.click(); await tick();});
+  await act(async () => {element.querySelector<HTMLButtonElement>('.chat-composer button[type=submit]')!.click(); await tick();});
   expect(element.textContent).not.toContain('Новые сообщения'); expect(answer.value).toBe('Черновик ответа');
   expect(chat.value).toBe('');
   messages = 1;
@@ -70,7 +70,7 @@ it.each(['/appeals', '/platform/appeals'])('assigns original organization work t
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-edit button')!.click(); await tick();});
   expect(api).toHaveBeenCalledWith(endpoint + '/42', 'PATCH', {category: 'BIN_EMPTYING', status: 'NEW', owner_note: '', expected_version: 1});
   expect(element.querySelector<HTMLSelectElement>('select[name=work_type]')!.value).toBe('BIN_EMPTYING');
-  expect(element.querySelector('.appeal-subject-panel h2')!.textContent).toBe('Мусор');
+  expect(element.querySelector('.appeal-detail-header h1')!.textContent).toContain('Мусор');
   select = element.querySelector<HTMLSelectElement>('select[name=work_type]')!;
   await act(async () => {select.value = ''; select.dispatchEvent(new Event('change', {bubbles: true}));});
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-edit button')!.click(); await tick();});
@@ -146,7 +146,7 @@ it('keeps the request separate from processing and retains all drafts when switc
   expect(request.textContent).toContain('Описание жителя');
   expect(request.querySelector('.appeal-request-copy > .owner-appeal-edit')).not.toBeNull();
   expect(work.querySelector('.owner-appeal-edit')).toBeNull();
-  await act(async () => {element.querySelector<HTMLButtonElement>('.appeal-go-work')!.click();});
+  await act(async () => {element.querySelector<HTMLButtonElement>('#appeal-tab-executor')!.click();});
   expect(request.hidden).toBe(true); expect(work.hidden).toBe(false);
   const fields = [
     [element.querySelector<HTMLTextAreaElement>('.owner-appeal-edit textarea')!, 'Черновик внутренней заметки'],
@@ -183,8 +183,8 @@ it('keeps separate inspector and executor chats and preserves both drafts when s
   await act(async () => {root.render(<OwnerAppeals organization endpoint="/appeals"/>); await tick();});
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
   await act(async () => {element.querySelector<HTMLButtonElement>('#appeal-tab-executor')!.click();});
-  const checking = element.querySelector<HTMLTextAreaElement>('[aria-label="Переписка с проверяющим"] textarea')!;
-  const executor = element.querySelector<HTMLTextAreaElement>('[aria-label="Переписка с исполнителем"] textarea')!;
+  const checking = element.querySelector<HTMLTextAreaElement>('[aria-label="Чат с проверяющим"] textarea')!;
+  const executor = element.querySelector<HTMLTextAreaElement>('[aria-label="Чат с исполнителем"] textarea')!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(checking, 'Уточнение проверяющему');
     checking.dispatchEvent(new Event('input', {bubbles:true}));
@@ -212,9 +212,9 @@ it('puts separate chat badges on the top tabs and clears only the answered chann
   expect(element.querySelector('#appeal-tab-executor .appeal-tab-count')?.textContent).toBe('3');
   expect(element.textContent).not.toContain('Работа с обращением');
   await act(async () => {element.querySelector<HTMLButtonElement>('#appeal-tab-inspector')!.click();});
-  const text = element.querySelector<HTMLTextAreaElement>('[aria-label="Переписка с проверяющим"] textarea')!;
+  const text = element.querySelector<HTMLTextAreaElement>('[aria-label="Чат с проверяющим"] textarea')!;
   await act(async () => {Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!.set!.call(text,'Приняли'); text.dispatchEvent(new Event('input',{bubbles:true}));});
-  await act(async () => {element.querySelector<HTMLButtonElement>('[aria-label="Переписка с проверяющим"] form button[type=submit], [aria-label="Переписка с проверяющим"] form button.primary')!.click(); await tick();});
+  await act(async () => {element.querySelector<HTMLButtonElement>('[aria-label="Чат с проверяющим"] form button[type=submit], [aria-label="Чат с проверяющим"] form button.primary')!.click(); await tick();});
   expect(element.querySelector('#appeal-tab-inspector .appeal-tab-count')).toBeNull();
   expect(element.querySelector('#appeal-tab-executor .appeal-tab-count')?.textContent).toBe('3');
 });

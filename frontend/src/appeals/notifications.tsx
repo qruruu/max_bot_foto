@@ -42,7 +42,7 @@ export function useAppealNotifications(enabled: boolean, userId?: number, endpoi
       setCount(data.new_count);
       setOrganizationId(data.organization_id || '');
       if (!data.new_count) setNotice(0);
-      else if (data.latest_id > latest || data.new_count > previousCount) setNotice(data.new_count);
+      else if (latest >= 0 && (data.latest_id > latest || data.new_count > previousCount)) setNotice(data.new_count);
       latest = Math.max(latest, data.latest_id);
       previousCount = data.new_count;
     });

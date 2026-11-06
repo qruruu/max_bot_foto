@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { CheckCircle2, ImagePlus, LockKeyhole, Send, Trash2 } from 'lucide-react';
+import { Building2, CheckCircle2, ImagePlus, Send, Trash2, X } from 'lucide-react';
 import { api, ApiError } from '../api';
 import type { PublicOrganization } from '../appeals/catalog';
 import { clearDraft, EMPTY_FORM, hasDraftContent, loadDraft, saveDraft } from '../appeals/drafts';
@@ -14,8 +14,8 @@ type Catalog = {organization: PublicOrganization; yandex_maps_api_key: string};
 type Receipt = {id: number; number: string; is_public: false};
 type Photo = StoredPhoto & {url: string};
 
-export default function InspectionAppealForm({organizationId, inspectorId, created, onClose}: {
-  organizationId: string; inspectorId: number; created: () => void; onClose?: () => void;
+export default function InspectionAppealForm({organizationId, inspectorId, created, onClose, administrators = []}: {
+  organizationId: string; inspectorId: number; created: () => void; onClose?: () => void; administrators?: string[];
 }) {
   const endpoint = '/inspection/organizations/' + organizationId + '/appeals';
   const storageKey = 'inspector:' + inspectorId + ':' + organizationId;
@@ -119,15 +119,15 @@ export default function InspectionAppealForm({organizationId, inspectorId, creat
   function another() {
     completed.current = false; clientId.current = crypto.randomUUID(); setReceipt(null); setForm(EMPTY_FORM); setPhotos([]); setDocuments([]); setDueDate(''); setPending(false);
   }
-  return <section className="panel inspector-appeal-form"><div className="section-title"><h2>Задача проверяющего</h2><span className="badge"><LockKeyhole size={14}/>Только в «Метке»</span>{onClose && <button type="button" disabled={busy || preparing} onClick={onClose}>Свернуть форму</button>}</div>
-    <p className="hint">Обращение, фотографии и ответ организации будут видны в «Метке». На стене «Сигнала» они не появятся.</p>
+  return <section className="panel inspector-appeal-form"><div className="section-title"><h2>Новая задача</h2>{onClose && <button type="button" aria-label="Свернуть форму" title="Свернуть форму" disabled={busy || preparing} onClick={onClose}><X size={18}/></button>}</div>
+
     {error && <div className="error" role="alert">{error}{!catalog && <button onClick={() => setRevision(value => value + 1)}>Повторить загрузку</button>}</div>}
     {storageError && <p className="hint">Не закрывайте вкладку до отправки: браузер не разрешил сохранить черновик.</p>}
-    {receipt ? <div className="inspector-appeal-receipt" role="status"><CheckCircle2/><h3>Обращение {receipt.number} передано организации</h3><p>Оно доступно в списке ниже. Результат рассмотрения останется внутри «Метки».</p><button onClick={another}>Написать ещё одну задачу</button></div>
+    {receipt ? <div className="inspector-appeal-receipt" role="status"><CheckCircle2/><h3>Задача {receipt.number} передана администраторам</h3><p>{organization?.name}</p><button onClick={another}>Создать ещё задачу</button></div>
       : !loaded || !catalog ? !error && <p className="loading">Загружаем форму…</p> : <form className={!address ? 'no-territory' : undefined} onSubmit={event => void submit(event)}>
         {pending && <p className="hint" role="status">Проверяем отправку. Повторная попытка не создаст дубль.</p>}
         <fieldset disabled={locked}>
-          <p><strong>{organization?.name}</strong>{organization?.city ? ' · ' + organization.city : ''}</p>
+          <div className="inspector-task-recipient"><Building2 size={19}/><div><span>Кому передать</span><strong>Администраторы «{organization?.name}»</strong>{!!administrators.length && <small>{administrators.join(', ')}</small>}</div></div>
           <label>Территория <small>необязательно</small><select value={form.address_id} onChange={event => {const id = event.target.value; const selected = organization?.addresses?.find(item => item.id === id); setForm(current => ({...current, address_id: id, address: selected?.label || '', latitude: null, longitude: null}));}}><option value="">Без территории</option>{organization?.addresses?.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
           <p className="hint">{!organization?.city ? 'У организации не указан город. Его должен добавить владелец сервиса.' : organization?.addresses?.length
             ? 'Выберите территорию этой организации и отметьте на карте место проблемы.' : 'У организации пока нет активных территорий на карте.'}</p>

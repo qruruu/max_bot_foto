@@ -6,6 +6,7 @@ import Login, { signInDestination } from '../Login';
 import type { Meta, User } from '../types';
 import { AppContextProvider } from '../App';
 import useSidebar from '../useSidebar';
+import MobileNavigation from '../MobileNavigation';
 import SidebarNavigation from '../SidebarNavigation';
 import Settings from '../Settings';
 import DistrictMap from '../DistrictMap';
@@ -96,6 +97,7 @@ export default function InspectorApp() {
   if(loading)return <div className="full-loading">Открываем кабинет проверяющего…</div>;
   if(!user)return <Login unified onLogin={signedIn} initialError={error}/>;
   const independent=['messages','accounts','settings'].includes(tab);
+  const choosingOrganization = !org && !independent;
   const title=tab==='accounts'?'Аккаунты':!org&&!independent?'Организации':tabs.find(t=>t.id===tab)?.label || 'Фотографии';
   function sectionLink(section:string,extra:Record<string,string>={}) {
     const next=new URLSearchParams(params);next.set('tab',section);next.delete('page');next.delete('photo');next.delete('section');
@@ -113,30 +115,31 @@ export default function InspectorApp() {
       endpoint={'/inspection/organizations/'+notificationOrg+'/photos/arrivals'} photoLink={id=>sectionLink('photos',{org:notificationOrg||'',...(id?{photo:String(id)}:{})})}>
     <div className={'app inspection-app '+(sidebar.collapsed?'sidebar-collapsed':'sidebar-expanded')}>
       {!sidebar.collapsed&&<button className="sidebar-backdrop" aria-label="Закрыть боковую панель" onClick={sidebar.toggle}/>}
-      <aside className="sidebar">
-        <Link className="brand" to="/inspection" aria-label="Метка — главная"><span className="brand-mark"><Layers size={23}/></span><span className="brand-copy">Метка<small>Контроль городских работ</small></span></Link>
+      <aside id="workspace-sidebar" ref={sidebar.sidebar} className="sidebar">
+        <Link className="brand" onClick={sidebar.closeMenu} to="/inspection" aria-label="Метка — главная"><span className="brand-mark"><Layers size={23}/></span><span className="brand-copy">Метка<small>Контроль городских работ</small></span></Link>
         <SidebarNavigation key={user.id} links={links} order={user.sidebar_order?.length?user.sidebar_order:menuOrder}
-          collapsed={sidebar.collapsed} toggle={sidebar.toggle} saveEndpoint="/inspection/sidebar-order" resetOrder={menuOrder}
+          collapsed={sidebar.collapsed} toggle={sidebar.toggle} onNavigate={sidebar.closeMenu} saveEndpoint="/inspection/sidebar-order" resetOrder={menuOrder}
           onSaved={sidebar_order=>setUser(current=>current?{...current,sidebar_order}:current)}/>
-        <div className="sidebar-bottom"><Link to={sectionLink('settings',{section:'profile'})} className={'account-link'+(tab==='settings'?' active':'')} title="Настройки" aria-label="Настройки">
+        <div className="sidebar-bottom"><Link onClick={sidebar.closeMenu} to={sectionLink('settings',{section:'profile'})} className={'account-link'+(tab==='settings'?' active':'')} title="Настройки" aria-label="Настройки">
           <Avatar name={user.name} src={user.avatar_url||null}/><span className="account-info"><strong>{user.name}</strong><small>Проверяющий</small></span></Link>
           <button aria-label="Выйти" title="Выйти" onClick={()=>void api('/inspection/logout','POST').then(()=>{setUser(null);setOrganizations([]);setParams({});}).catch(e=>setError(e.message))}><LogOut size={17}/></button>
         </div>
       </aside>
       <main className="workspace inspection-workspace">
-        <div className="topbar inspection-context"><span className="workspace-identity"><span className="dot"/><strong>{orgInfo?.name||user.agency_name}</strong><span className="timezone">Кабинет проверяющего</span></span>
+        <div className="topbar inspection-context">
+          <MobileNavigation button={sidebar.menuButton} open={sidebar.menuOpen} toggle={sidebar.toggle} updates={appeals.count > 0}/>
+          <span className="workspace-identity"><span className="dot"/><strong>{orgInfo?.name||user.agency_name}</strong><span className="timezone">Кабинет проверяющего</span></span>
           {!!org&&!independent&&organizations.length>1&&<label className="inspection-organization-select"><span>Организация</span><select value={org} onChange={e=>{
             setParams({org:e.target.value,tab});
           }}>{organizations.map(o=><option value={o.id} key={o.id}>{o.name}</option>)}</select></label>}
         </div>
         {notice&&<div className="organization-notice" role="status">{notice}<button className="text-button" aria-label="Закрыть уведомление" onClick={()=>setNotice('')}>×</button></div>}
-        {appeals.notice > 0 && <div className="organization-notice" role="status">Новых обращений: {appeals.notice}. <Link to={sectionLink('appeals', {org: appeals.organizationId || appealOrganization})} onClick={appeals.dismiss}>Открыть обращения</Link><button onClick={appeals.dismiss} aria-label="Закрыть уведомление об обращениях">×</button></div>}
+        {tab !== 'appeals' && appeals.notice > 0 && <div className="organization-notice" role="status">Новых обращений: {appeals.notice}. <Link to={sectionLink('appeals', {org: appeals.organizationId || appealOrganization})} onClick={appeals.dismiss}>Открыть обращения</Link><button onClick={appeals.dismiss} aria-label="Закрыть уведомление об обращениях">×</button></div>}
         <div hidden={viewingPhoto}>
-        {tab!=='settings'&&(!org||!['districts','appeals'].includes(tab))&&<header className="page-header"><div><span className="eyebrow">{tab==='photos'&&org?'АРХИВ ФОТОГРАФИЙ':tab==='photo-map'&&org?'ГЕОГРАФИЯ СНИМКОВ':'КАБИНЕТ ПРОВЕРЯЮЩЕГО'}</span><h1>{title}</h1>
-          <p>{tab==='photos'&&org?'Фотографии выполненных работ после закрытия дня в Метке.':tab==='photo-map'?'География снимков за выбранный период.':tab==='messages'?'Личные переписки с администраторами организаций и коллегами.':tab==='accounts'?'Сотрудники вашей администрации.':'Выберите организацию или отсканируйте QR для получения доступа.'}</p></div>
-          <div className="inspection-actions"><button disabled={busy||dataLoading} onClick={()=>{setRevision(v=>v+1);void loadOrganizations().catch(e=>setError(e.message));}}><RefreshCw size={17}/>Обновить</button>
-            {tab==='photos'&&org&&<button onClick={()=>change({tab:'photo-map'})}><MapPin size={17}/>На карте</button>}
-            <button className={!org?'primary':''} disabled={busy} onClick={()=>setScanner(v=>!v)}><QrCode size={18}/>Сканировать QR</button></div></header>}
+        {tab!=='settings'&&(!org||!['districts','appeals'].includes(tab))&&<header className="page-header"><div><h1>{title}</h1>
+          {choosingOrganization && <p>Выберите организацию или подключите новую по QR.</p>}</div>
+          <div className="inspection-actions"><button type="button" aria-label="Обновить" title="Обновить" disabled={busy||dataLoading} onClick={()=>{setRevision(v=>v+1);void loadOrganizations().catch(e=>setError(e.message));}}><RefreshCw size={17}/></button>
+            {choosingOrganization && <button type="button" className="primary" disabled={busy} onClick={()=>setScanner(v=>!v)}><QrCode size={18}/>Добавить по QR</button>}</div></header>}
         {error&&<p className="error" role="alert">{error}</p>}
         {scanner&&<QRScanner onScan={token=>void redeem(token)} onClose={()=>setScanner(false)}/>}
         {tab==='settings'?<Settings authBase="/inspection" selectedSection={params.get('section')||'profile'} sectionLink={section=>sectionLink('settings',{section})}/>:
@@ -147,14 +150,14 @@ export default function InspectorApp() {
         tab==='districts'?<><button className="inspection-district-refresh" aria-label="Обновить микрорайоны" onClick={()=>setRevision(v=>v+1)}><RefreshCw size={17}/></button><DistrictMap key={org+':'+revision} endpoint={base+'/districts'} readOnly/></>:
         tab==='appeals'?<InspectionAppeals key={org} organizationId={org} inspectorId={user.id} refreshKey={revision}/>:
         <>
-          {tab==='photos'&&<PhotoNumberSearch owner={false} endpoint={base+'/photos'} open={openPhoto} description="Поиск среди фотографий закрытых дней этой организации, независимо от даты и фильтров."/>}
           {['photos','photo-map'].includes(tab)&&<InspectionFilters meta={meta} filters={Object.fromEntries(filters)} change={change}/>}
+          {tab==='photos'&&<PhotoNumberSearch owner={false} endpoint={base+'/photos'} open={openPhoto} description="Поиск среди фотографий закрытых дней этой организации, независимо от даты и фильтров."/>}
           {dataLoading&&<p className="loading">Загружаем данные…</p>}
           {tab==='photos'&&<>
             <section className="panel photo-panel inspection-photos"><div className="section-title"><h2>Все фотографии <span className="count-pill appeal-count">{photos.total}</span></h2><span>Закрытые дни</span></div>
               {photos.items.length>0&&<InspectionPhotoTable photos={photos.items} openPhoto={openPhoto} workTypes={meta.work_types}/>}
               {!photos.items.length&&!dataLoading&&<p className="empty">За выбранный период нет фотографий закрытых дней.</p>}
-              {photos.total>0&&<div className="pagination"><span>Страница {photos.page} из {Math.max(1,Math.ceil(photos.total/photos.page_size))}</span><button disabled={photos.page<=1} onClick={()=>update('page',String(photos.page-1))}><ChevronLeft size={16}/>Назад</button><button disabled={photos.page*photos.page_size>=photos.total} onClick={()=>update('page',String(photos.page+1))}>Далее<ChevronRight size={16}/></button></div>}
+              {photos.total>photos.page_size&&<div className="pagination"><span>Страница {photos.page} из {Math.max(1,Math.ceil(photos.total/photos.page_size))}</span><button disabled={photos.page<=1} onClick={()=>update('page',String(photos.page-1))}><ChevronLeft size={16}/>Назад</button><button disabled={photos.page*photos.page_size>=photos.total} onClick={()=>update('page',String(photos.page+1))}>Далее<ChevronRight size={16}/></button></div>}
             </section></>}
           {tab==='photo-map'&&<InspectionPhotoMap key={org} base={base} filters={filterQuery} meta={meta} revision={revision} active={!viewingPhoto} openPhoto={openPhoto} mapLink={sectionLink('photo-map')} listLink={sectionLink('photos')}/>}
         </>}

@@ -262,3 +262,41 @@ def test_postgres_chat_persists_a_message(admin, db):
     response = send(admin, peer.id)
     assert response.status_code == 201
     assert db.get(OperatorMessage, response.json()["id"]).recipient_id == peer.id
+
+
+def test_screenshot_reply_and_forward_are_scoped_to_their_chats(chat_api):
+    from base64 import b64encode
+    from io import BytesIO
+
+    from PIL import Image
+
+    client, _ = chat_api
+    png = BytesIO()
+    Image.new("RGB", (24, 24), "blue").save(png, "PNG")
+    payload = {"client_id": str(uuid4()), "screenshots": [b64encode(png.getvalue()).decode()]}
+    sent = client.post("/api/operator-chats/2/messages", json=payload)
+    assert sent.status_code == 201, sent.text
+    original = sent.json()
+    assert client.post("/api/operator-chats/2/messages", json=payload).json() == original
+    screenshot = original["screenshots"][0]
+    assert client.get(screenshot).headers["content-type"] == "image/jpeg"
+
+    actor(client, 3)
+    assert client.get(screenshot).status_code == 404
+    assert client.post("/api/operator-chats/2/messages", json={
+        "client_id": str(uuid4()), "forward_message_id": original["id"],
+    }).status_code == 404
+
+    actor(client, 2)
+    reply = {"client_id": str(uuid4()), "body": "Проверю", "reply_to_id": original["id"]}
+    assert client.post("/api/operator-chats/3/messages", json=reply).status_code == 404
+    answered = client.post("/api/operator-chats/1/messages", json=reply)
+    assert answered.status_code == 201
+    assert answered.json()["reply"] == {"id": original["id"], "author": "Анна", "body": "Вложение"}
+    forwarded = client.post("/api/operator-chats/3/messages", json={
+        "client_id": str(uuid4()), "forward_message_id": original["id"],
+    }).json()
+    assert forwarded["forwarded_name"] == "Анна"
+    actor(client, 3)
+    assert client.get(forwarded["screenshots"][0]).status_code == 200
+    assert client.get(screenshot).status_code == 404

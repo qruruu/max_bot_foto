@@ -64,10 +64,10 @@ def filters(category='', operator='', deadline='any', organization='', source='a
     return conditions
 
 
-def options(db, conditions):
+def options(db, conditions, *, show_assignments=True):
     works = db.execute(select(CitizenAppeal.category, CitizenAppeal.work_type_name).where(*conditions).distinct()).all()
     people = db.execute(select(CitizenAppeal.organization_id, AppealTask.operator_id, AppealTask.operator_name)
-                        .join(AppealTask, AppealTask.id == latest_id()).where(*conditions).distinct()).all()
+                        .join(AppealTask, AppealTask.id == latest_id()).where(*conditions).distinct()).all() if show_assignments else []
     organizations = db.execute(select(CitizenAppeal.organization_id, CitizenAppeal.organization_name)
                                .where(*conditions).distinct()).all()
     work_options = {code or '__none__': {'code': code or '__none__', 'name': name or 'Не указан'} for code, name in works}
@@ -97,7 +97,7 @@ def task_summaries(db, appeals):
     return result
 
 
-def statistics(db, conditions, start: date, end: date, category='', operator='', organization='', task_operator_id=None, source='all'):
+def statistics(db, conditions, start: date, end: date, category='', operator='', organization='', task_operator_id=None, source='all', *, show_assignments=True):
     if start > end or end == date.max or (end - start).days > 1096:
         raise HTTPException(422, 'Выберите период до трёх лет с корректными датами')
     zone = ZoneInfo(base_settings().app_timezone)
@@ -112,7 +112,7 @@ def statistics(db, conditions, start: date, end: date, category='', operator='',
     ids = [a.id for a in appeals]
     tasks = list(db.execute(select(AppealTask.id, AppealTask.appeal_id, AppealTask.operator_id, AppealTask.operator_name,
                                   AppealTask.status, AppealTask.created_at, AppealTask.finished_at, AppealTask.due_date)
-                            .where(AppealTask.appeal_id.in_(ids)).order_by(AppealTask.id))) if ids else []
+                            .where(AppealTask.appeal_id.in_(ids)).order_by(AppealTask.id))) if ids and show_assignments else []
     # Operator-filtered reports include only that operator's own assignments, never another tenant's same numeric ID.
     if operator:
         selected_id = int(operator.rsplit(':', 1)[1])
@@ -155,4 +155,4 @@ def statistics(db, conditions, start: date, end: date, category='', operator='',
             'operators': sorted(people.values(), key=lambda p: (-p['total'], p['name'])),
             'work_types': [{'code': code, 'name': work_names[code], 'count': count} for code, count in work_counts.most_common()],
             'statuses': [{'code': code, 'count': count} for code, count in status_counts.items()],
-            'options': options(db, conditions)}
+            'options': options(db, conditions, show_assignments=show_assignments)}

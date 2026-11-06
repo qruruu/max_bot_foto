@@ -28,7 +28,7 @@ it('offers the permitted recipients and retries photo forwarding with the same o
   expect(element.querySelector('textarea')?.value).toBe('Проверьте работу');expect(onSent).not.toHaveBeenCalled();
   await send();expect(attempts[0]).toEqual(attempts[1]);
   expect(attempts[1]).toMatchObject({photo_id:85,photo_organization_id:'company',body:'Проверьте работу',client_id:expect.any(String)});
-  expect(onSent).toHaveBeenCalledWith(owner);
+  expect(onSent).toHaveBeenCalledWith({key: owner.key, name: owner.name, subtitle: owner.kind});
 });
 
 it('forwards the source message by id without accepting changed text or author metadata',async()=>{

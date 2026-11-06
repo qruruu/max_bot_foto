@@ -96,8 +96,8 @@ export default function DayReviews() {
   const summary = data?.summary;
   const added = summary?.closed_before;
   return <>
-    <header className="page-header"><div><span className="eyebrow">КОНТРОЛЬ ОПЕРАТОРА</span><h1>Проверка дней</h1>
-      <p>Проверьте виды работ, выбранные нейросетью, и закройте день по всем доступным вам чатам.</p></div>
+    <header className="page-header"><div><h1>Проверка дней</h1>
+      <p>Проверьте фотографии и закройте день.</p></div>
       <button aria-label="Обновить проверку дня" disabled={busy} onClick={() => setRevision(value => value + 1)}><RefreshCw size={18}/></button>
     </header>
     <section className="panel day-toolbar">

@@ -1,4 +1,5 @@
 import json
+from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from datetime import date, timedelta
@@ -8,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from test_organizations import companies as companies
@@ -234,7 +236,10 @@ def test_admin_chats_hide_operators_are_personal_and_revoke_access(inspection):
     assert len(admins) == 1 and admins[0]["name"] == "Operator 0"
     assert "Скрытый" not in str(contacts)
     peer = admins[0]["key"]
-    body = {"body": "Проверьте уборку", "client_id": str(uuid4())}
+    png = BytesIO()
+    Image.new("RGB", (40, 24), "green").save(png, "PNG")
+    body = {"body": "Проверьте уборку", "client_id": str(uuid4()),
+            "screenshots": [b64encode(png.getvalue()).decode()]}
     result = client.post("/api/inspection/messages", params={"peer": peer}, json=body)
     assert result.status_code == 201, result.text
     assert client.post("/api/inspection/messages", params={"peer": peer}, json=body).json()["id"] == result.json()["id"]
@@ -245,9 +250,14 @@ def test_admin_chats_hide_operators_are_personal_and_revoke_access(inspection):
     assert contact["key"] == f'i:{accounts[0]["id"]}' and contact["unread"] == 1
     message = admin.get(scope.prefix + "/api/inspection-admin/messages", params={"peer": contact["key"]}).json()["items"][0]
     assert message["body"] == body["body"] and not message["outgoing"]
+    screenshot = message["screenshots"][0]
+    assert admin.get(screenshot).headers["content-type"] == "image/jpeg"
+    assert clients[1].get(result.json()["screenshots"][0]).status_code == 404
+    assert admin.get(scope.prefix + "/api/inspection-admin/unread").json() == {"unread": 1}
     response = admin.post(scope.prefix + "/api/inspection-admin/messages", params={"peer": contact["key"]},
-                          json={"body": "Проверим", "client_id": str(uuid4())})
+                          json={"body": "Проверим", "client_id": str(uuid4()), "reply_to_id": message["id"]})
     assert response.status_code == 201
+    assert response.json()["reply"]["body"] == body["body"]
     monitor = owner.get(f'/api/platform/inspection/accounts/{accounts[0]["id"]}/messages').json()
     assert len(monitor["items"]) == 2
     assert operators[1].get(scopes[1].prefix + "/api/inspection-admin/contacts").status_code == 403
@@ -342,6 +352,7 @@ def test_inspectors_can_write_owner_and_forward_only_their_own_available_message
     forwarded = client.post(endpoint, params={"peer": f'i:{accounts[1]["id"]}'}, json=forward_body)
     assert forwarded.status_code == 201, forwarded.text
     assert forwarded.json()["body"] == "Ответ владельца" and forwarded.json()["forwarded"]
+    assert forwarded.json()["forwarded_name"]
     assert "forwarded_from_id" not in forwarded.json() and "sender_key" not in forwarded.json()
     assert client.post(endpoint, params={"peer": f'i:{accounts[1]["id"]}'}, json=forward_body).json()["id"] == forwarded.json()["id"]
     assert client.post(endpoint, params={"peer": owner_peer}, json=forward_body).status_code == 409

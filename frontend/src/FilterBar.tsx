@@ -1,13 +1,14 @@
 import { apiUrl } from './workspace';
 import { useEffect, useState } from 'react';
-import { ArrowDownToLine, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowDownToLine } from 'lucide-react';
 import { useApp } from './App';
-import { api, dateLabel, query, shiftDate, statusNames } from './api';
+import { api, query, statusNames } from './api';
 import { filterOptionLabel, senderFilterOptions } from './filterCounts';
 import { hasPermission } from './permissions';
 import { photoSortFilters, photoSortForUser, photoSortOptions, photoSortValue } from './photoSorting';
 import type { FilterCounts, Filters } from './types';
 import CountedSelect from './CountedSelect';
+import { PhotoFilterOptions, PhotoPeriod } from './PhotoFiltersLayout';
 
 export default function FilterBar({filters, change, fixedStatus = false, hideWork = false, refreshKey = 0}: {
   filters: Filters;
@@ -19,7 +20,6 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
   const {meta, user} = useApp();
   const canSort = hasPermission(user, 'photos_sort');
   const sortValue = photoSortValue(photoSortForUser(filters, user));
-  const current = filters.date_to || meta.today;
   const key = query(filters);
   const [loaded, setLoaded] = useState<{key: string; counts: FilterCounts} | null>(null);
   const [error, setError] = useState(''), [retry, setRetry] = useState(0);
@@ -38,22 +38,15 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
       count:counts ? option.value ? counts.work_type.values[option.value]??0 : counts.work_type.total : undefined}));
   const senders = senderFilterOptions(counts?.sender_id, filters.sender_id);
 
-  return <div className="filter-panel">
-    <div className="period-row">
-      <div className="date-switch">
-        <button aria-label="Предыдущий день" onClick={() => change({date_from: shiftDate(current, -1), date_to: shiftDate(current, -1)})}><ChevronLeft size={18}/></button>
-        <strong>{filters.date_from === filters.date_to && filters.date_to ? dateLabel(filters.date_to) : 'Выбранный период'}</strong>
-        <button aria-label="Следующий день" onClick={() => change({date_from: shiftDate(current, 1), date_to: shiftDate(current, 1)})}><ChevronRight size={18}/></button>
-      </div>
-      <div className="quick-period">
-        {[
-          ['Сегодня', meta.today], ['Вчера', shiftDate(meta.today, -1)],
-          ['7 дней', shiftDate(meta.today, -6)], ['Этот месяц', meta.today.slice(0, 8) + '01'],
-        ].map(([title, from]) => <button key={title} onClick={() => change({date_from: from, date_to: title === 'Вчера' ? from : meta.today})}>{title}</button>)}
-        <button onClick={() => change({date_from: '', date_to: ''})}>За всё время</button>
-      </div>
-      {hasPermission(user, 'reports_export') && <a className="button export" href={apiUrl('/export.xlsx?' + key)}><ArrowDownToLine size={16}/>Скачать Excel</a>}
-    </div>
+  const filterCount = [filters.district_id, filters.chat_id, !hideWork && filters.work_type,
+    !fixedStatus && (filters.status || filters.accepted_only), filters.operator_id, filters.sender_id,
+    sortValue === 'photo_asc', filters.day_review].filter(Boolean).length;
+  return <div className="filter-panel photo-filters">
+    <PhotoPeriod today={meta.today} from={filters.date_from} to={filters.date_to} change={change}>
+      {hasPermission(user, 'reports_export') && <a className="button export" href={apiUrl('/export.xlsx?' + key)}
+        aria-label="Скачать Excel" title="Скачать Excel"><ArrowDownToLine size={16}/><span>Скачать Excel</span></a>}
+    </PhotoPeriod>
+    <PhotoFilterOptions count={filterCount}>
     <div className="filters" aria-busy={!counts && !error}>
       <label>Дата от<input type="date" value={filters.date_from || ''} onChange={e => change({date_from: e.target.value})}/></label>
       <label>Дата до<input type="date" value={filters.date_to || ''} onChange={e => change({date_to: e.target.value})}/></label>
@@ -90,7 +83,8 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
         <option value="">Все фотографии режима</option><option value="confirmed">Только проверенные</option><option value="pending">Ещё не подтверждены</option>
       </select></label>}
     </div>
-    {sortValue.startsWith('photo_') && <p className="hint filter-sort-hint">{!canSort && 'Сначала поздние фотографии. '}По дате и времени съёмки. Фото без времени — в конце своего дня, без даты — в конце списка.</p>}
+
     {error && <p className="hint filter-counts-error" role="status">Не удалось обновить количество фото. <button type="button" className="text-button" onClick={() => setRetry(value => value + 1)}>Повторить</button></p>}
+    </PhotoFilterOptions>
   </div>;
 }

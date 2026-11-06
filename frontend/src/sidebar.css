@@ -64,3 +64,33 @@
 @media (prefers-reduced-motion: reduce) {
   .app .sidebar, .app .workspace { transition: none; }
 }
+
+.mobile-navigation-button { display: none; }
+@media (max-width: 600px) {
+  .app:is(.sidebar-expanded, .sidebar-collapsed) .workspace { margin-left: 0; width: 100%; padding-inline: 14px; }
+  .app.sidebar-collapsed .sidebar { display: none; }
+  .app.sidebar-expanded .sidebar { width: min(290px, 86vw); padding-top: 18px; z-index: 21; }
+  .app.sidebar-expanded button.sidebar-backdrop { inset: 0; }
+  .app .workspace .topbar { justify-content: flex-start; gap: 8px; }
+  .app .workspace .topbar > .workspace-identity { display: flex; flex: 1; flex-wrap: wrap; gap: 5px 7px; min-width: 0; }
+  .workspace-identity > strong { min-width: 0; overflow-wrap: anywhere; }
+  .app .workspace .topbar > span:last-child:not(.workspace-identity) { margin-inline-start: auto; white-space: nowrap; }
+  .mobile-navigation-button {
+    position: relative;
+    display: inline-grid;
+    flex: 0 0 42px;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    padding: 0;
+  }
+  .mobile-navigation-button > span {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #d33d4c;
+  }
+}

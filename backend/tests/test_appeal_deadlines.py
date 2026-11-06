@@ -97,9 +97,13 @@ def test_reports_use_real_tasks_scope_dates_and_late_results(workflow):
     assert own_stats['total'] == 2
     assert owner.get(base, params={'deadline': 'overdue'}).json()['items'][0]['id'] == own[1]
     checked = f'/api/inspection/organizations/{scopes[0].id}/appeals'
-    assert inspectors[0].get(checked + '/statistics', params=params).json()['total'] == 2
+    inspection_stats = inspectors[0].get(checked + '/statistics', params={**params, 'operator': f'{scopes[0].id}:{ids[0]}'}).json()
+    assert inspection_stats['total'] == 2
+    assert inspection_stats['operators'] == inspection_stats['options']['operators'] == []
     assert inspectors[1].get(checked + '/statistics', params=params).status_code == 404
-    assert inspectors[0].get(checked, params={'deadline': 'overdue'}).json()['total'] == 1
+    inspection_list = inspectors[0].get(checked, params={'deadline': 'overdue'}).json()
+    assert inspection_list['total'] == 3
+    assert all(item['task'] is None and 'operator_name' not in item for item in inspection_list['items'])
     assert 'private-phone' not in json.dumps(stats) and 'owner_note' not in json.dumps(stats)
     assert owner.get(base + '/statistics', params={**params, 'start': '2030-01-01'}).status_code == 422
     empty = owner.get(base + '/statistics', params={**params, 'category': 'MISSING'}).json()

@@ -13,3 +13,12 @@
 .route-photo-links{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;max-height:300px;overflow:auto}.route-photo-links a{display:flex;gap:9px;align-items:center;padding:10px;border:1px solid var(--border,#e1e5ed);border-radius:10px}.route-photo-links small{display:block;color:var(--secondary,#6e788b);font-size:11px;margin-top:3px}
 @media(max-width:1050px){.route-photo-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.route-photo-layout.editing{grid-template-columns:1fr}.route-photo-editor{order:2}.route-photo-map{position:static}.route-photo-canvas{height:460px}}
 @media(max-width:600px){.route-photo-filters label{min-width:120px}.route-photo-stats{gap:8px}.route-photo-stats strong{font-size:24px}.route-photo-canvas{height:400px}.route-photo-toolbar{gap:10px}}
+
+@media (max-width: 600px) {
+  .route-photo-filters { gap: 8px; margin-bottom: 12px; }
+  .route-photo-filters label { min-width: min(128px, 100%); }
+  .route-photo-filters input, .route-photo-filters select { width: 100%; min-width: 0; }
+  .route-photo-actions { flex-wrap: wrap; }
+  .route-photo-actions button { min-width: min(112px, 100%); }
+  .route-photo-canvas { height: clamp(280px, 50dvh, 400px); }
+}

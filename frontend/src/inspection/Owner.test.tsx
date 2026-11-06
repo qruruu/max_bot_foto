@@ -4,7 +4,8 @@ import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { expect,it,vi } from 'vitest';
 import { api } from '../api';
-import InspectionOwner from './Owner';
+import InspectionChats from './Chats';
+import { OperatorChatsProvider } from '../OperatorChatsProvider';
 
 vi.mock('../api',async importOriginal=>({...await importOriginal<typeof import('../api')>(),api:vi.fn()}));
 it('lets the owner read and reply in a separate inspector conversation',async()=>{
@@ -19,7 +20,7 @@ it('lets the owner read and reply in a separate inspector conversation',async()=
     throw new Error(path);
   });
   try{
-    await act(async()=>root.render(<MemoryRouter initialEntries={['/?section=inspectors&inspection_tab=messages&with=i%3A2']}><InspectionOwner organizations={[]}/></MemoryRouter>));
+    await act(async()=>root.render(<MemoryRouter initialEntries={['/?section=inspectors&inspection_tab=messages&with=i%3A2']}><OperatorChatsProvider endpoint="/platform/inspection/chat/unread"><InspectionChats base="/platform/inspection/chat"/></OperatorChatsProvider></MemoryRouter>));
     expect(element.querySelector('.operator-message-list')?.textContent).toContain('Вопрос');
     const field=element.querySelector('textarea')!;
     await act(async()=>{Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!.set!.call(field,'Ответ владельца');field.dispatchEvent(new Event('input',{bubbles:true}));});

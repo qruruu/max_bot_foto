@@ -12,6 +12,7 @@ from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.orm import Session
 
 from app.auth import AdminUser, Db
+from app.chat_messages import Screenshots, prepare_screenshots, quote, screenshot_response
 from app.db import database_engine
 from app.domain import now
 from app.inspection_auth import InspectorUser
@@ -39,14 +40,17 @@ class MessageInput(StrictModel):
     photo_id: int | None = Field(default=None, gt=0)
     forward_message_id: int | None = Field(default=None, gt=0)
 
+    screenshots: Screenshots = Field(default_factory=list)
+    reply_to_id: int | None = Field(default=None, gt=0)
+
     @model_validator(mode="after")
     def content(self):
         self.body = self.body.strip()
         if (self.photo_id is None) != (self.photo_organization_id is None):
             raise ValueError("Укажите фотографию и её организацию")
-        if self.forward_message_id and (self.body or self.photo_id):
+        if self.forward_message_id and (self.body or self.photo_id or self.screenshots or self.reply_to_id):
             raise ValueError("Пересылаемое сообщение нельзя изменять")
-        if not (self.body or self.photo_id or self.forward_message_id):
+        if not (self.body or self.photo_id or self.forward_message_id or self.screenshots):
             raise ValueError("Напишите сообщение или выберите фотографию")
         return self
 
@@ -175,10 +179,34 @@ def eligible_contacts(db, actor, contacts, org_id=None, photo_id=None, forward_i
     return contacts
 
 
+def sender_name(db, key):
+    parts = key.split(":")
+    if parts[0] in {"i", "o"}:
+        account = db.get(Inspector if parts[0] == "i" else User, int(parts[1]))
+        return account.name if account else "Бывший собеседник"
+    organization = db.get(Organization, parts[1])
+    if organization and organization.status == "ACTIVE":
+        with Session(database_engine(scope_for(organization).database_url)) as tenant:
+            account = tenant.get(User, int(parts[2]))
+            if account:
+                return account.name
+    return "Бывший собеседник"
+
+
+def forwarded_author(db, message):
+    # Older forwards predate the stored author name.
+    while message and not message.forwarded_name and message.forwarded_from_id:
+        message = db.get(InspectionMessage, message.forwarded_from_id)
+    return (message.forwarded_name or sender_name(db, message.sender_key)) if message else "Бывший собеседник"
+
+
 def message_dict(message, actor, db, base="/api/inspection", cache=None, viewer=None):
     result = {"id": message.id, "body": message.body, "created_at": message.created_at,
               "outgoing": message.sender_key == actor, "read_at": message.read_at, "client_id": message.client_id,
-              "forwarded": message.forwarded_from_id is not None, "photo": None}
+              "forwarded": message.forwarded_from_id is not None, "photo": None, "reply": message.reply,
+              "forwarded_name": forwarded_author(db, message) if message.forwarded_from_id else None,
+              "screenshots": [f"{base}/messages/{message.id}/screenshots/{number}"
+                              for number in range(1, message.screenshot_count + 1)]}
     if message.photo_id is not None:
         available = can_view_photo(db, viewer or actor, message.photo_organization_id, message.photo_id, cache)
         photo = {"id": message.photo_id, "available": available, "organization_id": None,
@@ -199,7 +227,7 @@ def contact_previews(db, actor, contacts):
     for item in contacts:
         peer = item["key"]
         latest = db.scalar(select(InspectionMessage).where(pair(actor, peer)).order_by(InspectionMessage.id.desc()).limit(1))
-        item["last_message"] = ((f"Фото #{latest.photo_id}" + (" · " if latest.body else "") if latest.photo_id else "") + latest.body)[:140] if latest else None
+        item["last_message"] = ((f"Фото #{latest.photo_id}" + (" · " if latest.body else "") if latest.photo_id else "") + (latest.body or ("Скриншот" if latest.screenshot_count else "")))[:140] if latest else None
         item["last_message_at"] = latest.created_at if latest else None
         item["last_message_outgoing"] = latest.sender_key == actor if latest else False
         item["unread"] = db.scalar(select(func.count()).select_from(InspectionMessage).where(
@@ -246,20 +274,33 @@ def contact_avatar(db, peer):
 def send(db, actor, peer, body, contacts, base="/api/inspection"):
     validate_peer(contacts, peer)
     content, org_id, photo_id = body.body, str(body.photo_organization_id) if body.photo_organization_id else None, body.photo_id
+    forward_name, reply = None, None
+    screenshots = prepare_screenshots(body.screenshots) or None
     if body.forward_message_id:
         source = source_message(db, actor, contacts, body.forward_message_id)
         content, org_id, photo_id = source.body, source.photo_organization_id, source.photo_id
+        screenshots, forward_name = source.screenshots, forwarded_author(db, source)
+    if body.reply_to_id:
+        source = db.scalar(select(InspectionMessage).where(InspectionMessage.id == body.reply_to_id, pair(actor, peer)))
+        if source is None:
+            raise HTTPException(404, "Сообщение для ответа недоступно")
+        reply = quote(source.id, sender_name(db, source.sender_key), source.body, source.photo_id or source.screenshot_count)
     if photo_id is not None and not all(can_view_photo(db, key, org_id, photo_id) for key in (actor, peer)):
         raise HTTPException(404, "Фотография недоступна отправителю или получателю")
+    # Commit in conversation order so polling by ID cannot miss an incoming message.
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:pair, 7010))"), {"pair": "|".join(sorted((actor, peer)))})
     db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:actor, 7011))"), {"actor": actor})
     existing = db.scalar(select(InspectionMessage).where(InspectionMessage.sender_key == actor,
                                                         InspectionMessage.client_id == str(body.client_id)))
     if existing:
-        if (existing.recipient_key, existing.body, existing.photo_organization_id, existing.photo_id, existing.forwarded_from_id) != (peer, content, org_id, photo_id, body.forward_message_id):
+        if (existing.recipient_key, existing.body, existing.photo_organization_id, existing.photo_id,
+                existing.forwarded_from_id, (existing.reply or {}).get("id"), existing.screenshots) != (
+                peer, content, org_id, photo_id, body.forward_message_id, body.reply_to_id, screenshots):
             raise HTTPException(409, "Идентификатор сообщения уже использован")
         return message_dict(existing, actor, db, base)
     message = InspectionMessage(sender_key=actor, recipient_key=peer, client_id=str(body.client_id), body=content,
-                                photo_organization_id=org_id, photo_id=photo_id, forwarded_from_id=body.forward_message_id)
+                                photo_organization_id=org_id, photo_id=photo_id, forwarded_from_id=body.forward_message_id,
+                                forwarded_name=forward_name, reply=reply, screenshots=screenshots)
     db.add(message)
     db.commit()
     return message_dict(message, actor, db, base)
@@ -293,6 +334,24 @@ def message_photo(db, actor, contacts, message_id, owner=False):
         if not path.is_file():
             raise HTTPException(404, "Превью временно недоступно")
         return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
+
+
+@router.get("/messages/{message_id}/screenshots/{number}")
+def inspector_message_screenshot(message_id: int, number: int, db: Db, user: InspectorUser):
+    return screenshot_response(source_message(db, f"i:{user.id}", inspector_contacts(db, user), message_id), number)
+
+
+@admin_router.get("/messages/{message_id}/screenshots/{number}")
+def organization_message_screenshot(message_id: int, number: int, user: AdminUser):
+    actor, org = admin_identity(user)
+    with control_session() as db:
+        return screenshot_response(source_message(db, actor, admin_contacts(db, org), message_id), number)
+
+
+@owner_router.get("/chat/messages/{message_id}/screenshots/{number}")
+def owner_message_screenshot(message_id: int, number: int, db: Db, user: Owner):
+    actor = f"o:{user.id}"
+    return screenshot_response(source_message(db, actor, owner_contacts(db), message_id), number)
 
 
 @router.get("/contacts")
@@ -345,6 +404,13 @@ def organization_contacts(user: AdminUser, photo_organization_id: UUID | None = 
     actor, org = admin_identity(user)
     with control_session() as db:
         return contact_previews(db, actor, eligible_contacts(db, actor, admin_contacts(db, org), photo_organization_id, photo_id, forward_message_id))
+
+
+@admin_router.get("/unread")
+def organization_chat_unread(user: AdminUser):
+    actor, org = admin_identity(user)
+    with control_session() as db:
+        return unread_count(db, actor, admin_contacts(db, org))
 
 
 @admin_router.get("/messages")
@@ -443,6 +509,17 @@ def owner_messages(account_id: int, db: Db, user: Owner, before_id: Annotated[in
     names = {c["key"]: c["name"] + (" · " + c["organization_name"] if c["organization_name"] else "")
              for c in inspector_contacts(db, account)}
     cache = {}
-    return {"items": [message_dict(m, actor, db, "/api/platform/inspection/chat", cache, f"o:{user.id}") | {"peer_name": names.get(
+    return {"items": [message_dict(m, actor, db, "/api/platform/inspection/chat", cache, f"o:{user.id}") | {
+                "screenshots": [f"/api/platform/inspection/accounts/{account_id}/messages/{m.id}/screenshots/{number}"
+                                for number in range(1, m.screenshot_count + 1)],
+                "peer_name": names.get(
                 m.recipient_key if m.sender_key == actor else m.sender_key, "Бывший собеседник")}
                        for m in reversed(rows)], "next_before_id": rows[-1].id if len(rows) == 100 else None}
+
+
+@owner_router.get("/accounts/{account_id}/messages/{message_id}/screenshots/{number}")
+def owner_audit_screenshot(account_id: int, message_id: int, number: int, db: Db, user: Owner):
+    message = db.get(InspectionMessage, message_id)
+    if not message or f"i:{account_id}" not in (message.sender_key, message.recipient_key):
+        raise HTTPException(404, "Скриншот недоступен")
+    return screenshot_response(message, number)

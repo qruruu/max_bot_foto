@@ -8,10 +8,10 @@ import { defaultSidebarOrder, moveSidebarItem, normalizeSidebarOrder, sortSideba
 
 export type SidebarLink = {to: string; label: string; Icon: LucideIcon; badge?: ReactNode; href?: string; active?: boolean};
 
-export default function SidebarNavigation({links, order, collapsed, toggle, onSaved, saveEndpoint = '/auth/sidebar-order', resetOrder = defaultSidebarOrder}: {
+export default function SidebarNavigation({links, order, collapsed, toggle, onSaved, saveEndpoint = '/auth/sidebar-order', resetOrder = defaultSidebarOrder, onNavigate}: {
   links: SidebarLink[]; order: string[]; collapsed: boolean; toggle: () => void;
   onSaved: (order: string[]) => void;
-  saveEndpoint?: string; resetOrder?: readonly string[];
+  saveEndpoint?: string; resetOrder?: readonly string[]; onNavigate?: () => void;
 }) {
   const [editing, setEditing] = useState(false), [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState(() => normalizeSidebarOrder(order));
@@ -99,7 +99,7 @@ export default function SidebarNavigation({links, order, collapsed, toggle, onSa
           <button type="button" disabled={saving || index===shown.length-1} aria-label={`Опустить «${label}»`} title="Ниже"
             onClick={() => move(to,shown[index+1].to,'after')}><ArrowDown size={14}/></button>
         </div>
-      </div> : href ? <Link key={to} to={href} title={label} aria-label={label} aria-current={active ? 'page' : undefined} className={[active ? 'active' : '',to==='/messages'?'operator-chats-link':''].filter(Boolean).join(' ') || undefined}><Icon size={19}/><span className="nav-item-label">{label}</span>{badge}</Link> : <NavLink key={to} to={to} title={label} aria-label={label}
+      </div> : href ? <Link key={to} to={href} onClick={onNavigate} title={label} aria-label={label} aria-current={active ? 'page' : undefined} className={[active ? 'active' : '',to==='/messages'?'operator-chats-link':''].filter(Boolean).join(' ') || undefined}><Icon size={19}/><span className="nav-item-label">{label}</span>{badge}</Link> : <NavLink key={to} to={to} onClick={onNavigate} title={label} aria-label={label}
         className={to==='/messages'?'operator-chats-link':to==='/news'?'news-notifications-link':undefined} end={to==='/'}>
         <Icon size={19}/><span className="nav-item-label">{label}</span>{badge}
       </NavLink>)}

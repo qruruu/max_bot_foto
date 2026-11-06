@@ -16,7 +16,7 @@ const photo={id:85,photo_date:'2026-10-18',photo_time:'12:30',received_at:'2026-
   district_name:'Центр',work_type_name:'Уборка',is_defect:false,preview_url:'/safe-photo'};
 let element:HTMLDivElement,root:Root;
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
-const button=(text:string)=>[...element.querySelectorAll('button')].find(b=>b.textContent?.includes(text))!;
+const button=(text:string)=>[...element.querySelectorAll('button')].find(b=>b.getAttribute('aria-label')===text || b.textContent?.includes(text))!;
 async function mount(url='/inspection?org=company&page=3') {await act(async()=>{root.render(<StrictMode><ThemeProvider><MemoryRouter initialEntries={[url]}><InspectorApp/></MemoryRouter></ThemeProvider></StrictMode>);await tick();await tick();});}
 beforeEach(()=>{
   (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;

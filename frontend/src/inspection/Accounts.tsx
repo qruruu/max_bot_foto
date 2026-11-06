@@ -17,9 +17,9 @@ export default function InspectionAccounts() {
   const [items,setItems]=useState<Inspector[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false);
   async function load(){setItems(await api<Inspector[]>('/inspection/accounts'));}
   useEffect(()=>{void load().catch(e=>setError(e.message));},[]);
-  return <section className="panel"><h2>Аккаунты проверяющих</h2><p className="hint">Созданным сотрудникам нужен собственный QR каждой организации. Они смогут общаться в своих чатах; создавать другие аккаунты им недоступно.</p>
+  return <section className="panel"><h2>Создать аккаунт</h2><p className="hint">Для доступа к организации сотруднику понадобится свой QR.</p>
     {error && <p className="error" role="alert">{error}</p>}
     <AccountForm busy={busy} onSave={async body=>{setBusy(true);setError('');try{await api('/inspection/accounts','POST',body);await load();}catch(e){setError((e as Error).message);throw e;}finally{setBusy(false);}}}/>
-    <div className="table-scroll"><table><thead><tr><th>Имя</th><th>Логин</th><th>Доступ</th></tr></thead><tbody>{items.map(a=><tr key={a.id}><td>{a.name}</td><td>{a.login}</td><td>{a.active?'Активен':'Приостановлен'}</td></tr>)}</tbody></table></div>
+    {items.length ? <div className="table-scroll"><table><thead><tr><th>Имя</th><th>Логин</th><th>Доступ</th></tr></thead><tbody>{items.map(a=><tr key={a.id}><td>{a.name}</td><td>{a.login}</td><td>{a.active?'Активен':'Приостановлен'}</td></tr>)}</tbody></table></div> : <p className="hint">Аккаунтов пока нет.</p>}
   </section>;
 }

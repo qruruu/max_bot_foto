@@ -11,12 +11,19 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
-from pydantic import Field
-from sqlalchemy import Date, cast, delete, func, select, text, update
+from pydantic import Field, field_validator
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session
 
 from app import appeal_reporting as reporting
-from app.appeal_events import CommentInput, add_comment, event_page, record_event, unanswered_comments
+from app.appeal_events import (
+    CommentInput,
+    add_comment,
+    event_page,
+    forward_targets,
+    record_event,
+    unanswered_comments,
+)
 from app.appeal_search import appeal_search
 from app.appeal_statuses import AppealStatus, is_final
 from app.auth import AdminUser, Db, digest, hasher
@@ -297,14 +304,19 @@ class InspectionFilters(StrictModel):
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=40, ge=1, le=100)
 
+    @field_validator("date_basis")
+    @classmethod
+    def use_capture_date(cls, value):
+        # Old bookmarks may still specify the receipt date.
+        return "photo"
+
 
 def visible_photos(filters):
     stmt = select(Photo).where(Photo.cohort == "production", Photo.preview_removed_at.is_(None), confirmed_condition())
-    date_field = Photo.photo_date if filters.date_basis == "photo" else cast(func.timezone(base_settings().app_timezone, Photo.received_at), Date)
     if filters.date_from:
-        stmt = stmt.where(date_field >= filters.date_from)
+        stmt = stmt.where(Photo.photo_date >= filters.date_from)
     if filters.date_to:
-        stmt = stmt.where(date_field <= filters.date_to)
+        stmt = stmt.where(Photo.photo_date <= filters.date_to)
     if filters.photo_id:
         stmt = stmt.where(Photo.id == filters.photo_id)
     if filters.district_id is not None:
@@ -499,6 +511,13 @@ def all_appeal_notifications(db: Db, user: InspectorUser):
             "organization_id": latest.organization_id if latest else None}
 
 
+@router.get("/organizations/{organization_id}/appeals/recipients")
+def appeal_recipients(organization_id: UUID, db: Db, user: InspectorUser):
+    with tenant_reader(db, user, organization_id) as tenant:
+        return list(tenant.scalars(select(User.name).where(User.active, User.role == "ADMIN_OPERATOR")
+                                   .order_by(func.lower(User.name), User.id)))
+
+
 @router.get("/organizations/{organization_id}/appeals/catalog")
 def appeal_catalog(organization_id: UUID, db: Db, user: InspectorUser):
     from app.appeal_catalog import organization_appeal_catalog
@@ -566,8 +585,7 @@ async def create_inspector_appeal(organization_id: UUID, request: Request, db: D
 def appeals(organization_id: UUID, db: Db, user: InspectorUser, page: int = Query(default=1, ge=1),
             status: AppealStatus | None = None,
             archived: bool = False, q: str = Query(default="", max_length=200),
-            category: str = Query(default="", max_length=60), operator: str = Query(default="", max_length=100),
-            deadline: reporting.DeadlineFilter = 'any', source: reporting.SourceFilter = 'all'):
+            category: str = Query(default="", max_length=60), source: reporting.SourceFilter = 'all'):
     authorized_organization(db, user, organization_id)
     scope = inspector_appeal_scope(organization_id)
     condition = scope
@@ -576,25 +594,24 @@ def appeals(organization_id: UUID, db: Db, user: InspectorUser, page: int = Quer
         condition = condition & (CitizenAppeal.status == status)
     for match in appeal_search(q):
         condition = condition & match
-    for match in reporting.filters(category, operator, deadline, source=source):
+    for match in reporting.filters(category, source=source):
         condition = condition & match
     rows = list(db.scalars(select(CitizenAppeal).where(condition)
                           .order_by(CitizenAppeal.id.desc()).offset((page - 1) * 20).limit(20)))
     messages = unanswered_comments(db, [appeal.id for appeal in rows], user, inspector=True)
-    tasks = reporting.task_summaries(db, rows)
     return {"total": db.scalar(select(func.count()).select_from(CitizenAppeal).where(condition)), "page": page, "page_size": 20,
             "yandex_maps_api_key": base_settings().yandex_maps_api_key,
             "public_url": base_settings().public_appeals_origin.rstrip("/") or "/appeals",
-            "filter_options": reporting.options(db, [scope]),
-            "items": [{**restricted_appeal(db, a), **tasks[a.id], "unanswered_comments": messages.get(a.id, 0)} for a in rows]}
+            "filter_options": reporting.options(db, [scope], show_assignments=False),
+            "items": [{**restricted_appeal(db, a), "unanswered_comments": messages.get(a.id, 0)} for a in rows]}
 
 
 @router.get("/organizations/{organization_id}/appeals/statistics")
 def appeal_statistics(organization_id: UUID, db: Db, user: InspectorUser, start: date, end: date,
-                      category: str = Query(default="", max_length=60), operator: str = Query(default="", max_length=100),
+                      category: str = Query(default="", max_length=60),
                       source: reporting.SourceFilter = 'all'):
     authorized_organization(db, user, organization_id)
-    return reporting.statistics(db, [inspector_appeal_scope(organization_id)], start, end, category, operator, source=source)
+    return reporting.statistics(db, [inspector_appeal_scope(organization_id)], start, end, category, source=source, show_assignments=False)
 
 
 def restricted_appeal(db, appeal):
@@ -604,7 +621,7 @@ def restricted_appeal(db, appeal):
     return {key: getattr(appeal, key) for key in ("id", "organization_id", "organization_name", "city", "address", "place",
             "subject", "description", "work_type_name", "category", "status", "version", "created_at", "updated_at", "latitude", "longitude",
             "public_response", "resolved_at", "is_public", "submitted_by_inspector_id", "submitted_by_inspector_name", "archived_at")} | workflow_detail(db, appeal,
-                lambda path: f"/api/inspection/organizations/{appeal.organization_id}/appeals" + path, private=False) | {
+                lambda path: f"/api/inspection/organizations/{appeal.organization_id}/appeals" + path, private=False, show_assignments=False) | {
         "number": f"ОБ-{appeal.id:06d}", "photo_count": appeal.photo_count, "source": appeal_source(appeal),
         "can_manage": False, "can_execute": False,
         "is_final": is_final(appeal),
@@ -638,6 +655,14 @@ def appeal_events(organization_id: UUID, appeal_id: int, db: Db, user: Inspector
     return event_page(db, appeal, user=user, inspector=True, before=before, after=after)
 
 
+@router.get("/organizations/{organization_id}/appeals/{appeal_id}/forward-targets")
+def appeal_forward_targets(organization_id: UUID, appeal_id: int, db: Db, user: InspectorUser,
+                           message_id: int = Query(gt=0), q: str = Query("", max_length=200)):
+    authorized_organization(db, user, organization_id)
+    appeal = find_inspector_appeal(db, organization_id, appeal_id)
+    return forward_targets(db, appeal, message_id, user, "inspector", q, inspector=True)
+
+
 @router.post("/organizations/{organization_id}/appeals/{appeal_id}/comments", status_code=201)
 def appeal_comment(organization_id: UUID, appeal_id: int, body: CommentInput, db: Db, user: InspectorUser):
     authorized_organization(db, user, organization_id)
@@ -653,7 +678,7 @@ def appeal_attachment(organization_id: UUID, appeal_id: int, photo_id: UUID, db:
     authorized_organization(db, user, organization_id)
     appeal = find_inspector_appeal(db, organization_id, appeal_id)
     photo = db.get(AppealAttachment, str(photo_id))
-    if not photo or photo.appeal_id != appeal.id:
+    if not photo or photo.appeal_id != appeal.id or not photo.published:
         raise HTTPException(404)
     return image_response(getattr(photo, variant))
 

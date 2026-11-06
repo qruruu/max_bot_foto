@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import Organizations from './Organizations';
 import { api } from './api';
@@ -20,7 +21,7 @@ it('requires confirmation before pausing an organization and keeps settings when
   const tick = () => new Promise(resolve => setTimeout(resolve, 0));
   const button = (text: string) => [...element.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent?.includes(text))!;
   try {
-    await act(async () => {root.render(<Organizations/>); await tick();});
+    await act(async () => {root.render(<MemoryRouter><Organizations/></MemoryRouter>); await tick();});
     await act(async () => {button('Настроить').click();});
     await act(async () => {element.querySelector<HTMLInputElement>('input[type=checkbox]')!.click(); button('Сохранить').click(); await tick();});
     expect(element.querySelector('[role=alertdialog]')).not.toBeNull();

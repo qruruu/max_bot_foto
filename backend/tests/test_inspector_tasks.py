@@ -63,7 +63,10 @@ def test_optional_fields_documents_chat_audiences_and_deadline_enforcement(workf
     assert inspectors[0].get(detail['files'][0]['url']).content == b'%PDF-1.7\ninstructions'
     assert inspectors[1].get(detail['files'][0]['url']).status_code == 404
     assert owner.post(endpoint + '/assign', json={'operator_id': ids[0], 'expected_version': 1}).status_code == 200
-    assert owner.get(endpoint).json()['task']['due_date'] == str(due)
+    assigned = owner.get(endpoint).json()['task']
+    assert assigned['due_date'] == str(due)
+    assert inspectors[0].get(checked).json()['task'] is None
+    assert assigned['operator_name'] not in inspectors[0].get(checked + '/events').text
     assert owner.post(endpoint + '/deadline', json={'due_date': str(due + timedelta(days=1)), 'expected_version': 2}).status_code == 422
     assert owner.post(endpoint + '/deadline', json={'due_date': None, 'expected_version': 2}).status_code == 422
     assert inspectors[0].post(checked + '/deadline', json={'due_date': str(due - timedelta(days=1)), 'expected_version': 2}).status_code == 422
@@ -93,6 +96,30 @@ def test_optional_fields_documents_chat_audiences_and_deadline_enforcement(workf
     assert operators[0].get(endpoint + '/events?channel=inspector').status_code == 403
     assert inspectors[0].post(checked + '/comments', json={'client_id': str(uuid4()), 'channel': 'executor', 'comment': 'bad'}).status_code == 403
     assert owner.post(endpoint + '/comments', json={'client_id': str(uuid4()), 'channel': 'executor', 'screenshots': ['invalid!']}).status_code == 422
+    original = next(item for item in inspector_events['items'] if item['comment'] == 'checking-private')
+    reply = owner.post(endpoint + '/comments', json={'client_id': str(uuid4()), 'channel': 'inspector',
+        'comment': 'Ответ на сообщение', 'reply_to_id': original['id']})
+    assert reply.status_code == 201
+    assert next(item for item in inspectors[0].get(checked + '/events').json()['items']
+                if item['id'] == reply.json()['id'])['reply']['body'] == 'checking-private'
+    assert owner.post(endpoint + '/comments', json={'client_id': str(uuid4()), 'channel': 'executor',
+        'forward_message_id': original['id']}).status_code == 404
+    other_task = multipart(inspectors[0], checked.rsplit('/', 1)[0],
+        {**body, 'client_id': str(uuid4()), 'subject': 'Проверка пересылки'}, False)
+    assert other_task.status_code == 201, other_task.text
+    target = other_task.json()['id']
+    targets = inspectors[0].get(checked + '/forward-targets', params={'message_id': original['id']}).json()
+    assert [item['id'] for item in targets] == [target]
+    target_path = checked.rsplit('/', 1)[0] + f'/{target}'
+    forwarded = inspectors[0].post(target_path + '/comments', json={
+        'client_id': str(uuid4()), 'forward_message_id': original['id']})
+    assert forwarded.status_code == 201, forwarded.text
+    event = next(item for item in inspectors[0].get(target_path + '/events').json()['items']
+                 if item['id'] == forwarded.json()['id'])
+    assert event['forwarded_name'] == original['actor_name']
+    assert event['comment'] == original['comment']
+    assert inspectors[0].get(event['files'][0]['url']).content == inspectors[0].get(inspector_file['url']).content
+
     with TestClient(public_app) as citizen:
         assert citizen.get(f'/api/public/appeals/wall/{id}').status_code == 404
         created = submit(citizen, metadata(scopes[0], addresses[0]))

@@ -12,6 +12,7 @@ from sqlalchemy.orm import load_only
 
 from app.auth import CurrentUser, Db
 from app.chat_access import chat_condition
+from app.chat_messages import Screenshots, prepare_screenshots, quote, screenshot_response
 from app.domain import now
 from app.models import OperatorMessage, Photo, User
 from app.organization_context import workspace_url
@@ -27,9 +28,15 @@ class MessageInput(StrictModel):
     client_id: UUID
     photo_id: int | None = Field(default=None, gt=0)
 
+    screenshots: Screenshots = Field(default_factory=list)
+    reply_to_id: int | None = Field(default=None, gt=0)
+    forward_message_id: int | None = Field(default=None, gt=0)
+
     @model_validator(mode="after")
     def content(self):
-        if not self.body and self.photo_id is None:
+        if self.forward_message_id and (self.body or self.photo_id or self.screenshots or self.reply_to_id):
+            raise ValueError("Пересылаемое сообщение нельзя изменять")
+        if not (self.body or self.photo_id or self.screenshots or self.forward_message_id):
             raise ValueError("Напишите сообщение или выберите фотографию")
         return self
 
@@ -76,6 +83,10 @@ def message_dict(message, photos=None):
     return {
         "id": message.id, "sender_id": message.sender_id, "recipient_id": message.recipient_id,
         "client_id": message.client_id, "body": message.body,
+        "reply": message.reply, "forwarded": message.forwarded_from_id is not None,
+        "forwarded_name": message.forwarded_name,
+        "screenshots": [workspace_url(f"/api/operator-chats/messages/{message.id}/screenshots/{number}")
+                        for number in range(1, message.screenshot_count + 1)],
         "photo": {
             "id": message.photo_id, "available": photo is not None,
             "preview_url": workspace_url(f"/api/photos/{photo.id}/preview") if photo is not None and photo.sha256 else None,
@@ -87,8 +98,25 @@ def message_dict(message, photos=None):
     }
 
 
+def source_message(db, user, message_id):
+    source = db.get(OperatorMessage, message_id)
+    if not source or user.id not in (source.sender_id, source.recipient_id):
+        raise HTTPException(404, "Сообщение недоступно")
+    return source
+
+
+@router.get("/messages/{message_id}/screenshots/{number}")
+def message_screenshot(message_id: int, number: int, db: Db, user: CurrentUser):
+    return screenshot_response(source_message(db, user, message_id), number)
+
+
 @router.get("")
-def contacts(db: Db, user: CurrentUser, photo_id: Annotated[int | None, Query(gt=0)] = None):
+def contacts(db: Db, user: CurrentUser, photo_id: Annotated[int | None, Query(gt=0)] = None,
+             forward_message_id: Annotated[int | None, Query(gt=0)] = None):
+    if forward_message_id:
+        if photo_id is not None:
+            raise HTTPException(422, "Выберите сообщение или фотографию")
+        photo_id = source_message(db, user, forward_message_id).photo_id
     if photo_id is not None and photo_id not in visible_photos(db, user, [photo_id]):
         raise HTTPException(404, "Фотография недоступна для пересылки")
     peer_id = case(
@@ -179,24 +207,42 @@ def messages(
 @router.post("/{peer_id}/messages", status_code=201)
 def send_message(peer_id: int, body: MessageInput, db: Db, user: CurrentUser):
     peer = peer_user(db, user.id, peer_id, sending=True)
+    content, photo_id = body.body, body.photo_id
+    forward_name, reply = None, None
+    screenshots = prepare_screenshots(body.screenshots) or None
+    if body.forward_message_id:
+        source = source_message(db, user, body.forward_message_id)
+        content, photo_id, screenshots = source.body, source.photo_id, source.screenshots
+        forward_name = source.forwarded_name or db.get(User, source.sender_id).name
+    if body.reply_to_id:
+        source = db.scalar(select(OperatorMessage).where(
+            OperatorMessage.id == body.reply_to_id, conversation(user.id, peer_id)))
+        if source is None:
+            raise HTTPException(404, "Сообщение для ответа недоступно")
+        reply = quote(source.id, db.get(User, source.sender_id).name, source.body,
+                      source.photo_id or source.screenshot_count)
     # Serialize each pair until commit, so an ID cursor cannot skip a late-committing message.
     pair_key = (min(user.id, peer_id) << 32) | max(user.id, peer_id)
     db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": pair_key})
+    db.execute(text("SELECT pg_advisory_xact_lock(:sender)"), {"sender": -user.id})
     existing = db.scalar(select(OperatorMessage).where(
         OperatorMessage.sender_id == user.id, OperatorMessage.client_id == str(body.client_id),
     ))
     if existing:
-        if existing.recipient_id != peer_id or existing.body != body.body or existing.photo_id != body.photo_id:
+        if (existing.recipient_id, existing.body, existing.photo_id, existing.forwarded_from_id,
+                (existing.reply or {}).get("id"), existing.screenshots) != (
+                peer_id, content, photo_id, body.forward_message_id, body.reply_to_id, screenshots):
             raise HTTPException(409, "Идентификатор сообщения уже использован")
         return message_dict(existing, visible_photos(db, user, [existing.photo_id]))
-    photos = visible_photos(db, user, [body.photo_id])
-    if body.photo_id is not None:
-        if body.photo_id not in photos:
+    photos = visible_photos(db, user, [photo_id])
+    if photo_id is not None:
+        if photo_id not in photos:
             raise HTTPException(404, "Фотография недоступна для пересылки")
-        if body.photo_id not in visible_photos(db, peer, [body.photo_id]):
+        if photo_id not in visible_photos(db, peer, [photo_id]):
             raise HTTPException(422, "У этого оператора нет доступа к фотографии. Выберите другого оператора.")
     message = OperatorMessage(
-        sender_id=user.id, recipient_id=peer_id, body=body.body, client_id=str(body.client_id), photo_id=body.photo_id,
+        sender_id=user.id, recipient_id=peer_id, body=content, client_id=str(body.client_id), photo_id=photo_id,
+        forwarded_from_id=body.forward_message_id, forwarded_name=forward_name, reply=reply, screenshots=screenshots,
     )
     db.add(message)
     db.commit()

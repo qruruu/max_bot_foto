@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Search } from 'lucide-react';
+import { ChevronDown, Search } from 'lucide-react';
 import { api } from './api';
 
 export function photoNumber(value: string): number | null {
@@ -33,7 +33,9 @@ export default function PhotoNumberSearch({owner, open, endpoint = '/photos', de
     catch (e) { if (!controller.signal.aborted) setError((e as Error).message); }
     finally { if (!controller.signal.aborted) setBusy(false); }
   }
-  return <section className="panel photo-number-search" aria-label="Поиск фотографии по номеру">
+  return <details className="panel photo-number-search" aria-label="Поиск фотографии по номеру">
+    <summary><Search size={17}/>Поиск по номеру<ChevronDown className="disclosure-chevron" size={16}/></summary>
+    <div className="photo-number-body">
     <form onSubmit={search}>
       <label htmlFor="photo-number">Номер фотографии</label>
       <div className="photo-number-controls"><input id="photo-number" inputMode="numeric" autoComplete="off"
@@ -43,5 +45,6 @@ export default function PhotoNumberSearch({owner, open, endpoint = '/photos', de
     <p className="hint">{description || (owner ? 'Ищет в этой организации среди рабочих и тестовых фото, независимо от даты и фильтров.'
       : 'Ищет среди доступных вам фото текущего режима, независимо от даты и фильтров.')}</p>
     {error && <div className="error" role="alert">{error}</div>}
-  </section>;
+    </div>
+  </details>;
 }

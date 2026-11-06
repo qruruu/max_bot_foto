@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { FormEvent, KeyboardEvent } from 'react';
 import { Camera, RefreshCw } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError, api } from '../api';
+import { encodeScreenshots, useChatExtras } from '../chatContent';
+import type { ChatExtras } from '../chatContent';
 import ChatPanel from '../ChatPanel';
 import { useOperatorChats } from '../OperatorChatsProvider';
 import InspectionForward from './Forward';
@@ -22,7 +23,9 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
   const [drafts, setDrafts] = useState<Record<string, string>>({}), [sendError, setSendError] = useState(''), [historyError, setHistoryError] = useState('');
   const [sendingPeer, setSendingPeer] = useState(''), [refreshKey, setRefreshKey] = useState(0);
   const [forwarding,setForwarding]=useState<Message|null>(null);
-  const retry = useRef<{body: string; peer: string; id: string} | null>(null);
+  const {extras, update, clearSent} = useChatExtras(peerKey);
+  const retry = useRef<{body: string; peer: string; extras: ChatExtras; id: string} | null>(null);
+  const sending = useRef(false);
   const list = useRef<HTMLDivElement>(null), stickToBottom = useRef(true), scrollAnchor = useRef<{height: number; top: number} | null>(null);
   const currentPeer = useRef(peerKey), olderRequest = useRef<AbortController | null>(null);
   const refreshContacts = useRef<() => Promise<void>>(async () => {}), refreshMessages = useRef<() => Promise<void>>(async () => {});
@@ -119,29 +122,30 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
     } catch (error) {if (!controller.signal.aborted && currentPeer.current === target) setHistoryError((error as Error).message);}
     finally {if (!controller.signal.aborted && currentPeer.current === target) setLoadingOlder(false);}
   }
-  async function send(event?: FormEvent) {
-    event?.preventDefault(); const body = draft.trim();
-    if (!peerKey || !contact || !body || sendingPeer || loading) return;
-    const target = peerKey, attempt = retry.current?.peer === target && retry.current.body === body ? retry.current : {peer: target, body, id: crypto.randomUUID()};
-    retry.current = attempt; setSendingPeer(target); setSendError('');
+  async function send() {
+    const body = draft.trim();
+    if (!peerKey || !contact || (!body && !extras.files.length) || sending.current || loading) return;
+    const target = peerKey, attempt = retry.current?.peer === target && retry.current.body === body && retry.current.extras === extras ? retry.current : {peer: target, body, extras, id: crypto.randomUUID()};
+    retry.current = attempt; sending.current = true; setSendingPeer(target); setSendError('');
     try {
-      const message = await api<Message>(base + '/messages?' + new URLSearchParams({peer: target}), 'POST', {body, client_id: attempt.id});
+      const screenshots = await encodeScreenshots(extras.files);
+      const message = await api<Message>(base + '/messages?' + new URLSearchParams({peer: target}), 'POST', {body, client_id: attempt.id,
+        ...(screenshots.length ? {screenshots} : {}), ...(extras.reply ? {reply_to_id: extras.reply.id} : {})});
       if (currentPeer.current === target) {stickToBottom.current = true; setItems(previous => merge(previous, [message]));}
       setDrafts(previous => previous[target]?.trim() === body ? {...previous, [target]: ''} : previous);
+      clearSent(extras);
       if (retry.current === attempt) retry.current = null;
       void refreshContacts.current();
-    } catch (error) {if (currentPeer.current === target) setSendError(error instanceof ApiError ? error.message : 'Не удалось подтвердить отправку. Повторите попытку — текст сохранён.');}
-    finally {setSendingPeer('');}
-  }
-  function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {event.preventDefault(); void send();}
+    } catch (error) {if (currentPeer.current === target) setSendError(error instanceof ApiError || extras.files.length && error instanceof Error ? error.message
+      : 'Не удалось подтвердить отправку. Повторите попытку.');}
+    finally {sending.current = false; setSendingPeer('');}
   }
   return <>
     {base !== '/inspection' && <div className="section-title"><h2>Чаты</h2><button aria-label="Обновить чаты" onClick={() => setRefreshKey(value => value + 1)}><RefreshCw size={18}/></button></div>}
     <ChatPanel contacts={contacts.map(item => ({key: item.key, name: item.name, avatar_url: item.avatar_url, active: true, unread: item.unread,
       subtitle: [item.kind, item.organization_name].filter(Boolean).join(' · '), organization: item.organization_name,
       preview: item.last_message ? (item.last_message_outgoing ? 'Вы: ' : '') + item.last_message : null, preview_at: item.last_message_at}))}
-      selected={peerKey} select={select} contactLoading={contactLoading} contactError={contactError} messages={items.map(item => ({...item, read: !!item.read_at || item.id <= readThrough,
+      selected={peerKey} select={select} contactLoading={contactLoading} contactError={contactError} messages={items.map(item => ({...item, author: item.outgoing ? 'Вы' : contact?.name || 'Собеседник', read: !!item.read_at || item.id <= readThrough,
         canForward: !item.photo || item.photo.available,
         attachment: item.photo && (item.photo.available && item.photo.detail_url ? (base==='/inspection' ? <Link className="operator-message-photo" to={item.photo.detail_url} onClick={event=>{if(openPhotoLink){event.preventDefault();openPhotoLink(item.photo!.detail_url!);}}}>
           {item.photo.preview_url?<img src={item.photo.preview_url} loading="lazy" alt={'Фотография №'+item.photo.id}/>:<span className="operator-message-photo-placeholder"><Camera size={30}/></span>}<span>Фотография #{item.photo.id}<small>{item.photo.organization_name} · Открыть карточку</small></span>
@@ -150,7 +154,7 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
         </a>) : <div className="operator-message-photo-unavailable">Фотография #{item.photo.id} недоступна</div>)}))}
       historyError={historyError} loading={loading} hasOlder={!!before} loadingOlder={loadingOlder} older={older} listRef={list}
       draft={draft} changeDraft={value => {setDrafts(previous => ({...previous, [peerKey]: value})); setSendError('');}}
-      send={send} keyDown={keyDown} sending={!!sendingPeer} sendError={sendError} timezone={timezone} labels={labels}
+      send={send} extras={extras} changeExtras={update} reply={value => update({reply: value})} sending={!!sendingPeer} sendError={sendError} timezone={timezone} labels={labels}
       forward={id=>setForwarding(items.find(item=>item.id===id)||null)}/>
     {forwarding&&<InspectionForward key={forwarding.id} base={base} message={forwarding} onClose={()=>setForwarding(null)} onSent={peer=>{setForwarding(null);select(peer.key);void refreshContacts.current();void refreshMessages.current();}}/>}
   </>;

@@ -2,6 +2,7 @@ from datetime import date, datetime, time
 
 from geoalchemy2 import Geometry
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -24,6 +25,27 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
 from app.permissions import DEFAULT_OPERATOR_PERMISSIONS
+
+
+class ChatMessageContent:
+    forwarded_name: Mapped[str | None] = mapped_column(String(150))
+    reply: Mapped[dict | None] = mapped_column(JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"))
+    screenshot_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    screenshot_1: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, deferred_group="screenshots")
+    screenshot_2: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, deferred_group="screenshots")
+    screenshot_3: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, deferred_group="screenshots")
+
+    @property
+    def screenshots(self):
+        if not self.screenshot_count:
+            return None
+        return [getattr(self, f"screenshot_{number}") for number in range(1, self.screenshot_count + 1)]
+
+    @screenshots.setter
+    def screenshots(self, images):
+        self.screenshot_count = len(images) if images else 0
+        for number, content in enumerate(images or (), 1):
+            setattr(self, f"screenshot_{number}", content)
 
 
 class Timestamps:
@@ -173,6 +195,8 @@ class AppealEvent(Base):
     visibility: Mapped[str] = mapped_column(String(20), default="STAFF")
     operator_id: Mapped[int | None] = mapped_column(Integer)
     client_id: Mapped[str | None] = mapped_column(String(36))
+    reply: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    forwarded_name: Mapped[str | None] = mapped_column(String(150))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (
         CheckConstraint("visibility IN ('STAFF', 'ADMIN', 'TASK', 'INSPECTOR')"),
@@ -410,7 +434,7 @@ class InspectionGrant(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class InspectionMessage(Base):
+class InspectionMessage(ChatMessageContent, Base):
     __tablename__ = "inspection_messages"
     id: Mapped[int] = mapped_column(primary_key=True)
     # Separate namespaces prevent tenant user IDs from colliding with platform IDs.
@@ -426,7 +450,7 @@ class InspectionMessage(Base):
     __table_args__ = (
         UniqueConstraint("sender_key", "client_id", name="uq_inspection_message_client"),
         CheckConstraint("sender_key <> recipient_key AND length(trim(body)) BETWEEN 0 AND 4000 "
-                        "AND (length(trim(body)) > 0 OR photo_id IS NOT NULL) "
+                        "AND (length(trim(body)) > 0 OR photo_id IS NOT NULL OR screenshot_count > 0) "
                         "AND ((photo_id IS NULL AND photo_organization_id IS NULL) "
                         "OR (photo_id IS NOT NULL AND photo_id > 0 AND photo_organization_id IS NOT NULL))",
                         name="ck_inspection_message_content"),
@@ -533,7 +557,7 @@ class User(Timestamps, Base):
     )
 
 
-class OperatorMessage(Base):
+class OperatorMessage(ChatMessageContent, Base):
     __tablename__ = "operator_messages"
     id: Mapped[int] = mapped_column(primary_key=True)
     sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
@@ -541,11 +565,12 @@ class OperatorMessage(Base):
     client_id: Mapped[str] = mapped_column(String(36))
     body: Mapped[str] = mapped_column(Text)
     photo_id: Mapped[int | None] = mapped_column(ForeignKey("photos.id", name="fk_operator_messages_photo"))
+    forwarded_from_id: Mapped[int | None] = mapped_column(ForeignKey("operator_messages.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (
         CheckConstraint("sender_id <> recipient_id", name="ck_operator_message_peer"),
-        CheckConstraint("length(body) <= 4000 AND (length(body) > 0 OR photo_id IS NOT NULL)",
+        CheckConstraint("length(body) <= 4000 AND (length(body) > 0 OR photo_id IS NOT NULL OR screenshot_count > 0)",
                         name="ck_operator_message_body"),
         UniqueConstraint("sender_id", "client_id", name="uq_operator_message_client"),
         Index("ix_operator_messages_pair", "sender_id", "recipient_id", "id"),

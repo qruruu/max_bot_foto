@@ -77,10 +77,17 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
   }
   const reportable = ['ASSIGNED', 'IN_PROGRESS'].includes(appeal.status);
   const tasks = <>
-    {!!appeal.children?.length && <section className="appeal-task"><h3>Подзадачи · {appeal.children.length}</h3>{appeal.children.map(child => <article className="appeal-subtask-row" key={child.id}><button onClick={() => openTask?.(child.id)}>{child.number} · {child.subject}</button><p>{appealStatuses[child.status]} · {child.operator_name}</p><small className="hint">Срок: {child.due_date ? new Date(child.due_date + 'T00:00:00').toLocaleDateString('ru-RU') : 'Не установлен'}</small>{(child.result || child.operator_result) && <p className="owner-appeal-text">{child.result || child.operator_result}</p>}</article>)}</section>}
+    {!!appeal.children?.length && <section className="appeal-task"><h3>Подзадачи · {appeal.children.length}</h3>{appeal.children.map(child => <article className="appeal-subtask-row" key={child.id}><button onClick={() => openTask?.(child.id)}>{child.number} · {child.subject}</button><p>{appealStatuses[child.status]}{!readOnly && ' · ' + child.operator_name}</p>{!readOnly && child.due_date && <small className="hint">Срок: {new Date(child.due_date + 'T00:00:00').toLocaleDateString('ru-RU')}</small>}{(child.result || child.operator_result) && <p className="owner-appeal-text">{child.result || child.operator_result}</p>}</article>)}</section>}
     {appeal.parent_id && !appeal.parent && <p className="hint">Подзадача обращения ОБ-{String(appeal.parent_id).padStart(6, '0')}</p>}
-    {!!appeal.submitted_by_inspector_name && <section className="appeal-task"><h3>Срок проверяющего</h3><p>{appeal.inspector_due_date ? new Date(appeal.inspector_due_date + 'T00:00:00').toLocaleDateString('ru-RU') : 'Не установлен'}</p>
-      {appeal.can_set_inspector_deadline && !appeal.archived_at && !isFinalAppeal(appeal) && <form onSubmit={event => {event.preventDefault(); void send('/deadline', {due_date: inspectorDueDate || null, expected_version: appeal.version});}}><label>Выполнить до<input type="date" value={inspectorDueDate} onChange={event => setInspectorDueDate(event.target.value)} disabled={busy}/></label><button className="primary" disabled={busy || inspectorDueDate === (appeal.inspector_due_date || '')}>Сохранить срок задачи</button></form>}
+    {!!appeal.submitted_by_inspector_name && <section className="appeal-task"><h3>{readOnly ? 'Срок задачи' : 'Срок от проверяющего'}</h3>
+      <p>{appeal.inspector_due_date ? new Date(appeal.inspector_due_date + 'T00:00:00').toLocaleDateString('ru-RU') : 'Без срока'}</p>
+      {appeal.can_set_inspector_deadline && !appeal.archived_at && !isFinalAppeal(appeal) && <details>
+        <summary>Изменить срок</summary>
+        <form onSubmit={event => {event.preventDefault(); void send('/deadline', {due_date: inspectorDueDate || null, expected_version: appeal.version});}}>
+          <label>Выполнить до<input type="date" value={inspectorDueDate} onChange={event => setInspectorDueDate(event.target.value)} disabled={busy}/></label>
+          <button disabled={busy || inspectorDueDate === (appeal.inspector_due_date || '')}>Сохранить срок</button>
+        </form>
+      </details>}
     </section>}
     {manage && !!appeal.submitted_by_inspector_name && !appeal.parent_id && !appeal.archived_at && !isFinalAppeal(appeal) && <details className="appeal-task"><summary>Разделить на подзадачи</summary><p className="hint">Каждая подзадача назначается отдельно. Итоговый ответ сохраните после завершения всех подзадач. Прямое назначение родительской задачи будет отменено.</p>
       <label>Тема<input maxLength={80} value={subtaskTitle} disabled={busy} onChange={event => setSubtaskTitle(event.target.value)}/></label>
@@ -101,12 +108,12 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
       {appeal.task.result_comment && <><h4>Результат исполнителя</h4><p className="owner-appeal-text">{appeal.task.result_comment}</p></>}
       <div className="appeal-evidence">{appeal.task.photos.map(photo => <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Фото результата исполнителя"/></a>)}</div>
     </section>}
-    {appeal.can_set_task_status && !appeal.archived_at && !isFinalAppeal(appeal) && <section className="appeal-task"><h3>Статус задачи</h3>
-      <label>Состояние задачи<select disabled={busy} value={result} onChange={event => setResult(event.target.value)}>
+    {appeal.can_set_task_status && !appeal.archived_at && !isFinalAppeal(appeal) && <details className="appeal-task"><summary>Изменить статус</summary>
+      <label>Статус<select disabled={busy} value={result} onChange={event => setResult(event.target.value)}>
         {!['COMPLETED', 'CANCELLED'].includes(appeal.status) && <option value={appeal.status} disabled>{appealStatuses[appeal.status]}</option>}
         <option value="COMPLETED">Выполнена</option><option value="CANCELLED">Отменена</option>
       </select></label><button className="primary" disabled={busy || result === appeal.status} onClick={() => void send('/task-status', {status: result, expected_version: appeal.version})}>{busy ? 'Сохраняем…' : 'Сохранить статус задачи'}</button>
-    </section>}
+    </details>}
     {execute && reportable && <section className="appeal-task"><h3>Статус задачи</h3>
       <label>Состояние задачи<select disabled={busy} value={result} onChange={event => setResult(event.target.value)}><option value="ASSIGNED">Назначена</option><option value="IN_PROGRESS">В работе</option><option value="CANCELLED">Отменена</option><option value="COMPLETED">Выполнена</option></select></label>
       {['ASSIGNED', 'IN_PROGRESS'].includes(result) ? <button className="primary" disabled={busy || result === appeal.status} onClick={() => void send('/task-status', {status: result, expected_version: appeal.version})}>Сохранить статус задачи</button> : <>

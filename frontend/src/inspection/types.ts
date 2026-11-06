@@ -1,3 +1,4 @@
+import type { ChatContent } from '../chatContent';
 import type { Meta, User } from '../types';
 
 export type Inspector = User & {agency_id: string; agency_name: string; can_create_accounts: boolean; created_by: number | null};
@@ -15,7 +16,7 @@ export type Contact = {key: string; name: string; kind: string; organization_nam
   unread: number; last_message: string | null; last_message_at: string | null; last_message_outgoing: boolean};
 export type MessagePhoto = {id: number; available: boolean; organization_id: string | null; organization_name: string | null;
   preview_url: string | null; detail_url: string | null};
-export type Message = {id: number; body: string; outgoing: boolean; created_at: string; read_at: string | null; peer_name?: string;
-  forwarded?: boolean; photo?: MessagePhoto | null};
+export type Message = ChatContent & {id: number; body: string; outgoing: boolean; created_at: string; read_at: string | null; peer_name?: string;
+  photo?: MessagePhoto | null};
 export type MessagePage = {items: Message[]; next_before_id: number | null};
 export type ConversationPage = MessagePage & {has_newer: boolean; peer_read_through_id: number};

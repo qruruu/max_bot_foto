@@ -54,12 +54,11 @@ export default function Settings({authBase = '/auth', selectedSection, sectionLi
 }) {
   const route = useParams();
   const section = selectedSection ?? route.section;
-  if (!sections.some(item => item.id === section)) return <Navigate to="/settings/profile" replace/>;
+  if (!sections.some(item => item.id === section)) return <Navigate to={sectionLink?.('profile') || '/settings/profile'} replace/>;
 
   return <>
     <header className="page-header"><div>
-      <span className="eyebrow">ЛИЧНЫЕ НАСТРОЙКИ</span><h1>Настройки</h1>
-      <p>Настройте профиль, оформление, уведомления и безопасность аккаунта.</p>
+      <h1>Настройки</h1>
     </div></header>
     <div className="settings-layout">
       <nav className="settings-nav" aria-label="Разделы настроек">

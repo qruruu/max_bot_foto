@@ -53,18 +53,17 @@
   .settings-nav { padding-right: 14px; }
 }
 @media (max-width: 700px) {
-  .settings-layout { grid-template-columns: 48px minmax(0, 1fr); gap: 16px; }
-  .settings-nav { padding-right: 8px; min-height: 240px; }
-  .settings-nav a { justify-content: center; padding: 12px 8px; }
-  .settings-nav a span { display: none; }
+  .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .settings-nav { position: static; display: flex; flex-direction: row; flex-wrap: wrap; gap: 5px; min-height: 0; padding: 0; border: 0; }
+  .settings-nav a { gap: 6px; min-height: 38px; padding: 7px 9px; }
+  .settings-nav a svg { width: 16px; height: 16px; }
   .settings-content .appearance-row { gap: 10px; }
   .settings-content .appearance-row > div { min-width: 0; }
-  .session-device-name strong { font-size: 13px; }
+  .profile-identity { gap: 14px; margin: 16px 0 22px; }
+  .profile-avatar { width: 60px; height: 60px; font-size: 24px; }
   .session-confirmation .section-title h2 { font-size: 18px; }
 }
 @media (max-width: 420px) {
-  .settings-layout { grid-template-columns: 44px minmax(0, 1fr); gap: 10px; }
-  .session-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .session-action { grid-column: 1; }
-  .session-details p { font-size: 11px; }
+  .session-action { grid-column: 2; }
+  .session-details p { overflow-wrap: anywhere; }
 }
