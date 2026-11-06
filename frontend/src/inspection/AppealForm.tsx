@@ -6,7 +6,7 @@ import type { PublicOrganization } from '../appeals/catalog';
 import { clearDraft, EMPTY_FORM, hasDraftContent, loadDraft, saveDraft } from '../appeals/drafts';
 import type { AppealDraft, StoredPhoto } from '../appeals/drafts';
 import { galleryPhoto } from '../appeals/gallery';
-import { pastedImages } from '../appeals/TaskImageInput';
+import { MAX_PHOTOS, pastedImages } from '../appeals/TaskImageInput';
 import './appeals.css';
 
 const ProblemMap = lazy(() => import('../appeals/ProblemMap'));
@@ -89,7 +89,7 @@ export default function InspectionAppealForm({organizationId, inspectorId, creat
     sending.current = true; setPreparing(true); setError('');
     const added: Photo[] = [];
     try {
-      if (photos.length + files.length > 3) throw new Error('Можно приложить до трёх фотографий');
+      if (photos.length + files.length > MAX_PHOTOS) throw new Error(`Можно приложить до ${MAX_PHOTOS} фотографий`);
       for (const file of [...files]) {const photo = await galleryPhoto(file); added.push({...photo, url: URL.createObjectURL(photo.preview)});}
       if (active.current) setPhotos(current => [...current, ...added]); else added.forEach(photo => URL.revokeObjectURL(photo.url));
     } catch (reason) {added.forEach(photo => URL.revokeObjectURL(photo.url)); if (active.current) setError((reason as Error).message);}
@@ -139,13 +139,14 @@ export default function InspectionAppealForm({organizationId, inspectorId, creat
           <label>Срок задачи <small>необязательно</small><input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)}/></label>
           <label>Описание задачи<textarea required maxLength={4000} rows={4} value={form.description} onPaste={event => {const images = pastedImages(event); if (images.length) void addPhotos(images);}} onChange={event => setForm(current => ({...current, description: event.target.value}))}/></label>
           <label>Уточнение места <small>необязательно</small><input maxLength={300} value={form.place} onChange={event => setForm(current => ({...current, place: event.target.value}))}/></label>
-          <label>Фото и скриншоты <small>до 3 файлов. Скриншот можно вставить в описание.</small><input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple onChange={event => void addPhotos(event.target.files)}/></label>
+          <label>Фото и скриншоты <small>до {MAX_PHOTOS} файлов по 25 МБ. Скриншот можно вставить в описание.</small><input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple onChange={event => void addPhotos(event.target.files)}/></label>
           <label>Документы <small>до 5 файлов Word, Excel или PDF, до 25 МБ каждый</small><input type="file" accept=".doc,.docx,.xls,.xlsx,.pdf" multiple onChange={event => {
             const added = [...(event.target.files || [])];
             if (added.length + documents.length > 5 || added.some(file => file.size > 25 * 1024 * 1024)) {setError('Можно приложить до пяти документов по 25 МБ'); return;}
             setDocuments(current => [...current, ...added]); event.target.value = '';
           }}/></label>
           {documents.map((file, index) => <p key={index}>{file.name} <button type="button" aria-label={'Удалить ' + file.name} onClick={() => setDocuments(current => current.filter((_, i) => i !== index))}><Trash2 size={16}/></button></p>)}
+          {photos.length > 0 && <p className="hint">Выбрано фото: {photos.length} из {MAX_PHOTOS}</p>}
           <div className="inspector-appeal-photos">{photos.map((photo, index) => <div key={photo.id}><a href={photo.url} target="_blank" rel="noreferrer"><img src={photo.url} alt={'Фото нарушения ' + (index + 1)}/></a><button type="button" aria-label={'Удалить фото ' + (index + 1)} onClick={() => {URL.revokeObjectURL(photo.url); setPhotos(current => current.filter(item => item.id !== photo.id));}}><Trash2 size={16}/></button></div>)}</div>
           {preparing && <p className="hint"><ImagePlus size={16}/>Подготавливаем фотографии…</p>}
         </fieldset>

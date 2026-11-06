@@ -273,12 +273,15 @@ def test_screenshot_reply_and_forward_are_scoped_to_their_chats(chat_api):
     client, _ = chat_api
     png = BytesIO()
     Image.new("RGB", (24, 24), "blue").save(png, "PNG")
-    payload = {"client_id": str(uuid4()), "screenshots": [b64encode(png.getvalue()).decode()]}
+    image = b64encode(png.getvalue()).decode()
+    payload = {"client_id": str(uuid4()), "screenshots": [image] * 10}
+    assert client.post("/api/operator-chats/2/messages", json={**payload, "screenshots": [image] * 11}).status_code == 422
     sent = client.post("/api/operator-chats/2/messages", json=payload)
     assert sent.status_code == 201, sent.text
     original = sent.json()
+    assert len(original["screenshots"]) == 10
     assert client.post("/api/operator-chats/2/messages", json=payload).json() == original
-    screenshot = original["screenshots"][0]
+    screenshot = original["screenshots"][-1]
     assert client.get(screenshot).headers["content-type"] == "image/jpeg"
 
     actor(client, 3)

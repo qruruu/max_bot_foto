@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api } from '../api';
-import TaskImageInput, { pastedImages } from './TaskImageInput';
+import TaskImageInput, { MAX_PHOTOS, pastedImages } from './TaskImageInput';
 import { galleryPhoto } from './gallery';
 
 type Operator = {id: number; name: string};
@@ -32,8 +32,8 @@ export default function AdminTaskForm({endpoint, onClose, onCreated}: {
   }, [endpoint, retry]);
 
   function updateFiles(next: File[]) {
-    if (next.length > 3) {
-      setError('Можно приложить до трёх фото или скриншотов');
+    if (next.length > MAX_PHOTOS) {
+      setError(`Можно приложить до ${MAX_PHOTOS} фото или скриншотов`);
       return;
     }
     setError('');

@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { api } from '../api';
 import { appealDecisions, appealStatuses, hasAppealDecision, isFinalAppeal } from './statuses';
 import { galleryPhoto } from './gallery';
-import TaskImageInput, { pastedImages } from './TaskImageInput';
+import TaskImageInput, { MAX_PHOTOS, pastedImages } from './TaskImageInput';
 
 export type ResultPhoto = {id: string; url: string; preview_url: string};
 export type AppealTask = {id: number; operator_id: number; operator_name: string; instruction?: string;
@@ -77,8 +77,8 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
     finally {sending.current = false; setPreparing(false); setBusy(false);}
   }
   function updateFiles(next: File[]) {
-    if (next.length > 3) {
-      setError('Можно приложить до трёх фото или скриншотов');
+    if (next.length > MAX_PHOTOS) {
+      setError(`Можно приложить до ${MAX_PHOTOS} фото или скриншотов`);
       return;
     }
     setError('');
@@ -133,7 +133,7 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
       {['ASSIGNED', 'IN_PROGRESS'].includes(result) ? <button className="primary" disabled={busy || result === appeal.status} onClick={() => void send('/task-status', {status: result, expected_version: appeal.version})}>Сохранить статус задачи</button> : <>
         <label>Комментарий<textarea disabled={busy} value={comment} maxLength={4000} onPaste={event => {const images = pastedImages(event); if (images.length) updateFiles([...files, ...images]);}} onChange={event => setComment(event.target.value)} placeholder="Что сделано или почему задача отменена"/></label>
         <TaskImageInput disabled={busy} files={files} onChange={updateFiles}/>
-        <button className="primary" disabled={busy || !comment.trim() || !files.length || files.length > 3} onClick={() => void send('/result', upload({status: result, comment}))}>{preparing ? 'Подготавливаем фото…' : busy ? 'Отправляем…' : 'Передать результат администратору'}</button>
+        <button className="primary" disabled={busy || !comment.trim() || !files.length || files.length > MAX_PHOTOS} onClick={() => void send('/result', upload({status: result, comment}))}>{preparing ? 'Подготавливаем фото…' : busy ? 'Отправляем…' : 'Передать результат администратору'}</button>
       </>}
     </section>}
     {manage && !appeal.archived_at && !appeal.children?.length && !isFinalAppeal(appeal) && <>
@@ -157,7 +157,8 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
           <input type="checkbox" checked={selectedPhotos.includes(photo.id)} disabled={busy} onChange={event => setSelectedPhotos(current => event.target.checked ? [...current, photo.id] : current.filter(id => id !== photo.id))}/><img src={photo.preview_url} alt="Выбрать фотографию результата"/></label>)}</div>}
         <TaskImageInput disabled={busy} files={files} onChange={updateFiles}/>
         {!!appeal.children?.some(child => !child.is_final) && <p className="hint">При закрытии незавершённые подзадачи будут закрыты вместе с родительской задачей.</p>}
-        <button className="primary" disabled={busy || !answer.trim() || selectedPhotos.length + files.length > 3}
+        {selectedPhotos.length > 0 && <p className="hint">Всего в ответе: {selectedPhotos.length + files.length} из {MAX_PHOTOS}. Фото исполнителя и новые файлы считаются вместе.</p>}
+        <button className="primary" disabled={busy || !answer.trim() || selectedPhotos.length + files.length > MAX_PHOTOS}
           onClick={() => setConfirmClose(true)}>{decisionAction}</button>
         </>
       </section>

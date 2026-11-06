@@ -11,7 +11,7 @@ from pillow_heif import register_heif_opener
 register_heif_opener()
 
 MAX_PHOTO_BYTES = 25 * 1024 * 1024
-MAX_PHOTOS = 3
+MAX_PHOTOS = 10
 MIN_LONG_SIDE = 1280
 MIN_SHORT_SIDE = 720
 MAX_PIXELS = 16_000_000

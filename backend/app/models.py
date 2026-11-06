@@ -34,6 +34,13 @@ class ChatMessageContent:
     screenshot_1: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, deferred_group="screenshots")
     screenshot_2: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, deferred_group="screenshots")
     screenshot_3: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, deferred_group="screenshots")
+    screenshot_4: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, deferred_group="screenshots")
+    screenshot_5: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, deferred_group="screenshots")
+    screenshot_6: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, deferred_group="screenshots")
+    screenshot_7: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, deferred_group="screenshots")
+    screenshot_8: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, deferred_group="screenshots")
+    screenshot_9: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, deferred_group="screenshots")
+    screenshot_10: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, deferred_group="screenshots")
 
     @property
     def screenshots(self):
@@ -150,7 +157,7 @@ class CitizenAppeal(Timestamps, Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     __table_args__ = (
         CheckConstraint("status IN ('NEW', 'IN_REVIEW', 'ASSIGNED', 'IN_PROGRESS', 'COMPLETED', 'REJECTED', 'CANCELLED', 'RESOLVED', 'DECLINED', 'SPAM')"),
-        CheckConstraint("photo_count BETWEEN 0 AND 3", name="ck_appeal_photo_count"),
+        CheckConstraint("photo_count BETWEEN 0 AND 10", name="ck_appeal_photo_count"),
         CheckConstraint("submitted_by_inspector_id IS NULL OR is_public = false", name="ck_inspector_appeal_private"),
         UniqueConstraint("submitted_by_inspector_id", "inspector_submission_id", name="uq_inspector_appeal_submission"),
         UniqueConstraint("organization_id", "admin_submission_id", name="uq_admin_task_submission"),

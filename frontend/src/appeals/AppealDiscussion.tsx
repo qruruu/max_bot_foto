@@ -98,7 +98,7 @@ export default function AppealDiscussion({endpoint, archived, channel, title = '
     try {
       let encoded = encodedFiles;
       if (!encoded) {
-        encoded = await encodeScreenshots(extras.files, 35 * 1024 * 1024);
+        encoded = await encodeScreenshots(extras.files, 35 * 1024 * 1024, 75 * 1024 * 1024);
         setEncodedFiles(encoded);
       }
       await api(endpoint + '/comments', 'POST', {comment: text.trim(), client_id: clientId.current, channel, screenshots: encoded, ...(extras.reply ? {reply_to_id: extras.reply.id} : {})});

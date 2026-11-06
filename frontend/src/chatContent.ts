@@ -23,15 +23,21 @@ export function useChatExtras(key: string) {
   return {extras, update, clearSent};
 }
 
-export async function encodeScreenshots(files: File[], maxEncodedSize = 2_000_000): Promise<string[]> {
-  return Promise.all(files.map(async file => {
+export async function encodeScreenshots(files: File[], maxEncodedSize = 2_000_000, maxTotalSize = Infinity): Promise<string[]> {
+  const screenshots: string[] = [];
+  let totalSize = 0;
+  for (const file of files) {
     const {blob} = await galleryPhoto(file);
-    if (Math.ceil(blob.size / 3) * 4 > maxEncodedSize) throw new Error('Скриншот слишком большой. Уменьшите его и попробуйте ещё раз.');
-    return new Promise<string>((resolve, reject) => {
+    const encodedSize = Math.ceil(blob.size / 3) * 4;
+    if (encodedSize > maxEncodedSize) throw new Error('Скриншот слишком большой. Уменьшите его и попробуйте ещё раз.');
+    totalSize += encodedSize;
+    if (totalSize > maxTotalSize) throw new Error('Вложения слишком большие для одного сообщения. Отправьте их несколькими сообщениями.');
+    screenshots.push(await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result).split(',')[1]);
       reader.onerror = () => reject(new Error('Не удалось прочитать скриншот'));
       reader.readAsDataURL(blob);
-    });
-  }));
+    }));
+  }
+  return screenshots;
 }

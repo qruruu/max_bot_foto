@@ -60,14 +60,14 @@ def session(citizen):
     return response.json()["token"]
 
 
-def submit(citizen, body, token=None):
+def submit(citizen, body, token=None, *, photos=1):
     return citizen.post("/api/public/appeals/submissions", headers={**HEADERS, "x-capture-token": token or session(citizen)},
-                        data={"metadata": json.dumps(body)}, files={"photos": ("personal-filename.jpg", frame(), "image/jpeg")})
+                        data={"metadata": json.dumps(body)}, files=[("photos", ("personal-filename.jpg", frame(), "image/jpeg"))] * photos)
 
 
 def multipart(client, path, body, photos=True):
     return client.post(path, data={"metadata": json.dumps(body)},
-                       files={"photos": ("result.jpg", frame(), "image/jpeg")} if photos else None)
+                       files=[("photos", ("result.jpg", frame(), "image/jpeg"))] * int(photos) if photos else None)
 
 
 def test_large_citizen_photo_and_phone_jpeg_operator_admin_results(workflow):
@@ -398,23 +398,30 @@ def test_inspector_can_create_only_private_appeals_in_accessible_organization(wo
 def test_inspector_appeal_result_and_closure_stay_private(workflow):
     owner, scopes, operators, operator_ids, addresses, inspectors = workflow
     inspection_endpoint = f'/api/inspection/organizations/{scopes[0].id}/appeals'
-    created = multipart(inspectors[0], inspection_endpoint, inspector_metadata(scopes[0], addresses[0]))
+    body = inspector_metadata(scopes[0], addresses[0])
+    assert multipart(inspectors[0], inspection_endpoint, body, photos=11).status_code in (400, 422)
+    created = multipart(inspectors[0], inspection_endpoint, body, photos=10)
     assert created.status_code == 201, created.text
     id = created.json()['id']
     endpoint = scopes[0].prefix + f'/api/appeals/{id}'
     assert owner.post(endpoint + '/assign', json={'operator_id': operator_ids[0], 'instruction': 'Служебный комментарий', 'expected_version': 1}).status_code == 200
-    assert multipart(operators[0], endpoint + '/result', {'status': 'COMPLETED', 'comment': 'Исполнитель устранил нарушение', 'expected_version': 2}).status_code == 200
+    assert len(owner.get(endpoint).json()['photos']) == 10
+    assert multipart(operators[0], endpoint + '/result', {'status': 'COMPLETED', 'comment': 'Исполнитель устранил нарушение', 'expected_version': 2}, photos=10).status_code == 200
     task = owner.get(endpoint).json()['task']
-    close = multipart(owner, endpoint + '/close', {'comment': 'Ответ проверяющему: нарушение устранено', 'operator_photo_ids': [task['photos'][0]['id']], 'expected_version': 3}, False)
+    assert len(task['photos']) == 10
+    response = {'comment': 'Ответ проверяющему: нарушение устранено', 'operator_photo_ids': [photo['id'] for photo in task['photos']], 'expected_version': 3}
+    assert multipart(owner, endpoint + '/close', response, photos=1).status_code == 422
+    close = multipart(owner, endpoint + '/close', {**response, 'operator_photo_ids': response['operator_photo_ids'][:9]}, photos=1)
     assert close.status_code == 200, close.text
     inspector_detail = inspectors[0].get(inspection_endpoint + f'/{id}')
     assert inspector_detail.json()['status'] == 'RESOLVED'
     assert inspector_detail.json()['is_public'] is False
     assert inspector_detail.json()['public_response'].startswith('Ответ проверяющему')
+    assert len(inspector_detail.json()['response_photos']) == 10
     assert 'Служебный комментарий' not in inspector_detail.text
     assert inspectors[0].get(inspector_detail.json()['response_photos'][0]['url']).status_code == 200
     with TestClient(public_app) as citizen:
-        assert submit(citizen, metadata(scopes[0], addresses[0])).status_code == 201
+        assert submit(citizen, metadata(scopes[0], addresses[0]), photos=10).status_code == 201
         wall = citizen.get('/api/public/appeals/wall', params={'city': 'Сургут'}).json()
         assert wall['total'] == 1 and wall['items'][0]['id'] != id
         for url in (f'/api/public/appeals/wall/{id}', f'/api/public/appeals/wall/{id}/results/{task["photos"][0]["id"]}'):

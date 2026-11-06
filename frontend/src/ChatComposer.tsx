@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Paperclip, Send, X } from 'lucide-react';
-import { pastedImages } from './appeals/TaskImageInput';
+import { MAX_PHOTOS, pastedImages } from './appeals/TaskImageInput';
 import type { ChatExtras } from './chatContent';
 
 export default function ChatComposer({label, draft, changeDraft, extras, changeExtras, send, disabled, sending, error, pending}: {
@@ -20,8 +20,8 @@ export default function ChatComposer({label, draft, changeDraft, extras, changeE
   useEffect(() => {if (reply) field.current?.focus();}, [reply]);
   function add(added: File[]) {
     if (!added.length) return;
-    if (files.length + added.length > 3 || added.some(file => file.size > 25 * 1024 * 1024)) {
-      setAttachmentError('Можно приложить до трёх изображений по 25 МБ.');
+    if (files.length + added.length > MAX_PHOTOS || added.some(file => file.size > 25 * 1024 * 1024)) {
+      setAttachmentError(`Можно приложить до ${MAX_PHOTOS} изображений по 25 МБ.`);
       return;
     }
     setAttachmentError('');
@@ -40,7 +40,7 @@ export default function ChatComposer({label, draft, changeDraft, extras, changeE
       <input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple hidden onChange={event => {
         add(Array.from(event.target.files || [])); event.target.value = '';
       }}/>
-      <button type="button" title="Прикрепить скриншот" aria-label="Прикрепить скриншот" disabled={disabled || sending || pending || files.length >= 3}
+      <button type="button" title="Прикрепить скриншот" aria-label="Прикрепить скриншот" disabled={disabled || sending || pending || files.length >= MAX_PHOTOS}
         onClick={() => input.current?.click()}><Paperclip size={19}/></button>
       <textarea ref={field} aria-label={label} placeholder="Напишите сообщение…" maxLength={4000} rows={2} value={draft}
         disabled={disabled || sending || pending} onChange={event => changeDraft(event.target.value)} onPaste={event => add(pastedImages(event))}

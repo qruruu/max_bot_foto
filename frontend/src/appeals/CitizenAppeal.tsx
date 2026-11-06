@@ -8,6 +8,7 @@ import { availableRecipient, recipientFor, validRecipient } from './catalog';
 import type { AppealCatalog } from './catalog';
 import RecipientChoice from './RecipientChoice';
 import { galleryPhoto } from './gallery';
+import { MAX_PHOTOS } from './TaskImageInput';
 import Wall from './Wall';
 import UpdateNotice from '../UpdateNotice';
 import './citizen.css';
@@ -110,7 +111,7 @@ export default function CitizenAppeal() {
     requestActive.current = true; setPreparing(true); setError('');
     const added: LocalPhoto[] = [];
     try {
-      if (files.length + photos.length > 3) throw new Error('Можно приложить до трёх фотографий');
+      if (files.length + photos.length > MAX_PHOTOS) throw new Error(`Можно приложить до ${MAX_PHOTOS} фотографий`);
       for (const file of [...files]) {
         const photo = await galleryPhoto(file); added.push({...photo, url: URL.createObjectURL(photo.preview)});
       }
@@ -193,10 +194,10 @@ export default function CitizenAppeal() {
                 <textarea id="appeal-description" name="description" required maxLength={4000} rows={5} aria-describedby="appeal-description-count" placeholder="Что произошло и что нужно исправить?" value={form.description} onChange={event => setForm(current => ({...current, description: event.target.value}))}/>
                 <div className="signal-field-meta signal-field-count" id="appeal-description-count">{form.description.length}/4000</div></div>
               <label>Уточнение места <small>необязательно</small><input maxLength={300} placeholder="Например, рядом со вторым подъездом" value={form.place} onChange={event => setForm(current => ({...current, place: event.target.value}))}/></label>
-              <div className="signal-section-title signal-photo-heading"><h2>Фотографии <span className="signal-required" aria-hidden="true">*</span></h2><span>{photos.length} / 3</span></div>
+              <div className="signal-section-title signal-photo-heading"><h2>Фотографии <span className="signal-required" aria-hidden="true">*</span></h2><span>{photos.length} / {MAX_PHOTOS}</span></div>
               <div className="signal-upload-grid">{photos.map((photo, index) => <div className="signal-upload-photo" key={photo.id}><a href={photo.url} target="_blank" rel="noreferrer"><img src={photo.url} alt={`Фото ${index + 1}`}/></a>
                 <button type="button" aria-label={`Удалить фото ${index + 1}`} onClick={() => {URL.revokeObjectURL(photo.url); setPhotos(current => current.filter(item => item.id !== photo.id));}}><Trash2 size={17}/></button></div>)}
-                {photos.length < 3 && <button type="button" className="signal-add-photo" onClick={() => input.current?.click()}><ImagePlus size={26}/><span>{preparing ? 'Подготавливаем…' : 'Добавить фото'}</span></button>}</div>
+                {photos.length < MAX_PHOTOS && <button type="button" className="signal-add-photo" onClick={() => input.current?.click()}><ImagePlus size={26}/><span>{preparing ? 'Подготавливаем…' : 'Добавить фото'}</span></button>}</div>
               <input className="signal-file" ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple onChange={event => void addPhotos(event.target.files)} aria-label="Фотографии с телефона"/>
               <label>Телефон или электронная почта <small>необязательно</small><input maxLength={200} placeholder="Для уточнения обращения" value={form.contact} onChange={event => setForm(current => ({...current, contact: event.target.value}))}/></label>
               <p className="signal-contact-rule"><ShieldCheck size={16}/>Контакты видны только администратору организации, на стене их не будет.</p>

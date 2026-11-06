@@ -8,9 +8,9 @@ from fastapi import HTTPException, Response
 from pydantic import Field
 from sqlalchemy import delete, or_, select, text, update
 
-from app.appeal_images import prepare_upload
+from app.appeal_images import MAX_PHOTOS, prepare_upload
 
-Screenshots = Annotated[list[Annotated[str, Field(max_length=2_000_000)]], Field(max_length=3)]
+Screenshots = Annotated[list[Annotated[str, Field(max_length=2_000_000)]], Field(max_length=MAX_PHOTOS)]
 
 
 def prepare_screenshots(values):

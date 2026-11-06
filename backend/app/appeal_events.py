@@ -10,6 +10,7 @@ from pydantic import Field, field_validator
 from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.orm import aliased
 
+from app.appeal_images import MAX_PHOTOS
 from app.chat_messages import quote
 from app.domain import now
 from app.models import AppealEvent, CitizenAppeal
@@ -23,7 +24,7 @@ class CommentInput(StrictModel):
     channel: Literal["inspector", "executor"] | None = None
     reply_to_id: int | None = Field(default=None, gt=0)
     forward_message_id: int | None = Field(default=None, gt=0)
-    screenshots: list[str] = Field(default_factory=list, max_length=3)
+    screenshots: list[str] = Field(default_factory=list, max_length=MAX_PHOTOS)
 
     @field_validator("comment")
     @classmethod
@@ -167,6 +168,8 @@ def add_comment(db, appeal, body, user, *, inspector=False):
         if source is None:
             raise HTTPException(404, "Сообщение для ответа недоступно")
         reply = quote(source.id, source.actor_name, source.comment, True)
+    if sum(map(len, body.screenshots)) > 75 * 1024 * 1024:
+        raise HTTPException(413, "Вложения слишком большие для одного сообщения")
     for encoded in body.screenshots:
         if len(encoded) > 35 * 1024 * 1024:
             raise HTTPException(422, "Скриншот слишком большой")

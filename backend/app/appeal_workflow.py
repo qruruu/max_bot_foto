@@ -353,7 +353,7 @@ async def multipart(request, schema, *, require_photos=True, documents=None):
         except ValidationError as exc:
             raise HTTPException(422, "Проверьте адрес, точку на карте, описание и фотографии") from exc
         if len(files) > MAX_PHOTOS:
-            raise HTTPException(422, "Можно приложить до трёх фотографий")
+            raise HTTPException(422, f"Можно приложить до {MAX_PHOTOS} фотографий")
         if documents is not None:
             from app.appeal_files import MAX_DOCUMENT_BYTES, prepare_document
             uploads = form.getlist("documents")
@@ -695,7 +695,7 @@ def save_close(appeal_id, body, photos, user):
         allowed = set(db.scalars(select(AppealAttachment.id).where(AppealAttachment.appeal_id == appeal.id,
                          AppealAttachment.task_id == task.id))) if task and task.status in {"COMPLETED", "REJECTED", "CANCELLED"} else set()
         if not selected <= allowed or len(selected) + len(photos) > MAX_PHOTOS:
-            raise HTTPException(422, "Выберите до трёх фотографий текущего результата исполнителя или своих")
+            raise HTTPException(422, f"Выберите до {MAX_PHOTOS} фотографий текущего результата исполнителя или своих")
         db.execute(update(AppealAttachment).where(AppealAttachment.appeal_id == appeal.id).values(published=False))
         if selected:
             db.execute(update(AppealAttachment).where(AppealAttachment.id.in_(selected)).values(published=True))
