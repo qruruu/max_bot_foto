@@ -266,6 +266,10 @@ def send_message(peer_id: int, body: MessageInput, db: Db, user: CurrentUser):
     pair_key = (min(user.id, peer_id) << 32) | max(user.id, peer_id)
     db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": pair_key})
     db.execute(text("SELECT pg_advisory_xact_lock(:sender)"), {"sender": -user.id})
+    accounts = list(db.scalars(select(User).where(User.id.in_([user.id, peer_id]))
+                               .order_by(User.id).with_for_update(read=True).execution_options(populate_existing=True)))
+    if len(accounts) != 2 or any(not account.active for account in accounts):
+        raise HTTPException(409, "Аккаунт отключён. Отправка сообщений недоступна.")
     existing = db.scalar(select(OperatorMessage).where(
         OperatorMessage.sender_id == user.id, OperatorMessage.client_id == str(body.client_id),
     ))

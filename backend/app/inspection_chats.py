@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.appeal_events import personal_forward_source
 from app.auth import AdminUser, CurrentUser, Db, is_platform_owner
-from app.chat_messages import Screenshots, prepare_screenshots, quote, screenshot_response
+from app.chat_messages import Screenshots, lock_chat_identity, prepare_screenshots, quote, screenshot_response
 from app.db import database_engine
 from app.domain import now
 from app.inspection_auth import InspectorUser
@@ -384,11 +384,23 @@ def contact_avatar(db, peer):
     return Response(image, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
 
 
-def lock_inspector_inboxes(db, actor, peer):
-    inspector = actor if actor.startswith("i:") else peer
-    if actor.startswith("i:") != peer.startswith("i:"):
-        # The inspector reads all owner inboxes with a shared message-ID cursor.
-        db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:inspector, 7012))"), {"inspector": inspector})
+def lock_message_participants(db, actor, peer):
+    # Inspectors and organization accounts can be deleted while a send is in flight.
+    for key in sorted((key for key in (actor, peer) if key.startswith(("i:", "a:"))), reverse=True):
+        lock_chat_identity(db, key)
+        parts = key.split(":")
+        if parts[0] == "i":
+            account = db.get(Inspector, int(parts[1]), populate_existing=True)
+        else:
+            org = db.get(Organization, parts[1])
+            if not org or org.status != "ACTIVE":
+                raise HTTPException(404, "Собеседник недоступен")
+            with Session(database_engine(scope_for(org).database_url)) as tenant:
+                account = tenant.get(User, int(parts[2]))
+                if account:
+                    tenant.expunge(account)
+        if not account or not account.active:
+            raise HTTPException(404, "Собеседник недоступен")
 
 
 def send(db, actor, peer, body, contacts, base="/api/inspection", *, external_source=None, actor_aliases=(), source_aliases=()):
@@ -410,7 +422,7 @@ def send(db, actor, peer, body, contacts, base="/api/inspection", *, external_so
     if photo_id is not None and not all(can_view_photo(db, key, org_id, photo_id) for key in (actor, peer)):
         raise HTTPException(404, "Фотография недоступна отправителю или получателю")
     # Commit in conversation order so polling by ID cannot miss an incoming message.
-    lock_inspector_inboxes(db, actor, peer)
+    lock_message_participants(db, actor, peer)
     db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:pair, 7010))"), {"pair": "|".join(sorted((actor, peer)))})
     db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:actor, 7011))"), {"actor": actor})
     existing = db.scalar(select(InspectionMessage).where(InspectionMessage.sender_key == actor,
@@ -546,7 +558,7 @@ def post_message(body: MessageInput, db: Db, user: InspectorUser, peer: str = Qu
     item = validate_peer(contacts, peer)
     aliases = item.get("aliases", ())
     if aliases:
-        lock_inspector_inboxes(db, actor, item["key"])
+        lock_chat_identity(db, actor)
         peer = inspector_send_peer(db, actor, peer, item, body, contacts)
     return send(db, actor, peer, body, contacts)
 

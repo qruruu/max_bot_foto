@@ -26,6 +26,16 @@ export default function InspectionOwner({organizations}: {organizations: Organiz
     finally{if(gen===detailGeneration.current)setLoadingGrants(false);}
   }
   async function run(action:()=>Promise<void>){setBusy(true);setError('');try{await action();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
+  function removeAccount(target: Inspector) {
+    if (!window.confirm(`Удалить аккаунт «${target.name}» и всю его личную переписку? Это действие нельзя отменить.`)) return;
+    void run(async()=>{
+      await api('/platform/inspection/accounts/'+target.id,'DELETE');
+      detailGeneration.current++;
+      setAccount(null);
+      await loadAccounts();
+      await load();
+    });
+  }
   useEffect(()=>{void load().catch(e=>setError(e.message));},[]);
   useEffect(()=>{detailGeneration.current++;setAccounts([]);setAccount(null);void loadAccounts().catch(e=>setError(e.message));},[selected]);
   const available=organizations.filter(org=>!grants.some(grant=>grant.id===org.id));
@@ -52,7 +62,7 @@ export default function InspectionOwner({organizations}: {organizations: Organiz
       const updated=await api<Inspector>('/platform/inspection/accounts/'+account.id,'PATCH',{name:accountName,...(password?{password}:{})});await loadAccounts();await details(updated);});}}>
       <label>Имя<input required maxLength={150} value={accountName} onChange={e=>setAccountName(e.target.value)}/></label>
       <label>Новый пароль<input type="password" minLength={12} maxLength={256} autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Оставьте пустым, чтобы сохранить"/></label>
-      <button disabled={busy}>Сохранить</button><button type="button" disabled={busy} onClick={()=>void run(async()=>{const updated=await api<Inspector>('/platform/inspection/accounts/'+account.id,'PATCH',{active:!account.active});await loadAccounts();await details(updated);})}>{account.active?'Приостановить аккаунт':'Возобновить аккаунт'}</button></form>
+      <button disabled={busy}>Сохранить</button><button type="button" disabled={busy} onClick={()=>void run(async()=>{const updated=await api<Inspector>('/platform/inspection/accounts/'+account.id,'PATCH',{active:!account.active});await loadAccounts();await details(updated);})}>{account.active?'Приостановить аккаунт':'Возобновить аккаунт'}</button><button type="button" className="danger-text" disabled={busy} onClick={()=>removeAccount(account)}>Удалить аккаунт</button></form>
       <h3>Доступные организации</h3>{grants.map(g=><div className="inspection-grant" key={g.id}><span>{g.name}</span><button disabled={busy} onClick={()=>void run(async()=>{await api('/platform/inspection/accounts/'+account.id+'/grants/'+g.id,'DELETE');await details(account);})}>Отозвать доступ</button></div>)}{!loadingGrants && !grants.length && <p className="hint">Пока нет доступных организаций.</p>}
       {!loadingGrants && !!available.length && <form className="inspection-account-form" onSubmit={event=>{
         event.preventDefault(); if(!grantOrg)return;

@@ -54,6 +54,7 @@ from app.chat_access import (
     require_all_chats,
     validate_chat_access,
 )
+from app.chat_messages import lock_chat_identity, remove_conversations
 from app.chat_senders import photo_sender_name
 from app.chat_senders import router as chat_senders_router
 from app.config import base_settings, settings
@@ -835,7 +836,7 @@ def users(db: Db, user: AdminUser):
     else:
         owner_ids = set()
     return [user_dict(u, workspace_profile=False) | ({"managed_by_platform": True} if u.id in owner_ids else {})
-            for u in db.scalars(select(User).order_by(User.id))]
+            for u in db.scalars(select(User).where(User.deleted_at.is_(None)).order_by(User.id))]
 
 
 @app.post("/api/users", status_code=201)
@@ -861,6 +862,40 @@ def create_user(body: UserCreate, db: Db, user: AdminUser):
     return user_dict(record)
 
 
+@app.delete("/api/users/{user_id}")
+def delete_user(user_id: int, db: Db, user: AdminUser):
+    from app.models import InspectionMessage, OperatorMessage, PlatformOwner
+    from app.organization_registry import control_session
+
+    organization = current_organization()
+    if user_id == user.id or (organization and user_id == organization.owner_user_id) or (
+        (not organization or organization.database_url == base_settings().database_url) and db.get(PlatformOwner, user_id)
+    ):
+        raise HTTPException(403, "Нельзя удалить собственный аккаунт или аккаунт владельца")
+    db.execute(text("SELECT pg_advisory_xact_lock(7004, 1)"))
+    record = db.get(User, user_id, with_for_update=True)
+    if not record:
+        raise HTTPException(404, "Пользователь не найден")
+    if record.deleted_at is None:
+        if record.active and record.role == Role.ADMIN_OPERATOR and not db.scalar(select(User.id).where(
+            User.id != user_id, User.role == Role.ADMIN_OPERATOR, User.active,
+        ).limit(1)):
+            raise HTTPException(409, "Нельзя удалить последнего администратора")
+        record.active = False
+        record.deleted_at = now()
+        db.execute(delete(LoginSession).where(LoginSession.user_id == user_id))
+        remove_conversations(db, OperatorMessage, OperatorMessage.sender_id, OperatorMessage.recipient_id, user_id)
+        audit(db, user.id, "USER_DELETED", "user", user_id, None, None)
+        db.commit()
+    if organization:
+        with control_session() as control:
+            identity = f"a:{organization.id}:{user_id}"
+            lock_chat_identity(control, identity)
+            remove_conversations(control, InspectionMessage, InspectionMessage.sender_key, InspectionMessage.recipient_key, identity)
+            control.commit()
+    return {"ok": True}
+
+
 @app.patch("/api/users/{user_id}")
 def update_user(user_id: int, body: UserUpdate, db: Db, user: AdminUser):
     organization = current_organization()
@@ -870,7 +905,7 @@ def update_user(user_id: int, body: UserUpdate, db: Db, user: AdminUser):
             raise HTTPException(403, "Аккаунт владельца настраивается в общем кабинете")
     db.execute(text("SELECT pg_advisory_xact_lock(7004, 1)"))
     record = db.get(User, user_id)
-    if not record:
+    if not record or record.deleted_at:
         raise HTTPException(404, "Пользователь не найден")
     old = user_dict(record)
     updates = body.model_dump(exclude_unset=True, exclude_none=True)

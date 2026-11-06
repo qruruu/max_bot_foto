@@ -6,6 +6,7 @@ from typing import Annotated
 
 from fastapi import HTTPException, Response
 from pydantic import Field
+from sqlalchemy import delete, or_, select, text, update
 
 from app.appeal_images import prepare_upload
 
@@ -32,3 +33,14 @@ def screenshot_response(message, number):
 
 def quote(message_id, author, body, attachment=False):
     return {"id": message_id, "author": author, "body": body[:180] or ("Вложение" if attachment else "")}
+
+def lock_chat_identity(db, key):
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 7012))"), {"key": key})
+
+
+def remove_conversations(db, model, sender, recipient, identity):
+    # Forwarded copies in other conversations remain with their attribution.
+    condition = or_(sender == identity, recipient == identity)
+    source_ids = select(model.id).where(condition)
+    db.execute(update(model).where(model.forwarded_from_id.in_(source_ids)).values(forwarded_from_id=None))
+    db.execute(delete(model).where(condition))

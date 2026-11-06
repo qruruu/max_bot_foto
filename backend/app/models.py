@@ -400,6 +400,7 @@ class Inspector(Timestamps, Base):
     avatar_image: Mapped[bytes | None] = mapped_column(LargeBinary)
     sidebar_order: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Only accounts issued by the platform owner may create subordinate accounts.
     can_create_accounts: Mapped[bool] = mapped_column(Boolean, default=False)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("inspectors.id"))
@@ -540,6 +541,7 @@ class User(Timestamps, Base):
     allowed_chat_ids: Mapped[list[int] | None] = mapped_column(JSONB(none_as_null=True))
     role: Mapped[str] = mapped_column(String(30))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     permissions: Mapped[list[str]] = mapped_column(
         JSONB,
         default=lambda: list(DEFAULT_OPERATOR_PERMISSIONS),

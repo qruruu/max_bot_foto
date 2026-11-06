@@ -29,6 +29,7 @@ from app.appeal_events import (
 from app.appeal_search import appeal_search
 from app.appeal_statuses import AppealStatus, is_final
 from app.auth import AdminUser, Db, digest, hasher
+from app.chat_messages import lock_chat_identity, remove_conversations
 from app.config import base_settings
 from app.day_verification import confirmed_condition
 from app.db import database_engine
@@ -41,6 +42,7 @@ from app.models import (
     District,
     InspectionAgency,
     InspectionGrant,
+    InspectionMessage,
     InspectionQR,
     InspectionSession,
     Inspector,
@@ -103,7 +105,7 @@ def add_account(db, body, agency, *, creator=None):
 @owner_router.get("/agencies")
 def agencies(db: Db, user: Owner):
     return [{"id": a.id, "name": a.name, "active": a.active,
-             "accounts": db.scalar(select(func.count()).select_from(Inspector).where(Inspector.agency_id == a.id))}
+             "accounts": db.scalar(select(func.count()).select_from(Inspector).where(Inspector.agency_id == a.id, Inspector.deleted_at.is_(None)))}
             for a in db.scalars(select(InspectionAgency).order_by(InspectionAgency.created_at, InspectionAgency.id))]
 
 
@@ -133,7 +135,7 @@ def update_agency(agency_id: UUID, body: AgencyInput, db: Db, user: Owner):
 @owner_router.get("/agencies/{agency_id}/accounts")
 def owner_accounts(agency_id: UUID, db: Db, user: Owner):
     return [account_view(db, a) for a in db.scalars(select(Inspector).where(
-        Inspector.agency_id == str(agency_id)).order_by(Inspector.id))]
+        Inspector.agency_id == str(agency_id), Inspector.deleted_at.is_(None)).order_by(Inspector.id))]
 
 
 @owner_router.post("/agencies/{agency_id}/accounts", status_code=201)
@@ -151,7 +153,7 @@ def owner_create_account(agency_id: UUID, body: AccountInput, db: Db, user: Owne
 def owner_update_account(account_id: int, body: AccountUpdate, db: Db, user: Owner):
     lock_inspector(db, account_id)
     account = db.get(Inspector, account_id, with_for_update=True)
-    if not account:
+    if not account or account.deleted_at:
         raise HTTPException(404, "Проверяющий не найден")
     for key in ("name", "active"):
         if getattr(body, key) is not None:
@@ -166,6 +168,24 @@ def owner_update_account(account_id: int, body: AccountUpdate, db: Db, user: Own
     return account_view(db, account)
 
 
+@owner_router.delete("/accounts/{account_id}")
+def owner_delete_account(account_id: int, db: Db, user: Owner):
+    lock_inspector(db, account_id)
+    lock_chat_identity(db, f"i:{account_id}")
+    account = db.get(Inspector, account_id, with_for_update=True)
+    if not account:
+        raise HTTPException(404, "Проверяющий не найден")
+    if account.deleted_at is None:
+        account.active = False
+        account.deleted_at = now()
+        db.execute(delete(InspectionSession).where(InspectionSession.inspector_id == account.id))
+        db.execute(delete(InspectionGrant).where(InspectionGrant.inspector_id == account.id))
+        remove_conversations(db, InspectionMessage, InspectionMessage.sender_key, InspectionMessage.recipient_key, f"i:{account.id}")
+        audit(db, user.id, "INSPECTOR_DELETED", "inspector", account.id, None, None)
+        db.commit()
+    return {"ok": True}
+
+
 @owner_router.get("/accounts/{account_id}/grants")
 def owner_grants(account_id: int, db: Db, user: Owner):
     return [{"id": org.id, "name": org.name, "created_at": grant.created_at} for grant, org in db.execute(
@@ -175,7 +195,8 @@ def owner_grants(account_id: int, db: Db, user: Owner):
 @owner_router.put("/accounts/{account_id}/grants/{organization_id}")
 def owner_grant(account_id: int, organization_id: UUID, db: Db, user: Owner):
     lock_inspector(db, account_id)
-    if not db.get(Inspector, account_id):
+    account = db.get(Inspector, account_id)
+    if not account or account.deleted_at:
         raise HTTPException(404, "Проверяющий не найден")
     org = db.get(Organization, str(organization_id))
     if not org or org.status != "ACTIVE":
@@ -217,7 +238,7 @@ def accounts(db: Db, user: InspectorUser):
     if not user.can_create_accounts:
         raise HTTPException(403, "Создавать аккаунты могут только проверяющие, добавленные владельцем")
     return [account_view(db, a) for a in db.scalars(select(Inspector).where(
-        Inspector.created_by == user.id).order_by(Inspector.id))]
+        Inspector.created_by == user.id, Inspector.deleted_at.is_(None)).order_by(Inspector.id))]
 
 
 @router.post("/accounts", status_code=201)

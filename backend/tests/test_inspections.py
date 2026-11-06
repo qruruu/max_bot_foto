@@ -723,3 +723,35 @@ def test_owner_inbox_includes_direct_employee_messages_and_mirrors_inspector_his
     assert [item["id"] for item in owner.get(platform + "/messages", params={"peer": inspector_key}).json()["items"]] == [
         message.json()["id"], sent.json()["id"],
     ]
+
+
+def test_deleting_inspector_and_employee_removes_their_personal_chats(inspection):
+    owner, scopes, operators, agency, accounts, clients = inspection
+    scope, staff, inspector = scopes[0], operators[0], clients[0]
+    grant(owner, inspector, scope)
+    platform = "/api/platform/inspection/chat"
+    workspace = scope.prefix + "/api/inspection-admin"
+    inspector_peer = f'i:{accounts[0]["id"]}'
+    sent = owner.post(platform + "/messages", params={"peer": inspector_peer},
+                      json={"body": "Убрать после удаления", "client_id": str(uuid4())})
+    assert sent.status_code == 201, sent.text
+    deleted = owner.delete(f'/api/platform/inspection/accounts/{accounts[0]["id"]}')
+    assert deleted.status_code == 200, deleted.text
+    assert inspector.get("/api/inspection/me").status_code == 401
+    assert [item["id"] for item in owner.get(f'/api/platform/inspection/agencies/{agency["id"]}/accounts').json()] == [accounts[1]["id"]]
+    with control_session() as db:
+        assert db.get(InspectionMessage, sent.json()["id"]) is None
+
+    owner_key = next(item["key"] for item in staff.get(workspace + "/owners/contacts").json())
+    sent = staff.post(workspace + "/owners/messages", params={"peer": owner_key},
+                      json={"body": "Удалить личный чат", "client_id": str(uuid4())})
+    assert sent.status_code == 201, sent.text
+    user_path = scope.prefix + "/api/users"
+    user = next(item for item in owner.get(user_path).json() if item["login"] == "same-login")
+    assert owner.delete(f"{user_path}/{scope.owner_user_id}").status_code == 403
+    deleted = owner.delete(f'{user_path}/{user["id"]}')
+    assert deleted.status_code == 200, deleted.text
+    assert not any(item["id"] == user["id"] for item in owner.get(user_path).json())
+    assert staff.get(workspace + "/owners/contacts").status_code == 401
+    with control_session() as db:
+        assert db.get(InspectionMessage, sent.json()["id"]) is None
