@@ -338,7 +338,6 @@
 .appeal-discussion-toolbar button, .appeal-event time { font-size: var(--ui-meta, .75rem); }
 .appeal-event header, .appeal-event .owner-appeal-text { font-size: var(--ui-body, .875rem); }
 .appeal-event time { margin-left: auto; }
-.appeal-event .chat-message-actions { margin-top: 3px; }
 .appeal-message-avatar,
 .appeal-event:nth-child(n) .appeal-message-avatar { background: var(--appeal-soft); color: var(--appeal-link); }
 .inspector-task-view .appeal-task-workspace > div:first-child > .appeal-task:first-child { border-top: 0; margin-top: 0; }
@@ -350,3 +349,6 @@
   .inspector-task-view .appeal-task-workspace > :has(> .appeal-discussion) { grid-row: 1; }
   .appeal-event-list:not(.is-empty) { height: clamp(200px, 37vh, 360px); }
 }
+
+.appeal-copy-link { flex: none; width: 36px; height: 36px; padding: 0; }
+.appeal-copy-status { margin: 6px 0; }

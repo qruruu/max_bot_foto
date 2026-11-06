@@ -43,6 +43,11 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
       .then(setOperators).catch(reason => {if (!abort.signal.aborted) setError(reason.message);});
     return () => abort.abort();
   }, [appeal.id, appeal.status, endpoint, manage]);
+  useEffect(() => setResult(appeal.status), [appeal.status]);
+  useEffect(() => setDueDate(appeal.task?.due_date || ''), [appeal.task?.id, appeal.task?.due_date]);
+  useEffect(() => setInspectorDueDate(appeal.inspector_due_date || ''), [appeal.inspector_due_date]);
+  useEffect(() => setSelectedPhotos([]), [appeal.task?.id]);
+
   async function send(path: string, body?: unknown) {
     if (sending.current) return;
     sending.current = true;
@@ -57,7 +62,16 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
         }
         setPreparing(false);
       }
-      await api(endpoint + '/' + appeal.id + path, 'POST', body); window.dispatchEvent(new Event('appeals-changed')); changed();
+      await api(endpoint + '/' + appeal.id + path, 'POST', body);
+      if (path === '/assign') {setOperator(''); setInstruction('');}
+      if (path === '/subtasks') {
+        setOperator(''); setSubtaskTitle(''); setSubtaskDescription(''); setSubtaskDue('');
+        subtaskClient.current = crypto.randomUUID();
+      }
+      if (path === '/result') {setComment(''); setFiles([]);}
+      if (path === '/close') {setConfirmClose(false); setAnswer(''); setSelectedPhotos([]); setFiles([]);}
+      window.dispatchEvent(new Event('appeals-changed'));
+      changed();
     }
     catch (reason) {setError((reason as Error).message);}
     finally {sending.current = false; setPreparing(false); setBusy(false);}

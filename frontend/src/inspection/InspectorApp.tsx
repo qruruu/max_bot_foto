@@ -100,7 +100,7 @@ export default function InspectorApp() {
   const choosingOrganization = !org && !independent;
   const title=tab==='accounts'?'Аккаунты':!org&&!independent?'Организации':tabs.find(t=>t.id===tab)?.label || 'Фотографии';
   function sectionLink(section:string,extra:Record<string,string>={}) {
-    const next=new URLSearchParams(params);next.set('tab',section);next.delete('page');next.delete('photo');next.delete('section');
+    const next=new URLSearchParams(params);next.set('tab',section);next.delete('page');next.delete('photo');next.delete('section');next.delete('appeal');
     for(const [key,value] of Object.entries(extra))value?next.set(key,value):next.delete(key);
     return '/inspection?'+next;
   }

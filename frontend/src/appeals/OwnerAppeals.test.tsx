@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import OwnerAppeals from './OwnerAppeals';
 import { api, ApiError } from '../api';
@@ -34,7 +35,7 @@ beforeEach(() => {
 afterEach(async () => {await act(async () => root.unmount()); element.remove();});
 
 it('keeps message notifications after opening and clears them after a reply without losing the drafted administrator answer', async () => {
-  await act(async () => {root.render(<OwnerAppeals organization endpoint="/appeals"/>); await tick();});
+  await act(async () => {root.render(<MemoryRouter><OwnerAppeals organization endpoint="/appeals"/></MemoryRouter>); await tick();});
   expect(element.textContent).toContain('Новые сообщения: 2'); expect(element.querySelector('img')?.getAttribute('src')).toBe('/preview');
   expect(element.textContent).not.toContain('Показать фото');
   expect(element.querySelector('button button')).toBeNull();
@@ -60,7 +61,7 @@ it('keeps message notifications after opening and clears them after a reply with
 
 it.each(['/appeals', '/platform/appeals'])('assigns original organization work types and can clear them through %s', async endpoint => {
   current.category = '';
-  await act(async () => {root.render(<OwnerAppeals organization endpoint={endpoint}/>); await tick();});
+  await act(async () => {root.render(<MemoryRouter><OwnerAppeals organization endpoint={endpoint}/></MemoryRouter>); await tick();});
   expect(element.querySelector('.appeal-list-title')!.textContent).toBe('Мусор');
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
   let select = element.querySelector<HTMLSelectElement>('select[name=work_type]')!;
@@ -81,7 +82,7 @@ it.each(['/appeals', '/platform/appeals'])('assigns original organization work t
 it.each(['operator', 'inspector', 'archived'])('does not offer work type editing for %s', async role => {
   if (role === 'operator') current = {...current, can_manage: false, can_execute: true};
   if (role === 'archived') current = {...current, archived_at: '2026-10-29T12:00:00Z'};
-  await act(async () => {root.render(<OwnerAppeals organization endpoint="/appeals" readOnly={role === 'inspector'}/>); await tick();});
+  await act(async () => {root.render(<MemoryRouter><OwnerAppeals organization endpoint="/appeals" readOnly={role === 'inspector'}/></MemoryRouter>); await tick();});
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
   expect(element.querySelector('select[name=work_type]')).toBeNull();
   expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/work-types'))).toBe(false);
@@ -93,7 +94,7 @@ it('keeps the selected work type and note after a version conflict', async () =>
     if (method === 'PATCH') throw new ApiError(409, 'Обращение изменилось. Обновите карточку.');
     return original(path, method, ...args);
   });
-  await act(async () => {root.render(<OwnerAppeals organization endpoint="/appeals"/>); await tick();});
+  await act(async () => {root.render(<MemoryRouter><OwnerAppeals organization endpoint="/appeals"/></MemoryRouter>); await tick();});
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
   const select = element.querySelector<HTMLSelectElement>('select[name=work_type]')!;
   const note = element.querySelector<HTMLTextAreaElement>('.owner-appeal-edit textarea')!;
@@ -111,7 +112,7 @@ it.each([
   ['administrator', '/appeals', false], ['operator', '/appeals', false],
   ['inspector', '/inspection/organizations/one/appeals', true], ['owner', '/platform/appeals', false],
 ] as const)('searches appeal text and dates for the %s and preserves archive and status filters', async (_role, endpoint, readOnly) => {
-  await act(async () => {root.render(<OwnerAppeals organization endpoint={endpoint} readOnly={readOnly}/>); await tick();});
+  await act(async () => {root.render(<MemoryRouter><OwnerAppeals organization endpoint={endpoint} readOnly={readOnly}/></MemoryRouter>); await tick();});
   const input = element.querySelector<HTMLInputElement>('input[type=search]')!;
   const submit = async (query: string) => {
     await act(async () => {
@@ -138,7 +139,7 @@ it.each([
 });
 
 it('keeps the request separate from processing and retains all drafts when switching tabs', async () => {
-  await act(async () => {root.render(<OwnerAppeals organization endpoint="/appeals"/>); await tick();});
+  await act(async () => {root.render(<MemoryRouter><OwnerAppeals organization endpoint="/appeals"/></MemoryRouter>); await tick();});
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
   const request = element.querySelector<HTMLElement>('#appeal-panel-request')!;
   const work = element.querySelector<HTMLElement>('#appeal-panel-work')!;
@@ -168,7 +169,7 @@ it('keeps the request separate from processing and retains all drafts when switc
 
 it('shows citizen requests and the final answer to inspectors without processing controls or chat', async () => {
   Object.assign(current, {status: 'RESOLVED', public_response: 'Площадку убрали, работу приняли.', is_final: true});
-  await act(async () => {root.render(<OwnerAppeals organization endpoint="/inspection/organizations/one/appeals" readOnly/>); await tick();});
+  await act(async () => {root.render(<MemoryRouter><OwnerAppeals organization endpoint="/inspection/organizations/one/appeals" readOnly/></MemoryRouter>); await tick();});
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
   expect(element.textContent).toContain('Итоговый ответ администратора');
   expect(element.textContent).toContain('Площадку убрали, работу приняли.');
@@ -180,7 +181,7 @@ it('shows citizen requests and the final answer to inspectors without processing
 
 it('keeps separate inspector and executor chats and preserves both drafts when switching workspaces', async () => {
   Object.assign(current, {submitted_by_inspector_name: 'Проверяющий', is_public: false, status: 'ASSIGNED', task: {id:1, operator_id:2, operator_name:'Оператор', status:'ASSIGNED', result_comment:'', photos:[], created_at:current.created_at}});
-  await act(async () => {root.render(<OwnerAppeals organization endpoint="/appeals"/>); await tick();});
+  await act(async () => {root.render(<MemoryRouter><OwnerAppeals organization endpoint="/appeals"/></MemoryRouter>); await tick();});
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
   await act(async () => {element.querySelector<HTMLButtonElement>('#appeal-tab-executor')!.click();});
   const checking = element.querySelector<HTMLTextAreaElement>('[aria-label="Чат с проверяющим"] textarea')!;
@@ -206,7 +207,7 @@ it('puts separate chat badges on the top tabs and clears only the answered chann
     if (path.endsWith('/comments') && method === 'POST') counts[(body as {channel:'inspector'|'executor'}).channel] = 0;
     return original(path,method,body,...args);
   });
-  await act(async () => {root.render(<OwnerAppeals organization endpoint="/appeals"/>); await tick();});
+  await act(async () => {root.render(<MemoryRouter><OwnerAppeals organization endpoint="/appeals"/></MemoryRouter>); await tick();});
   await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
   expect(element.querySelector('#appeal-tab-inspector .appeal-tab-count')?.textContent).toBe('2');
   expect(element.querySelector('#appeal-tab-executor .appeal-tab-count')?.textContent).toBe('3');
@@ -223,10 +224,43 @@ it.each(['operator','inspector','administrator'])('shares the citizen page and p
   Object.assign(current, {can_manage:role === 'administrator',can_execute:role === 'operator'});
   const original = vi.mocked(api).getMockImplementation()!;
   vi.mocked(api).mockImplementation(async (...args) => {const result = await original(...args); return args[0].includes('?page=') ? {...result as object,public_url:'https://signal.example/'} : result;});
-  await act(async () => {root.render(<OwnerAppeals organization endpoint="/appeals" readOnly={role === 'inspector'}/>); await tick();});
+  await act(async () => {root.render(<MemoryRouter><OwnerAppeals organization endpoint="/appeals" readOnly={role === 'inspector'}/></MemoryRouter>); await tick();});
   expect(element.querySelector('a[href="https://signal.example/"]')).not.toBeNull();
   await act(async () => {const select = element.querySelector<HTMLSelectElement>('select[name=source]')!; select.value='inspector'; select.dispatchEvent(new Event('change',{bubbles:true})); await tick();});
   await act(async () => {[...element.querySelectorAll<HTMLButtonElement>('[role=tab]')].find(button => button.textContent === 'Архив')!.click(); await tick();});
   const query = vi.mocked(api).mock.calls.filter(([path]) => path.includes('?page=')).at(-1)![0];
   expect(Object.fromEntries(new URLSearchParams(query.split('?')[1]))).toMatchObject({source:'inspector',archived:'true'});
+});
+
+it('opens a shared task URL and returns to its list without retaining the task parameter', async () => {
+  await act(async () => {
+    root.render(<MemoryRouter initialEntries={['/appeals?appeal=42']}><OwnerAppeals organization endpoint="/appeals"/></MemoryRouter>);
+    await tick();
+  });
+  expect(vi.mocked(api).mock.calls.some(([path]) => path === '/appeals/42')).toBe(true);
+  expect(element.querySelector('h1')?.textContent).toContain('ОБ-000042');
+  expect(document.activeElement).toBe(element.querySelector('h1'));
+  await act(async () => element.querySelector<HTMLButtonElement>('.owner-appeal-back')!.click());
+  expect(element.querySelector('#appeal-row-42')).not.toBeNull();
+});
+
+it('returns keyboard focus to the task that was opened from the list', async () => {
+  await act(async () => {root.render(<MemoryRouter><OwnerAppeals organization endpoint="/appeals"/></MemoryRouter>); await tick();});
+  await act(async () => {element.querySelector<HTMLButtonElement>('#appeal-row-42')!.click(); await tick();});
+  await act(async () => element.querySelector<HTMLButtonElement>('.owner-appeal-back')!.click());
+  expect(document.activeElement?.id).toBe('appeal-row-42');
+});
+
+it('keeps the chat draft when the open task is refreshed at a newer version', async () => {
+  await act(async () => {root.render(<MemoryRouter initialEntries={['/appeals?appeal=42']}><OwnerAppeals organization endpoint="/appeals"/></MemoryRouter>); await tick();});
+  await act(async () => element.querySelector<HTMLButtonElement>('#appeal-tab-executor')!.click());
+  const draft = element.querySelector<HTMLTextAreaElement>('[aria-label="Сообщение по обращению"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(draft, 'Черновик');
+    draft.dispatchEvent(new Event('input', {bubbles: true}));
+  });
+  current = {...current, version: current.version + 1};
+  await act(async () => {window.dispatchEvent(new Event('refresh-appeals')); await tick();});
+  expect(element.querySelector('[aria-label="Сообщение по обращению"]')).toBe(draft);
+  expect(draft.value).toBe('Черновик');
 });

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ArrowLeft, ArrowUpRight, Building2, CalendarDays, Camera, ChevronDown, ChevronLeft, ChevronRight, FilterX, Inbox, LockKeyhole, MapPin, Maximize2, MessageCircle, Plus, RefreshCw, Search, SlidersHorizontal, UserRound, Users, X } from 'lucide-react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, ArrowUpRight, Building2, CalendarDays, Camera, ChevronDown, ChevronLeft, ChevronRight, Copy, FilterX, Inbox, LockKeyhole, MapPin, Maximize2, MessageCircle, Plus, RefreshCw, Search, SlidersHorizontal, UserRound, Users, X } from 'lucide-react';
 import { api } from '../api';
 import AppealActions from './AppealActions';
 import AdminTaskForm from './AdminTaskForm';
@@ -37,7 +38,15 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
   const [sharingOpen, setSharingOpen] = useState(false);
   const [creatingTask, setCreatingTask] = useState(false);
   const [data, setData] = useState<Page | null>(null), [status, setStatus] = useState(''), [page, setPage] = useState(1);
-  const [detail, setDetail] = useState<Detail | null>(null), [selected, setSelected] = useState<number | null>(null);
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [params, setParams] = useSearchParams();
+  const location = useLocation(), navigate = useNavigate();
+  const appealParam = params.get('appeal') || '';
+  const selected = /^[1-9]\d*$/.test(appealParam) && Number(appealParam) <= 2147483647 ? Number(appealParam) : null;
+  const listPosition = useRef<{id: number; scrollY: number} | null>(null);
+  const detailHeading = useRef<HTMLHeadingElement>(null);
+  const focusedCard = useRef<number | null>(null);
+  const [copyStatus, setCopyStatus] = useState('');
   const [nextStatus, setNextStatus] = useState<Status>('NEW'), [note, setNote] = useState('');
   const [workType, setWorkType] = useState(''), [workTypes, setWorkTypes] = useState<WorkType[] | null>(null);
   const [workTypesError, setWorkTypesError] = useState('');
@@ -51,7 +60,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
   useEffect(() => {setUnread({inspector:0, executor:0});}, [selected, endpoint]);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
   const [requestedTab, setRequestedTab] = useState<typeof detailTab>('request');
-  useEffect(() => {setDetailTab(requestedTab); setRequestedTab('request'); setDescriptionOpen(false);}, [selected, endpoint]);
+  useEffect(() => {setDetailTab(requestedTab); setRequestedTab('request'); setDescriptionOpen(false); setCopyStatus('');}, [selected, endpoint]);
   const [search, setSearch] = useState(''), [query, setQuery] = useState('');
   const active = useRef(true);
   useEffect(() => {active.current = true; return () => {active.current = false;};}, []);
@@ -86,15 +95,15 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
     for (const event of ['focus', 'online', 'appeal-discussion-changed']) window.addEventListener(event, changed);
     return () => {controller.abort(); window.clearInterval(timer); for (const event of ['focus', 'online', 'appeal-discussion-changed']) window.removeEventListener(event, changed);};
   }, [page, status, archived, query, revision, endpoint, refreshKey, categoryFilter, operatorFilter, deadlineFilter, source]);
-  useEffect(() => {setSelected(null); setPage(1); setSearch(''); setQuery(''); setCategoryFilter(''); setOperatorFilter(''); setDeadlineFilter('any'); setFilterOptions(null); setShowStatistics(false); setSource('all');}, [endpoint]);
+  useEffect(() => {setPage(1); setSearch(''); setQuery(''); setCategoryFilter(''); setOperatorFilter(''); setDeadlineFilter('any'); setFilterOptions(null); setShowStatistics(false); setSource('all');}, [endpoint]);
   useEffect(() => {
-    const refresh = () => {setSelected(null); setStatus(''); setSearch(''); setQuery(''); setPage(1); setRevision(value => value + 1);};
+    const refresh = () => {setRevision(value => value + 1);};
     window.addEventListener('refresh-appeals', refresh);
     return () => window.removeEventListener('refresh-appeals', refresh);
   }, []);
   useEffect(() => {
     if (selected === null) {setDetail(null); return;}
-    const controller = new AbortController(); setError(''); setDetail(null); setWorkTypes(null); setWorkTypesError('');
+    const controller = new AbortController(); setError(''); setDetail(current => current?.id === selected ? current : null); setWorkTypes(null); setWorkTypesError('');
     api<Detail>(endpoint + '/' + selected, 'GET', undefined, controller.signal).then(item => {
       if (controller.signal.aborted) return;
       setDetail(item); setNextStatus(item.status); setNote(item.owner_note); setWorkType(item.category);
@@ -134,7 +143,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
         archived: !detail.archived_at,
         expected_version: detail.version,
       });
-      setSelected(null);
+      closeTask();
       setRevision(value => value + 1);
       window.dispatchEvent(new Event('appeals-changed'));
     } catch (reason) {
@@ -165,10 +174,37 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
   const showWork = !readOnly || !!detail?.submitted_by_inspector_name;
   const inspectionTask = readOnly && !!detail?.submitted_by_inspector_name;
   const inspectorChatTitle = readOnly ? 'Чат с администраторами' : 'Чат с проверяющим';
-  const openTaskChat = (id: number) => {
-    setSelected(id);
-    setRequestedTab(detailTab);
-  };
+  function openTask(id: number, tab: typeof detailTab = 'request') {
+    if (id === selected) {setDetailTab(tab); return;}
+    if (selected === null) listPosition.current = {id, scrollY: window.scrollY};
+    const next = new URLSearchParams(params);
+    next.set('appeal', String(id));
+    setRequestedTab(tab);
+    setParams(next, {replace: selected !== null, state: {appealFromList: selected === null || !!location.state?.appealFromList}});
+  }
+  function closeTask() {
+    if (location.state?.appealFromList) {navigate(-1); return;}
+    const next = new URLSearchParams(params);
+    next.delete('appeal');
+    setParams(next, {replace: true});
+  }
+  useLayoutEffect(() => {
+    if (selected === null && data && listPosition.current) {
+      const position = listPosition.current;
+      listPosition.current = null;
+      focusedCard.current = null;
+      if (window.scrollY !== position.scrollY) window.scrollTo({top: position.scrollY, behavior: 'instant'});
+      document.getElementById('appeal-row-' + position.id)?.focus({preventScroll: true});
+    } else if (selected !== null && detail?.id === selected && focusedCard.current !== selected) {
+      focusedCard.current = selected;
+      if (window.scrollY) window.scrollTo({top: 0, behavior: 'instant'});
+      detailHeading.current?.focus({preventScroll: true});
+    }
+  }, [selected, detail?.id, data]);
+  async function copyTaskLink() {
+    try {await navigator.clipboard.writeText(window.location.href); setCopyStatus('Ссылка скопирована');}
+    catch {setCopyStatus('Скопируйте ссылку из адресной строки');}
+  }
   return <section className={`owner-appeals${readOnly ? ' inspector-task-view' : ''}`}>
     {selected === null && <header className="page-header"><h1>{showStatistics ? 'Статистика обращений' : 'Обращения'}</h1>
       <div className="appeal-header-actions">
@@ -181,7 +217,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
     {creatingTask && selected === null && <AdminTaskForm endpoint={endpoint + '/internal-tasks'}
       onClose={() => setCreatingTask(false)} onCreated={id => {
         setCreatingTask(false);
-        setSelected(id);
+        openTask(id);
         setRevision(value => value + 1);
         window.dispatchEvent(new Event('appeals-changed'));
       }}/>}
@@ -189,12 +225,13 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
     {error && <p className="error" role="alert">{error}</p>}
     {selected !== null ? <>
       <header className="appeal-detail-header">
-        <button className="owner-appeal-back" disabled={busy} onClick={() => setSelected(null)}><ArrowLeft size={16}/>{readOnly ? 'К списку' : 'Все обращения'}</button>
-        {detail && <><h1><span>{detail.number}</span>{appealTitle(detail)}</h1><AppealBadges status={detail.status} messages={data?.items.find(item => item.id === detail.id)?.unanswered_comments ?? detail.unanswered_comments}/>
+        <button className="owner-appeal-back" disabled={busy} onClick={() => closeTask()}><ArrowLeft size={16}/>{readOnly ? 'К списку' : 'Все обращения'}</button>
+        {detail?.id === selected && <><h1 ref={detailHeading} tabIndex={-1}><span>{detail.number}</span>{appealTitle(detail)}</h1><button type="button" className="appeal-copy-link" aria-label="Скопировать ссылку на обращение" title="Скопировать ссылку" onClick={() => void copyTaskLink()}><Copy size={16}/></button><AppealBadges status={detail.status} messages={data?.items.find(item => item.id === detail.id)?.unanswered_comments ?? detail.unanswered_comments}/>
           {detail.cancelled_by_inspector && !isFinalAppeal(detail) && detail.can_manage && !readOnly &&
             <button disabled={busy} onClick={() => void archiveCancelledTask()}>{detail.archived_at ? 'Вернуть из архива' : 'Перенести в архив'}</button>}</>}
       </header>
-      {!detail ? !error && <p className="loading">Открываем обращение…</p> : <>
+      {copyStatus && <p className="hint appeal-copy-status" role="status">{copyStatus}</p>}
+      {!detail || detail.id !== selected ? !error && <p className="loading">Открываем обращение…</p> : <>
         <div className="appeal-detail-tabs" role="tablist" aria-label="Разделы обращения" onKeyDown={event => {
           if (showWork && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
             event.preventDefault(); const tabs: ('request' | 'inspector' | 'executor')[] = ['request', ...(detail.submitted_by_inspector_name && !detail.can_execute ? ['inspector' as const] : []), ...(!readOnly ? ['executor' as const] : [])];
@@ -224,7 +261,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
             </section>
             {detail.public_response && hasAppealDecision(detail) && <section className="panel"><h3>Итоговый ответ администратора</h3><p className="owner-appeal-text">{detail.public_response}</p><div className="appeal-evidence">{detail.response_photos?.map(photo => <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Результат рассмотрения"/></a>)}</div></section>}
             {!!detail.files?.length && <section className="panel"><h3>Документы задачи</h3>{detail.files.map(file => <p key={file.id}><a href={file.url}>{file.name}</a></p>)}</section>}
-            {(detail.parent || !!detail.children?.length) && <section className="panel"><h3>Связанные задачи</h3>{detail.parent && <button onClick={() => {setSelected(detail.parent!.id); setDetailTab('request');}}>Родительская задача {detail.parent.number}</button>}{detail.children?.map(child => <div className="appeal-task" key={child.id}><button onClick={() => {setSelected(child.id); setDetailTab('request');}}>{child.number} · {child.subject}</button><p>{appealStatuses[child.status]}{!readOnly && ' · ' + (child.operator_name || 'Без исполнителя')}{child.due_date ? ' · до ' + new Date(child.due_date + 'T00:00:00').toLocaleDateString('ru-RU') : ''}</p>{(child.result || child.operator_result) && <p className="owner-appeal-text">{child.result || child.operator_result}</p>}</div>)}</section>}
+            {(detail.parent || !!detail.children?.length) && <section className="panel"><h3>Связанные задачи</h3>{detail.parent && <button onClick={() => openTask(detail.parent!.id)}>Родительская задача {detail.parent.number}</button>}{detail.children?.map(child => <div className="appeal-task" key={child.id}><button onClick={() => openTask(child.id)}>{child.number} · {child.subject}</button><p>{appealStatuses[child.status]}{!readOnly && ' · ' + (child.operator_name || 'Без исполнителя')}{child.due_date ? ' · до ' + new Date(child.due_date + 'T00:00:00').toLocaleDateString('ru-RU') : ''}</p>{(child.result || child.operator_result) && <p className="owner-appeal-text">{child.result || child.operator_result}</p>}</div>)}</section>}
             {processingForm}
           </div>
           <div className="owner-appeal-photos">
@@ -238,9 +275,9 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
           </div>
         </div>
         {showWork && <div id="appeal-panel-work" role="tabpanel" aria-labelledby={'appeal-tab-' + (detailTab === 'inspector' ? 'inspector' : 'executor')} hidden={detailTab === 'request'}>
-          <AppealActions key={detail.id + ':' + detail.version} appeal={detail} workspace={detailTab === 'executor' ? 'executor' : 'inspector'} endpoint={endpoint} readOnly={readOnly} openTask={id => {setSelected(id); setDetailTab('request');}} changed={() => setRevision(value => value + 1)}
-            inspectorDiscussion={detail.submitted_by_inspector_name && !detail.can_execute ? <AppealDiscussion key={detail.id + ':inspector'} endpoint={endpoint + '/' + detail.id} channel="inspector" onUnreadChange={count => setUnread(current => current.inspector === count ? current : {...current, inspector:count})} title={inspectorChatTitle} openTask={openTaskChat} archived={!!detail.archived_at}/> : undefined}
-            discussion={!readOnly && detail.children?.length ? <section className="panel"><h3>Переписка по подзадачам</h3><p className="hint">Откройте нужную подзадачу слева. У каждого исполнителя своя переписка, срок и результат.</p></section> : !readOnly ? <AppealDiscussion key={detail.id + ':executor'} endpoint={endpoint + '/' + detail.id} channel="executor" onUnreadChange={count => setUnread(current => current.executor === count ? current : {...current, executor:count})} title={detail.can_execute ? 'Чат с администратором' : 'Чат с исполнителем'} openTask={openTaskChat} readonlyReason={!detail.task ? 'Переписка откроется после назначения исполнителя. Для подзадач откройте нужную карточку.' : undefined} archived={!!detail.archived_at || (!!detail.submitted_by_inspector_name && !detail.task)}/> : undefined}/>
+          <AppealActions key={detail.id} appeal={detail} workspace={detailTab === 'executor' ? 'executor' : 'inspector'} endpoint={endpoint} readOnly={readOnly} openTask={openTask} changed={() => setRevision(value => value + 1)}
+            inspectorDiscussion={detail.submitted_by_inspector_name && !detail.can_execute ? <AppealDiscussion key={detail.id + ':inspector'} endpoint={endpoint + '/' + detail.id} channel="inspector" onUnreadChange={count => setUnread(current => current.inspector === count ? current : {...current, inspector:count})} title={inspectorChatTitle} openTask={id => openTask(id, detailTab)} archived={!!detail.archived_at}/> : undefined}
+            discussion={!readOnly && detail.children?.length ? <section className="panel"><h3>Переписка по подзадачам</h3><p className="hint">Откройте нужную подзадачу слева. У каждого исполнителя своя переписка, срок и результат.</p></section> : !readOnly ? <AppealDiscussion key={detail.id + ':executor'} endpoint={endpoint + '/' + detail.id} channel="executor" onUnreadChange={count => setUnread(current => current.executor === count ? current : {...current, executor:count})} title={detail.can_execute ? 'Чат с администратором' : 'Чат с исполнителем'} openTask={id => openTask(id, detailTab)} readonlyReason={!detail.task ? 'Переписка откроется после назначения исполнителя. Для подзадач откройте нужную карточку.' : undefined} archived={!!detail.archived_at || (!!detail.submitted_by_inspector_name && !detail.task)}/> : undefined}/>
         </div>}
       </>}
     </> : <>
@@ -273,7 +310,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
       </div>
       </div>
       <div className="appeal-list-columns" aria-hidden="true"><span>Обращение</span><span>Вид работ</span><span>{readOnly ? 'Срок задачи' : 'Срок исполнения'}</span><span>{readOnly ? 'Кому передано' : 'Исполнитель'}</span><span>Состояние</span><span/></div>
-      {!data ? !error && <p className="loading">Загружаем обращения…</p> : !data.items.length ? <div className="panel empty"><Inbox size={32}/><h3>{query ? 'Ничего не найдено' : 'Обращений пока нет'}</h3><p>{query ? 'Попробуйте другие слова, адрес, номер или дату.' : 'Новые анкеты жителей появятся здесь.'}</p></div> : <div className="owner-appeal-list">{data.items.map(item => <button className="panel owner-appeal-card owner-appeal-card-open" key={item.id} onClick={() => setSelected(item.id)}>
+      {!data ? !error && <p className="loading">Загружаем обращения…</p> : !data.items.length ? <div className="panel empty"><Inbox size={32}/><h3>{query ? 'Ничего не найдено' : 'Обращений пока нет'}</h3><p>{query ? 'Попробуйте другие слова, адрес, номер или дату.' : 'Новые анкеты жителей появятся здесь.'}</p></div> : <div className="owner-appeal-list">{data.items.map(item => <button className="panel owner-appeal-card owner-appeal-card-open" key={item.id} id={'appeal-row-' + item.id} onClick={() => openTask(item.id)}>
         <span className="appeal-list-main">
         <span className="appeal-list-photo">{item.preview_url ? <img src={item.preview_url} alt="" loading="lazy"/> : <Camera size={26}/>}</span>
         <span className="appeal-list-copy"><span className="owner-appeal-card-top"><strong>{item.number}</strong><span className="appeal-list-title">{appealTitle(item)}</span></span>
