@@ -16,8 +16,8 @@ export type WorkflowAppeal = {id: number; status: string; version: number; can_m
   parent?: TaskRelation | null; children?: TaskRelation[];
   task?: AppealTask | null; task_history?: AppealTask[]; public_response?: string; response_photos?: ResultPhoto[]};
 
-export default function AppealActions({appeal, endpoint, readOnly, changed, discussion, inspectorDiscussion, openTask, workspace = 'inspector'}: {
-  appeal: WorkflowAppeal; endpoint: string; readOnly: boolean; changed: () => void; discussion?: ReactNode; inspectorDiscussion?: ReactNode; openTask?: (id: number) => void; workspace?: 'inspector' | 'executor';
+export default function AppealActions({appeal, endpoint, readOnly, changed, discussion, inspectorDiscussion, openTask, workspace = 'inspector', separateDecision = false, onDecision}: {
+  appeal: WorkflowAppeal; endpoint: string; readOnly: boolean; changed: () => void; discussion?: ReactNode; inspectorDiscussion?: ReactNode; openTask?: (id: number) => void; workspace?: 'inspector' | 'executor' | 'decision'; separateDecision?: boolean; onDecision?: () => void;
 }) {
   const [operators, setOperators] = useState<{id: number; name: string}[]>([]), [operator, setOperator] = useState('');
   const [instruction, setInstruction] = useState(''), [result, setResult] = useState(appeal.status), [comment, setComment] = useState('');
@@ -128,7 +128,11 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
         <option value="COMPLETED">Выполнена</option><option value="CANCELLED">Отменена</option>
       </select></label><button className="primary" disabled={busy || result === appeal.status} onClick={() => void send('/task-status', {status: result, expected_version: appeal.version})}>{busy ? 'Сохраняем…' : 'Сохранить статус задачи'}</button>
     </details>}
-    {execute && reportable && <section className="appeal-task"><h3>Статус задачи</h3>
+    {execute && reportable && <section className="appeal-task"><h3>Выполнение</h3>
+      <div className="appeal-next-actions">
+        {appeal.status === 'ASSIGNED' && <button className="primary" type="button" disabled={busy} onClick={() => void send('/task-status', {status: 'IN_PROGRESS', expected_version: appeal.version})}>Взять в работу</button>}
+        {['ASSIGNED', 'IN_PROGRESS'].includes(result) && <button type="button" disabled={busy} onClick={() => setResult('COMPLETED')}>Подготовить отчёт</button>}
+      </div>
       <label>Состояние задачи<select disabled={busy} value={result} onChange={event => setResult(event.target.value)}><option value="ASSIGNED">Назначена</option><option value="IN_PROGRESS">В работе</option><option value="CANCELLED">Отменена</option><option value="COMPLETED">Выполнена</option></select></label>
       {['ASSIGNED', 'IN_PROGRESS'].includes(result) ? <button className="primary" disabled={busy || result === appeal.status} onClick={() => void send('/task-status', {status: result, expected_version: appeal.version})}>Сохранить статус задачи</button> : <>
         <label>Комментарий<textarea disabled={busy} value={comment} maxLength={4000} onPaste={event => {const images = pastedImages(event); if (images.length) updateFiles([...files, ...images]);}} onChange={event => setComment(event.target.value)} placeholder="Что сделано или почему задача отменена"/></label>
@@ -136,18 +140,18 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
         <button className="primary" disabled={busy || !comment.trim() || !files.length || files.length > 3} onClick={() => void send('/result', upload({status: result, comment}))}>{preparing ? 'Подготавливаем фото…' : busy ? 'Отправляем…' : 'Передать результат администратору'}</button>
       </>}
     </section>}
-    {manage && !appeal.archived_at && !appeal.children?.length && !isFinalAppeal(appeal) && <>
-      <section className="appeal-task"><h3>{appeal.task ? 'Перенаправить задачу' : 'Назначить исполнителя'}</h3>
+    {manage && !appeal.archived_at && !appeal.children?.length && !isFinalAppeal(appeal) && <details className="appeal-task" open={!appeal.task || undefined}>
+      <summary>{appeal.task ? 'Сменить исполнителя' : 'Назначить исполнителя'}</summary>
         <label>Оператор<select value={operator} disabled={busy} onChange={event => setOperator(event.target.value)}><option value="">Выберите исполнителя</option>{operators.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         {!operators.length && <p className="hint">Добавьте действующего оператора в этой организации.</p>}
         <label>Комментарий к задаче<textarea disabled={busy} value={instruction} maxLength={4000} onChange={event => setInstruction(event.target.value)} placeholder="Что нужно сделать исполнителю"/></label>
         <p className="hint">Этот комментарий виден только администратору и оператору.</p>
         <button disabled={busy || !operator} onClick={() => void send('/assign', {operator_id: Number(operator), instruction, expected_version: appeal.version})}>Назначить</button>
-      </section>
-    </>}
+    </details>}
     {manage && !!appeal.task_history?.length && <details><summary>История назначений ({appeal.task_history.length})</summary>{appeal.task_history.map(task => <section className="appeal-task" key={task.id}><strong>{task.operator_name} · {appealStatuses[task.status]}</strong>{task.due_date && <p>Срок: {new Date(task.due_date + 'T00:00:00').toLocaleDateString('ru-RU')}</p>}<p className="owner-appeal-text">{task.instruction}</p><p className="owner-appeal-text">{task.result_comment}</p></section>)}</details>}
   </>;
   const decisions = <>
+    {separateDecision && appeal.task?.result_comment && <section className="appeal-task"><h3>Результат исполнителя</h3><p className="owner-appeal-text">{appeal.task.result_comment}</p></section>}
     {manage && !appeal.archived_at && !isFinalAppeal(appeal) && <>
       <section className="appeal-task"><h3>Решение по обращению</h3>
         <label>Решение<select value={decision} disabled={busy} onChange={event => setDecision(event.target.value)}>{Object.entries(appealDecisions).map(([value, text]) => <option value={value} key={value}>{text.label}</option>)}</select></label>
@@ -167,9 +171,10 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
   </>;
   return <div className="appeal-workflow">
     {manage && inspectorDiscussion ? <>
-      <div hidden={workspace !== 'inspector'}><div className="appeal-task-workspace"><div><section className="appeal-task"><h3>Срок проверяющего</h3><p>{appeal.inspector_due_date ? new Date(appeal.inspector_due_date + 'T00:00:00').toLocaleDateString('ru-RU') : 'Не установлен'}</p></section>{decisions}</div>{inspectorDiscussion}</div></div>
-      <div hidden={workspace !== 'executor'}><div className="appeal-task-workspace"><div>{tasks}</div><div>{discussion}</div></div></div>
-    </> : <div className="appeal-task-workspace"><div>{tasks}{decisions}</div><div>{inspectorDiscussion || discussion}</div></div>}
+      <div hidden={workspace !== 'inspector'}><div className="appeal-task-workspace appeal-inspector-workspace"><div className="panel appeal-work-sidebar"><section className="appeal-task"><h3>{appeal.submitted_by_inspector_name}</h3><p className="hint">Проверяющий · автор задачи</p><p>Срок задачи · {appeal.inspector_due_date ? new Date(appeal.inspector_due_date + 'T00:00:00').toLocaleDateString('ru-RU') : 'не установлен'}</p></section>{!separateDecision && decisions}{separateDecision && !appeal.archived_at && <button type="button" onClick={onDecision}>{isFinalAppeal(appeal) ? 'Открыть решение' : 'Закрыть задачу'}</button>}</div>{inspectorDiscussion}</div></div>
+      <div hidden={workspace !== 'executor'}><div className="appeal-task-workspace"><div className="panel appeal-work-sidebar">{tasks}{separateDecision && !appeal.archived_at && <button type="button" onClick={onDecision}>{isFinalAppeal(appeal) ? 'Открыть решение' : 'Закрыть задачу'}</button>}</div><div>{discussion}</div></div></div>
+    </> : <div hidden={workspace === 'decision'}><div className="appeal-task-workspace"><div className="panel appeal-work-sidebar">{tasks}{!separateDecision && decisions}</div><div>{inspectorDiscussion || discussion}</div></div></div>}
+    {separateDecision && <div hidden={workspace !== 'decision'} className="panel appeal-decision-panel">{decisions}</div>}
     {error && <p className="error" role="alert">{error}</p>}
     {confirmClose && <div className="modal-backdrop"><section className="modal appeal-confirm" role="alertdialog" aria-modal="true" aria-labelledby="appeal-close-title" onKeyDown={event => {if (event.key === 'Escape' && !busy) setConfirmClose(false);}}>
       <h2 id="appeal-close-title">{decisionText.question}</h2><p>{appeal.is_public === false ? 'Ответ и фотографии будут сохранены в «Метке».' : 'Ответ и выбранные фотографии будут опубликованы на стене «Сигнала».'}</p>

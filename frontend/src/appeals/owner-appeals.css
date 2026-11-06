@@ -346,13 +346,37 @@
 @media (max-width: 900px) { .appeal-task-workspace { grid-template-columns: minmax(0, 1fr); } }
 .appeal-event-list.is-empty { height: 145px; }
 @media (max-width: 900px) {
-  .inspector-task-view .appeal-task-workspace > :has(> .appeal-discussion) { grid-row: 1; }
+  .inspector-task-view .appeal-task-workspace > :has(> .appeal-discussion), .appeal-inspector-workspace > .appeal-discussion { grid-row: 1; }
   .appeal-event-list:not(.is-empty) { height: clamp(200px, 37vh, 360px); }
 }
 
 .appeal-copy-link { flex: none; width: 36px; height: 36px; padding: 0; }
 .appeal-copy-status { margin: 6px 0; }
 
+.appeal-detail-context { position:sticky; top:0; z-index:5; background:var(--page, var(--bg, #f5f7f4)); margin-bottom:14px; }
+.appeal-detail-context .appeal-detail-header { margin:0; padding:10px 0; gap:12px; }
+.appeal-detail-context h1 { flex:1; min-width:0; }
+.appeal-detail-context .appeal-detail-tabs { margin-bottom:0; flex-wrap:wrap; }
+.appeal-next-step.panel { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:16px; border-color:var(--appeal-link); }
+.owner-appeal-edit > summary { cursor:pointer; font-weight:600; }
+.owner-appeal-edit[open] > summary { margin-bottom:12px; }
+.appeal-next-step h2 { margin:0; font-size:var(--ui-title, 1rem); }
+.appeal-next-step p { margin:4px 0 0; color:var(--muted); }
+.appeal-next-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.appeal-work-sidebar.panel { margin:0; padding:16px; }
+.appeal-decision-panel.panel { max-width:700px; }
+.appeal-work-sidebar > .appeal-task:first-child, .appeal-decision-panel > .appeal-task:first-child { border-top:0; padding-top:0; margin-top:0; }
+.appeal-work-sidebar > details.appeal-task > summary { font-weight:600; }
+.appeal-work-sidebar > details[open] > summary { margin-bottom:12px; }
+.appeal-work-sidebar > button { margin-top:10px; }
+
+@media (max-width:650px) {
+  .appeal-detail-context .appeal-detail-header { gap:6px 10px; padding-bottom:4px; }
+  .appeal-detail-context .appeal-detail-tabs { flex-wrap:nowrap; overflow-x:auto; }
+  .appeal-detail-context .appeal-detail-tabs button { white-space:nowrap; }
+}
+
+:root[data-theme="dark"] .appeal-detail-context { background:#181818; }
 .appeal-message-meta, .appeal-message-meta > span { display:inline-flex; align-items:center; gap:5px; }
 .appeal-message-meta { color:var(--muted); }
 .appeal-message-meta .message-read { color:var(--appeal-link); }

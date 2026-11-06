@@ -264,3 +264,23 @@ it('keeps the chat draft when the open task is refreshed at a newer version', as
   expect(element.querySelector('[aria-label="Сообщение по обращению"]')).toBe(draft);
   expect(draft.value).toBe('Черновик');
 });
+
+it('keeps the task identity over the work tabs and exposes assignment and decision from the overview', async () => {
+  Object.assign(current, {submitted_by_inspector_name: 'Автор проверки', is_public: false});
+  await act(async () => {root.render(<MemoryRouter initialEntries={['/appeals?appeal=42']}><OwnerAppeals organization/></MemoryRouter>); await tick();});
+  const context = element.querySelector('.appeal-detail-context')!;
+  const heading = context.querySelector('h1')!;
+  expect(heading.textContent).toContain('ОБ-000042');
+  expect(heading.textContent).toContain('Мусор');
+  const actions = element.querySelector('.appeal-next-actions')!;
+  const buttons = actions.querySelectorAll('button');
+  await act(async () => buttons[0].click());
+  expect(context.querySelector('#appeal-tab-executor')?.getAttribute('aria-selected')).toBe('true');
+  expect(context.querySelector('h1')).toBe(heading);
+  await act(async () => context.querySelector<HTMLButtonElement>('#appeal-tab-inspector')!.click());
+  const decision = element.querySelector<HTMLElement>('.appeal-decision-panel')!;
+  expect(decision.hidden).toBe(true);
+  await act(async () => context.querySelector<HTMLButtonElement>('#appeal-tab-decision')!.click());
+  expect(decision.hidden).toBe(false);
+  expect(context.querySelector('h1')).toBe(heading);
+});
