@@ -28,12 +28,14 @@ from app.models import (
     InspectionMessage,
     InspectionQR,
     Inspector,
+    Organization,
     Photo,
+    PlatformOwner,
     User,
     WorkType,
 )
 from app.organization_context import organization_scope
-from app.organization_registry import control_session
+from app.organization_registry import control_session, scope_for
 
 pytestmark = pytest.mark.integration
 PASSWORD = "inspector-password-123"
@@ -656,3 +658,30 @@ def test_inspector_has_one_owner_chat_with_both_histories_and_scoped_replies(ins
     assert inspector.get(endpoint, params={"peer": admin_peer}).status_code == 404
     remaining = inspector.get(endpoint, params={"peer": owner_peer}).json()["items"]
     assert [item["id"] for item in remaining] == [messages[0]["id"], quoted.json()["id"]]
+
+
+
+def test_inspector_contacts_merge_each_owner_in_the_legacy_organization(inspection):
+    owner, _, _, _, accounts, clients = inspection
+    with control_session() as db:
+        legacy = db.scalar(select(Organization).where(Organization.legacy))
+        scope = scope_for(legacy)
+        developer = User(login="developer", name="Разработчик", password_hash="unused", role="ADMIN_OPERATOR", active=True)
+        db.add(developer)
+        db.flush()
+        db.add(PlatformOwner(user_id=developer.id))
+        db.commit()
+        developer_id = developer.id
+    grant(owner, clients[0], scope)
+    peer = f'i:{accounts[0]["id"]}'
+    sent = owner.post(scope.prefix + "/api/inspection-admin/messages", params={"peer": peer},
+                      json={"body": "Из организации", "client_id": str(uuid4())})
+    assert sent.status_code == 201, sent.text
+    items = clients[0].get("/api/inspection/contacts").json()
+    owners = {item["key"]: item for item in items if item["key"].startswith("o:")}
+    assert len(owners) == 2
+    assert not any(item["key"].startswith(f"a:{scope.id}:") for item in items)
+    for id in (scope.owner_user_id, developer_id):
+        assert owners[f"o:{id}"]["aliases"] == [f"a:{scope.id}:{id}"]
+    assert owners[f"o:{scope.owner_user_id}"]["unread"] == 1
+    assert owners[f"o:{developer_id}"]["unread"] == 0

@@ -94,11 +94,12 @@ def inspector_contacts(db, account):
     contacts = [contact(f"o:{owner.id}", owner.name, "Владелец сервиса", None, owner.avatar_image)
                 for owner in db.scalars(select(User).join(PlatformOwner, PlatformOwner.user_id == User.id)
                                         .where(User.active).order_by(User.name))]
-    # Workspace messages use a shared account. Keep that history attached to the original owner.
+    owners = {int(item["key"].split(":")[1]): item for item in contacts}
+    # The legacy organization shares the control database. Other organizations use a shared local owner.
     primary_id = db.scalar(select(Organization.owner_user_id).where(Organization.legacy).limit(1))
-    primary_owner = next((item for item in contacts if item["key"] == f"o:{primary_id}"), None)
-    if primary_id is None and len(contacts) == 1 and db.scalar(select(func.count()).select_from(PlatformOwner)) == 1:
-        primary_owner = contacts[0]
+    primary_owner = owners.get(primary_id)
+    if primary_id is None and len(owners) == 1 and db.scalar(select(func.count()).select_from(PlatformOwner)) == 1:
+        primary_owner = next(iter(owners.values()))
     contacts += [contact(f"i:{a.id}", a.name, "Проверяющий", None, a.avatar_image)
                  for a in db.scalars(select(Inspector).where(Inspector.agency_id == account.agency_id,
                                      Inspector.id != account.id, Inspector.active).order_by(Inspector.name))]
@@ -109,8 +110,9 @@ def inspector_contacts(db, account):
         with Session(database_engine(scope.database_url)) as tenant:
             for admin in tenant.scalars(select(User).where(User.active, User.role == "ADMIN_OPERATOR").order_by(User.name)):
                 key = f"a:{org.id}:{admin.id}"
-                if primary_owner is not None and admin.id == scope.owner_user_id:
-                    primary_owner.setdefault("aliases", []).append(key)
+                owner = owners.get(admin.id) if org.legacy else primary_owner if admin.id == scope.owner_user_id else None
+                if owner is not None:
+                    owner.setdefault("aliases", []).append(key)
                     continue
                 name = "Администратор" if admin.id == scope.owner_user_id and admin.name == "Владелец сервиса" else admin.name
                 contacts.append(contact(key, name,
