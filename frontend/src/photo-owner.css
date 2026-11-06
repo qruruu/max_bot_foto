@@ -53,4 +53,3 @@
 .photo-detail-more > summary { cursor: pointer; font-size: var(--ui-body, 14px); font-weight: 600; color: var(--text, #273730); }
 .photo-detail-more[open] > summary { margin-bottom: 12px; }
 .review-image-column .image-caption { gap: 8px; flex-wrap: wrap; }
-.review-image-column .image-caption button { padding: 5px 0; }

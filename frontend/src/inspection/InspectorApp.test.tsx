@@ -192,6 +192,7 @@ it('opens photo forwarding from the read-only card',async()=>{
   vi.mocked(api).mockImplementation(async(path,method,body,signal)=>path.startsWith('/inspection/contacts?')?[{key:'o:1',name:'Владелец',kind:'Владелец сервиса'}]:fallback(path,method,body,signal));
   await mount();
   await act(async()=>{element.querySelector<HTMLButtonElement>('#inspection-photo-85')!.click();await tick();});
+  expect(button('Переслать фото').matches('.review-form .photo-forward-button')).toBe(true);
   await act(async()=>{button('Переслать фото').click();await tick();});
   expect(element.querySelector('[role=dialog] h2')?.textContent).toBe('Переслать фото');
   expect(element.querySelector('.forward-destinations button')?.textContent).toContain('Владелец сервиса');

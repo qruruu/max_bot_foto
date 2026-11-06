@@ -27,7 +27,7 @@ export default function InspectionPhotoDetail({org, id, filters, onClose, onMove
   }, [org,id,filters,revision]);
   return <section className="inspection-photo-detail">
     <button className="back-link" onClick={onClose}><ArrowLeft size={16}/>{fromChat ? 'К переписке' : fromMap ? 'Карта фотографий' : 'Все фотографии'}</button>
-    <header className="page-header"><div><span className="eyebrow">КАРТОЧКА ФОТОГРАФИИ</span><h1>Фотография #{id}</h1>{photo && <p>Получена {dateLabel(photo.received_at)}</p>}</div><div className="inspection-actions">{photo && <StatusBadge value="ACCEPTED"/>}<button aria-label="Обновить карточку" onClick={()=>setRevision(value=>value+1)}><RefreshCw size={17}/></button></div></header>
+    <header className="page-header"><div><span className="eyebrow">КАРТОЧКА ФОТОГРАФИИ</span><h1>Фотография #{id}</h1>{photo && <p>Получена {dateLabel(photo.received_at)}</p>}</div><div className="inspection-actions">{photo && <StatusBadge value="ACCEPTED"/>}<button type="button" aria-label="Обновить карточку" title="Обновить карточку" onClick={()=>setRevision(value=>value+1)}><RefreshCw size={17}/></button></div></header>
     <ErrorBox error={error}/>
     {!photo && !error && <p className="loading">Открываем фотографию…</p>}
     {photo && <div className="review-layout"><div className="review-image-column"><div className="review-image"><a href={photo.preview_url} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt={'Фотография №'+photo.id}/></a></div>
