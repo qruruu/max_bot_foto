@@ -14,26 +14,27 @@ export function invitationToken(value: string): string {
   return token;
 }
 
-export function OrganizationQR({endpoint}: {endpoint: string}) {
+export function OrganizationQR({endpoint, embedded = false}: {endpoint: string; embedded?: boolean}) {
   const [image,setImage] = useState(''), [url,setUrl] = useState(''), [expires,setExpires] = useState('');
-  const [busy,setBusy] = useState(false), [error,setError] = useState('');
+  const [busy,setBusy] = useState(false), [error,setError] = useState(''), [copied,setCopied] = useState(false);
   async function create() {
-    setBusy(true); setError(''); setImage(''); setUrl('');
+    setBusy(true); setError(''); setImage(''); setUrl(''); setCopied(false);
     try {
       const result = await api<{url: string; expires_at: string}>(endpoint, 'POST');
       setImage(await QRCode.toDataURL(result.url, {width: 320, margin: 3, errorCorrectionLevel:'M'}));
       setUrl(result.url); setExpires(result.expires_at);
     } catch(e) {setError((e as Error).message);} finally {setBusy(false);}
   }
-  useEffect(() => {setImage(''); setUrl(''); setError('');}, [endpoint]);
-  return <section className="panel inspection-qr"><h2>Доступ проверяющего</h2>
-    <p>Каждый QR выдаёт доступ одному аккаунту. Он действует 15 минут и погашается после первого использования. Новый QR заменяет предыдущий неиспользованный.</p>
-    <button disabled={busy} onClick={() => void create()}><RefreshCw size={17}/>{busy ? 'Создаём…' : image ? 'Создать новый QR' : 'Создать QR организации'}</button>
+  useEffect(() => {setImage(''); setUrl(''); setError(''); setCopied(false);}, [endpoint]);
+  return <section className={embedded ? 'inspection-qr' : 'panel inspection-qr'}>
+    {!embedded && <h2>Доступ проверяющего</h2>}
+    <p className="hint">Проверяющий может отсканировать QR или открыть ссылку. Приглашение действует 15 минут и даёт доступ одному аккаунту.</p>
+    <button type="button" className={image ? undefined : 'primary'} disabled={busy} onClick={() => void create()}><RefreshCw size={17}/>{busy ? 'Создаём…' : image ? 'Создать новый QR' : 'Создать QR организации'}</button>
     {error && <p className="error" role="alert">{error}</p>}
     {image && <><img className="inspection-qr-image" src={image} alt="Одноразовый QR организации для проверяющего"/>
       <p>Действует до {new Date(expires).toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'})}</p>
       <a className="button" download="organization-qr.png" href={image}>Скачать QR</a>
-      <button onClick={async () => {try {await navigator.clipboard.writeText(url);} catch {setError('Не удалось скопировать ссылку. Скачайте QR.');}}}>Копировать ссылку</button></>}
+      <button type="button" onClick={async () => {try {await navigator.clipboard.writeText(url); setError(''); setCopied(true);} catch {setError('Не удалось скопировать ссылку. Скачайте QR.');}}}>{copied ? 'Ссылка скопирована' : 'Копировать ссылку'}</button></>}
   </section>;
 }
 

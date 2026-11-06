@@ -43,3 +43,14 @@
 .inspection-work-summary>div:first-child { display: flex; justify-content: space-between; margin-bottom: 8px; }
 .inspection-work-summary:nth-child(3n) .bar i { background: #bac891; }
 :root[data-theme="dark"] .inspection-work-summary:nth-child(3n) .bar i { background: #98baff; }
+
+.inspector-invite-dialog {
+  width: min(440px, calc(100vw - 28px));
+  max-height: calc(100dvh - 28px);
+  margin: auto;
+  overflow: auto;
+  color: var(--text, #273730);
+}
+.inspector-invite-dialog::backdrop { background: #12191580; }
+.inspector-invite-dialog > .section-title { margin-bottom: 12px; }
+.inspector-invite-dialog .inspection-qr-image { width: min(240px, 100%); margin-inline: auto; }

@@ -31,6 +31,7 @@ import PhotoNumberSearch from './PhotoNumberSearch';
 import './photo-owner.css';
 import useSidebar from './useSidebar';
 import MobileNavigation from './MobileNavigation';
+import { defaultSidebarOrder } from './sidebarOrder';
 import SidebarNavigation from './SidebarNavigation';
 import DayReviews from './DayReviews';
 import ClosedDayUpdates from './ClosedDayUpdates';
@@ -43,8 +44,11 @@ import Login, { SignInRedirect } from './Login';
 import { AppealNotice, useAppealNotifications } from './appeals/notifications';
 const PhotoRoutes = lazy(() => import('./photo-routes/PhotoRoutes'));
 const OwnerAppeals = lazy(() => import('./appeals/OwnerAppeals'));
-const InspectionAdministration = lazy(() => import('./inspection/Administration'));
 const DailyReports = lazy(() => import('./daily-reports/DailyReports'));
+
+const dailyLinks = ['/', '/appeals', '/messages', '/photos', '/review', '/days', '/daily-reports'];
+const workspaceMenuOrder = [...dailyLinks, ...defaultSidebarOrder.filter(path => !dailyLinks.includes(path))];
+const managementLinks = new Set(['/chats', '/work-types', '/users', '/audit', '/jobs', '/exchange', '/api-keys', '/learning']);
 
 const Context = createContext<{ user: User; meta: Meta; refresh: () => Promise<void>; notify: (text: string) => void; updateUser: (user: User) => void }>(null!);
 export const AppContextProvider = Context.Provider;
@@ -80,12 +84,11 @@ export default function App() {
     {to:'/daily-reports', label:'Ежедневные отчёты', Icon:ClipboardCheck, allowed:hasPermission(user,'daily_reports_view')},
     {to:'/spam', label:'Спам', Icon:ArchiveX, allowed:hasPermission(user,'spam_view')},
     {to:'/districts', label:'Микрорайоны', Icon:Map, allowed:hasPermission(user,'districts_view')},
-    {to:'/appeals', label:admin ? 'Обращения' : 'Мои задачи по обращениям', Icon:MessageSquare, allowed:!!meta.organization},
-    {to:'/inspectors', label:'Проверяющие', Icon:ShieldCheck, allowed:admin && !!meta.organization},
+    {to:'/appeals', label:admin ? 'Обращения' : 'Мои задачи', Icon:MessageSquare, allowed:!!meta.organization},
     {to:'/messages', label:'Чаты', Icon:MessageSquare, allowed:true},
     {to:'/chats', label:'Чаты MAX', Icon:MessageSquare, allowed:hasPermission(user,'chats_manage')},
     {to:'/work-types', label:'Виды работ', Icon:Layers, allowed:admin},
-    {to:'/users', label:'Операторы', Icon:Users, allowed:admin},
+    {to:'/users', label:'Сотрудники', Icon:Users, allowed:admin},
     {to:'/audit', label:'Журнал действий', Icon:ShieldCheck, allowed:hasPermission(user,'audit_view')},
     {to:'/jobs', label:'Обработка', Icon:RefreshCw, allowed:hasPermission(user,'jobs_manage')},
     {to:'/exchange', label:'Фотоархив', Icon:ArrowDownToLine, allowed:hasPermission(user,'exchange_manage')},
@@ -103,8 +106,8 @@ export default function App() {
       {!sidebar.collapsed&&<button type="button" className="sidebar-backdrop" aria-label="Закрыть боковую панель" onClick={sidebar.toggle}/>}
       <aside id="workspace-sidebar" ref={sidebar.sidebar} className="sidebar">
         <NavLink className="brand" onClick={sidebar.closeMenu} to={home} aria-label="Метка — главная"><span className="brand-mark"><Layers size={23}/></span><span className="brand-copy">Метка<small>Контроль городских работ</small></span></NavLink>
-        <SidebarNavigation key={user.id} links={links.map(link=>({...link,badge:link.to==='/messages'?<OperatorChatBadge/>:link.to==='/news'?<NewsUnreadBadge/>:link.to==='/appeals' && appeals.count ? <span className="count-pill appeal-count" aria-label={`Новых обращений: ${appeals.count}`}>{appeals.count}</span>:undefined}))}
-          order={user.sidebar_order} collapsed={sidebar.collapsed} toggle={sidebar.toggle} onNavigate={sidebar.closeMenu}
+        <SidebarNavigation key={user.id} links={links.map(link=>({...link,group:managementLinks.has(link.to) ? 'management' : undefined,badge:link.to==='/messages'?<OperatorChatBadge/>:link.to==='/news'?<NewsUnreadBadge/>:link.to==='/appeals' && appeals.count ? <span className="count-pill appeal-count" aria-label={`Новых обращений: ${appeals.count}`}>{appeals.count}</span>:undefined}))}
+          order={user.sidebar_order} resetOrder={workspaceMenuOrder} collapsed={sidebar.collapsed} toggle={sidebar.toggle} onNavigate={sidebar.closeMenu}
           onSaved={sidebar_order=>setUser(current=>current?.id===user.id?{...current,sidebar_order}:current)}/>
         <div className="sidebar-bottom">
           <NavLink to="/settings" onClick={sidebar.closeMenu} className="account-link" title="Настройки" aria-label="Настройки">
@@ -132,7 +135,7 @@ export default function App() {
           <Route path="/photos/:id" element={protectedPage('photos_view',<PhotoDetail/>)}/>
           <Route path="/districts" element={protectedPage('districts_view',<DistrictMap/>)}/>
           <Route path="/appeals" element={meta.organization ? <Suspense fallback={<p className="loading">Открываем обращения…</p>}><OwnerAppeals organization/></Suspense> : denied}/>
-          <Route path="/inspectors" element={admin && meta.organization ? <Suspense fallback={<p className="loading">Открываем проверяющих…</p>}><InspectionAdministration/></Suspense> : denied}/>
+          <Route path="/inspectors" element={admin && meta.organization ? <LegacyInspectorLink/> : denied}/>
           <Route path="/messages" element={<OperatorChats includeInspectors={admin && !!meta.organization}/>}/>
           <Route path="/chats" element={protectedPage('chats_manage',<Administration key="chats" page="chats"/>)}/>
           <Route path="/work-types" element={admin?<WorkTypes/>:denied}/>
@@ -155,6 +158,12 @@ export default function App() {
     </OperatorChatsProvider>
     </NewsNotificationsProvider>
   </Context.Provider>;
+}
+
+function LegacyInspectorLink() {
+  const [params] = useSearchParams();
+  const peer = params.get('with');
+  return <Navigate replace to={peer ? '/messages?' + new URLSearchParams({with: peer}) : '/users?invite=inspector'}/>;
 }
 
 export function useFilters(review=false,spam=false,today=false,workOnly=false) {

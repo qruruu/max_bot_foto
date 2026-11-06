@@ -68,3 +68,9 @@
   .workspace .two-columns { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .workspace :is(.modal, .settings-content) :is(input:not([type=checkbox]):not([type=radio]), select, textarea) { font-size: 16px; }
 }
+
+.staff-header-actions { display: flex; flex-wrap: wrap; justify-content: end; gap: 8px; }
+@media (max-width: 650px) {
+  .page-header:has(.staff-header-actions) { flex-wrap: wrap; }
+  .staff-header-actions { justify-content: start; }
+}
