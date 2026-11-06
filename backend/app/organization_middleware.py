@@ -32,6 +32,7 @@ def platform_login_session(request):
         if expiry <= now() or not user or not user.active or not db.get(PlatformOwner, user.id):
             return None
         session.expires_at = expiry
+        session._workspace_profile = user
         return session
 
 
@@ -43,6 +44,13 @@ def resolve_workspace(request, id):
             return None, owner_session
         if organization.status == "PAUSED" and owner_session is None:
             return None, None
+        if owner_session:
+            from sqlalchemy import func, select
+
+            primary = db.scalar(select(Organization.owner_user_id).where(Organization.legacy).limit(1))
+            owner_session._workspace_inbox = primary == owner_session.user_id if primary is not None else (
+                db.scalar(select(func.count()).select_from(PlatformOwner)) == 1
+            )
         return scope_for(organization), owner_session
 
 

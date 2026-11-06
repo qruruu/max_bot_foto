@@ -67,6 +67,8 @@ def current_user(request: Request, db: Db):
             raise HTTPException(403, "Вход в общий кабинет доступен только владельцу")
     user._platform_owner = bool(platform_session or platform_login)
     user._platform_user_id = platform_session.user_id if platform_session else None
+    user._workspace_inbox = getattr(platform_session, "_workspace_inbox", False)
+    user._workspace_profile = getattr(platform_session, "_workspace_profile", None)
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         check_origin(request)
         csrf = request.headers.get("x-csrf-token", "")
@@ -171,13 +173,11 @@ def user_dict(user: User, *, workspace_profile=True):
         result.update(is_platform_owner=getattr(user, "_platform_owner", False),
                       organization={"id": organization.id, "name": organization.name} if organization else None)
         result["managed_by_platform"] = bool(organization and organization.owner_user_id == user.id)
-        if workspace_profile and organization and getattr(user, "_platform_user_id", None):
-            from app.organization_registry import control_session
-            with control_session() as control:
-                owner = control.get(User, user._platform_user_id)
-                result.update(name=owner.name, login=owner.login, sidebar_order=owner.sidebar_order or [],
-                              avatar_url=f"/api/auth/avatar/{owner.id}?v={hashlib.sha256(owner.avatar_image).hexdigest()[:16]}"
-                              if owner.avatar_image else None)
+        owner = getattr(user, "_workspace_profile", None)
+        if workspace_profile and organization and owner:
+            result.update(name=owner.name, login=owner.login, sidebar_order=owner.sidebar_order or [],
+                          avatar_url=f"/api/auth/avatar/{owner.id}?v={hashlib.sha256(owner.avatar_image).hexdigest()[:16]}"
+                          if owner.avatar_image else None)
     return result
 
 

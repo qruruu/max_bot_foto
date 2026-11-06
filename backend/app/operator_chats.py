@@ -15,7 +15,7 @@ from app.auth import CurrentUser, Db, admin_user, is_platform_owner
 from app.chat_access import chat_condition
 from app.chat_messages import Screenshots, prepare_screenshots, quote, screenshot_response
 from app.domain import now
-from app.models import OperatorMessage, Organization, Photo, PlatformOwner, User
+from app.models import OperatorMessage, Photo, PlatformOwner, User
 from app.organization_context import current_organization, workspace_url
 from app.organization_registry import control_session
 from app.permissions import Permission, has_permission
@@ -56,11 +56,7 @@ class ReadInput(StrictModel):
 def uses_workspace_inbox(user):
     if not is_platform_owner(user) or current_organization() is None:
         return True
-    with control_session() as db:
-        primary = db.scalar(select(Organization.owner_user_id).where(Organization.legacy).limit(1))
-        if primary is not None:
-            return primary == user._platform_user_id
-        return db.scalar(select(func.count()).select_from(PlatformOwner)) == 1
+    return user._workspace_inbox
 
 
 def require_workspace_inbox(user):

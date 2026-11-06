@@ -1,5 +1,6 @@
 """Private inspection conversations, with current recipient and photo access checked on every request."""
 
+from contextlib import nullcontext
 from hashlib import sha256
 from typing import Annotated
 from urllib.parse import urlencode
@@ -14,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.appeal_events import personal_forward_source
 from app.auth import AdminUser, CurrentUser, Db, is_platform_owner
 from app.chat_messages import Screenshots, lock_chat_identity, prepare_screenshots, quote, screenshot_response
+from app.config import base_settings
 from app.db import database_engine
 from app.domain import now
 from app.inspection_auth import InspectorUser
@@ -90,6 +92,18 @@ def contact(key, name, kind, organization, avatar, base="/api/inspection"):
             if avatar else None}
 
 
+def workspace_control_session(tenant):
+    org = current_organization()
+    return nullcontext(tenant) if org and org.database_url == base_settings().database_url else control_session()
+
+
+def inspection_tenant(db, org, scope=None):
+    if org.legacy:
+        return nullcontext(db)
+    scope = scope or scope_for(org)
+    return Session(database_engine(scope.database_url))
+
+
 def inspector_contacts(db, account):
     contacts = [contact(f"o:{owner.id}", owner.name, "Владелец сервиса", None, owner.avatar_image)
                 for owner in db.scalars(select(User).join(PlatformOwner, PlatformOwner.user_id == User.id)
@@ -107,7 +121,7 @@ def inspector_contacts(db, account):
                      .where(InspectionGrant.inspector_id == account.id, Organization.status == "ACTIVE"))
     for org in orgs:
         scope = scope_for(org)
-        with Session(database_engine(scope.database_url)) as tenant:
+        with inspection_tenant(db, org, scope) as tenant:
             for admin in tenant.scalars(select(User).where(User.active, User.role == "ADMIN_OPERATOR").order_by(User.name)):
                 key = f"a:{org.id}:{admin.id}"
                 owner = owners.get(admin.id) if org.legacy else primary_owner if admin.id == scope.owner_user_id else None
@@ -137,8 +151,6 @@ def workspace_owner_alias(user, actor):
         return ()
     if actor.startswith("o:"):
         org = current_organization()
-        from app.config import base_settings
-
         return (f"a:{org.id}:{user._platform_user_id}",) if org.database_url == base_settings().database_url else ()
     return (f"o:{user._platform_user_id}",)
 
@@ -194,7 +206,7 @@ def owner_contacts(db, owner_id, *, peer=None, organization_id=None, staff_only=
     for org in db.scalars(organizations):
         scope = scope_for(org)
         excluded = owner_ids | {scope.owner_user_id} if org.legacy else {scope.owner_user_id}
-        with Session(database_engine(scope.database_url)) as tenant:
+        with inspection_tenant(db, org, scope) as tenant:
             for user in tenant.scalars(select(User).where(User.active, User.id.not_in(excluded)).order_by(User.name)):
                 kind = "Администратор" if user.role == "ADMIN_OPERATOR" else "Оператор"
                 contacts.append(contact(f"a:{org.id}:{user.id}", user.name, kind, org.name, user.avatar_image, base))
@@ -230,7 +242,7 @@ def can_view_photo(db, actor, org_id, photo_id, cache=None):
         allowed = parts[1] == org_id
         if allowed:
             scope = scope_for(org)
-            with Session(database_engine(scope.database_url)) as tenant:
+            with inspection_tenant(db, org, scope) as tenant:
                 account = tenant.get(User, int(parts[2]))
                 allowed = bool(account and account.active)
                 if allowed and account.role != "ADMIN_OPERATOR":
@@ -242,8 +254,9 @@ def can_view_photo(db, actor, org_id, photo_id, cache=None):
         allowed = False
     if allowed:
         scope = scope_for(org)
-        with organization_scope(scope), Session(database_engine(scope.database_url)) as tenant:
-            tenant.execute(text("SET TRANSACTION READ ONLY"))
+        with organization_scope(scope), inspection_tenant(db, org, scope) as tenant:
+            if tenant is not db:
+                tenant.execute(text("SET TRANSACTION READ ONLY"))
             try:
                 require_visible_photo(tenant, photo_id)
             except HTTPException:
@@ -286,7 +299,7 @@ def sender_name(db, key):
         return account.name if account else "Бывший собеседник"
     organization = db.get(Organization, parts[1])
     if organization and organization.status == "ACTIVE":
-        with Session(database_engine(scope_for(organization).database_url)) as tenant:
+        with inspection_tenant(db, organization) as tenant:
             account = tenant.get(User, int(parts[2]))
             if account:
                 return account.name
@@ -377,7 +390,7 @@ def contact_avatar(db, peer):
         image = db.get(User, int(parts[1])).avatar_image
     else:
         organization = db.get(Organization, parts[1])
-        with Session(database_engine(scope_for(organization).database_url)) as tenant:
+        with inspection_tenant(db, organization) as tenant:
             image = tenant.get(User, int(parts[2])).avatar_image
     if not image:
         raise HTTPException(404, "Аватарка не установлена")
@@ -395,10 +408,9 @@ def lock_message_participants(db, actor, peer):
             org = db.get(Organization, parts[1])
             if not org or org.status != "ACTIVE":
                 raise HTTPException(404, "Собеседник недоступен")
-            with Session(database_engine(scope_for(org).database_url)) as tenant:
+            with inspection_tenant(db, org) as tenant:
                 account = tenant.get(User, int(parts[2]))
-                if account:
-                    tenant.expunge(account)
+
         if not account or not account.active:
             raise HTTPException(404, "Собеседник недоступен")
 
@@ -479,9 +491,9 @@ def inspector_message_screenshot(message_id: int, number: int, db: Db, user: Ins
 
 
 @admin_router.get("/messages/{message_id}/screenshots/{number}")
-def organization_message_screenshot(message_id: int, number: int, user: AdminUser):
+def organization_message_screenshot(message_id: int, number: int, user: AdminUser, tenant: Db):
     actor, org = admin_identity(user)
-    with control_session() as db:
+    with workspace_control_session(tenant) as db:
         return screenshot_response(source_message(db, actor, admin_contacts(db, org), message_id, actor_aliases=workspace_owner_alias(user, actor)), number)
 
 
@@ -594,7 +606,7 @@ def organization_contacts(user: AdminUser, tenant: Db, photo_organization_id: UU
     sources = [photo_id or photo_organization_id, forward_message_id, forward_operator_message_id, forward_task_message_id]
     if sum(value is not None for value in sources) > 1:
         raise HTTPException(422, "Выберите одно исходное сообщение")
-    with control_session() as db:
+    with workspace_control_session(tenant) as db:
         contacts = admin_contacts(db, org)
         if forward_task_message_id:
             personal_forward_source(db, user, forward_task_message_id, include_content=False)
@@ -613,26 +625,26 @@ def organization_contacts(user: AdminUser, tenant: Db, photo_organization_id: UU
 
 
 @admin_router.get("/unread")
-def organization_chat_unread(user: AdminUser):
+def organization_chat_unread(user: AdminUser, tenant: Db):
     actor, org = admin_identity(user)
-    with control_session() as db:
+    with workspace_control_session(tenant) as db:
         return {"unread": sum(item["unread"] for item in contact_previews(db, actor, admin_contacts(db, org), inboxes=lambda _: workspace_owner_alias(user, actor)))}
 
 
 @admin_router.get("/messages")
-def organization_messages(user: AdminUser, peer: str = Query(max_length=100),
+def organization_messages(user: AdminUser, tenant: Db, peer: str = Query(max_length=100),
                           before_id: Annotated[int | None, Query(gt=0)] = None,
                           after_id: Annotated[int | None, Query(ge=0)] = None):
     actor, org = admin_identity(user)
-    with control_session() as db:
+    with workspace_control_session(tenant) as db:
         validate_peer(admin_contacts(db, org), peer)
         return messages(db, actor, peer, before_id, after_id, workspace_url("/api/inspection-admin"), actor_aliases=workspace_owner_alias(user, actor))
 
 
 @admin_router.get("/contact-avatar")
-def organization_contact_avatar(user: AdminUser, peer: str = Query(max_length=100)):
+def organization_contact_avatar(user: AdminUser, tenant: Db, peer: str = Query(max_length=100)):
     _, org = admin_identity(user)
-    with control_session() as db:
+    with workspace_control_session(tenant) as db:
         validate_peer(admin_contacts(db, org), peer)
         return contact_avatar(db, peer)
 
@@ -641,7 +653,7 @@ def organization_contact_avatar(user: AdminUser, peer: str = Query(max_length=10
 def organization_send(body: AdminMessageInput, user: AdminUser, tenant: Db, peer: str = Query(max_length=100)):
     actor, org = admin_identity(user)
     source = operator_forward(tenant, user, org, body.forward_operator_message_id) if body.forward_operator_message_id else None
-    with control_session() as db:
+    with workspace_control_session(tenant) as db:
         if body.forward_task_message_id:
             content, screenshots, name = personal_forward_source(db, user, body.forward_task_message_id)
             source = (content, None, None, screenshots, name)
@@ -649,17 +661,17 @@ def organization_send(body: AdminMessageInput, user: AdminUser, tenant: Db, peer
 
 
 @admin_router.post("/messages/read")
-def organization_read(body: ReadInput, user: AdminUser, peer: str = Query(max_length=100)):
+def organization_read(body: ReadInput, user: AdminUser, tenant: Db, peer: str = Query(max_length=100)):
     actor, org = admin_identity(user)
-    with control_session() as db:
+    with workspace_control_session(tenant) as db:
         validate_peer(admin_contacts(db, org), peer)
         return mark_read(db, actor, peer, body.through_id, actor_aliases=workspace_owner_alias(user, actor))
 
 
 @admin_router.get("/messages/{message_id}/photo")
-def organization_message_photo(message_id: int, user: AdminUser):
+def organization_message_photo(message_id: int, user: AdminUser, tenant: Db):
     actor, org = admin_identity(user)
-    with control_session() as db:
+    with workspace_control_session(tenant) as db:
         return message_photo(db, actor, admin_contacts(db, org), message_id, actor_aliases=workspace_owner_alias(user, actor))
 
 
@@ -682,68 +694,68 @@ def staff_owner_identity(user, db):
 
 
 @admin_router.get("/owners/contacts")
-def staff_owners(user: CurrentUser, photo_organization_id: UUID | None = None,
+def staff_owners(user: CurrentUser, tenant: Db, photo_organization_id: UUID | None = None,
                  photo_id: Annotated[int | None, Query(gt=0)] = None,
                  forward_message_id: Annotated[int | None, Query(gt=0)] = None):
     if current_organization() is None:
         return []
-    with control_session() as db:
+    with workspace_control_session(tenant) as db:
         actor, contacts = staff_owner_identity(user, db)
         return contact_previews(db, actor, eligible_contacts(db, actor, contacts, photo_organization_id, photo_id, forward_message_id))
 
 
 @admin_router.get("/owners/unread")
-def staff_owner_unread(user: CurrentUser):
+def staff_owner_unread(user: CurrentUser, tenant: Db):
     if current_organization() is None:
         return {"unread": 0}
-    with control_session() as db:
+    with workspace_control_session(tenant) as db:
         actor, contacts = staff_owner_identity(user, db)
         return unread_count(db, actor, contacts)
 
 
 @admin_router.get("/owners/messages")
-def staff_owner_messages(user: CurrentUser, peer: str = Query(max_length=100),
+def staff_owner_messages(user: CurrentUser, tenant: Db, peer: str = Query(max_length=100),
                          before_id: Annotated[int | None, Query(gt=0)] = None,
                          after_id: Annotated[int | None, Query(ge=0)] = None):
-    with control_session() as db:
+    with workspace_control_session(tenant) as db:
         actor, contacts = staff_owner_identity(user, db)
         validate_peer(contacts, peer)
         return messages(db, actor, peer, before_id, after_id, workspace_url("/api/inspection-admin/owners"))
 
 
 @admin_router.post("/owners/messages", status_code=201)
-def staff_owner_send(body: MessageInput, user: CurrentUser, peer: str = Query(max_length=100)):
-    with control_session() as db:
+def staff_owner_send(body: MessageInput, user: CurrentUser, tenant: Db, peer: str = Query(max_length=100)):
+    with workspace_control_session(tenant) as db:
         actor, contacts = staff_owner_identity(user, db)
         return send(db, actor, peer, body, contacts, workspace_url("/api/inspection-admin/owners"))
 
 
 @admin_router.post("/owners/messages/read")
-def staff_owner_read(body: ReadInput, user: CurrentUser, peer: str = Query(max_length=100)):
-    with control_session() as db:
+def staff_owner_read(body: ReadInput, user: CurrentUser, tenant: Db, peer: str = Query(max_length=100)):
+    with workspace_control_session(tenant) as db:
         actor, contacts = staff_owner_identity(user, db)
         validate_peer(contacts, peer)
         return mark_read(db, actor, peer, body.through_id)
 
 
 @admin_router.get("/owners/contact-avatar")
-def staff_owner_avatar(user: CurrentUser, peer: str = Query(max_length=100)):
-    with control_session() as db:
+def staff_owner_avatar(user: CurrentUser, tenant: Db, peer: str = Query(max_length=100)):
+    with workspace_control_session(tenant) as db:
         _, contacts = staff_owner_identity(user, db)
         validate_peer(contacts, peer)
         return contact_avatar(db, peer)
 
 
 @admin_router.get("/owners/messages/{message_id}/screenshots/{number}")
-def staff_owner_screenshot(message_id: int, number: int, user: CurrentUser):
-    with control_session() as db:
+def staff_owner_screenshot(message_id: int, number: int, user: CurrentUser, tenant: Db):
+    with workspace_control_session(tenant) as db:
         actor, contacts = staff_owner_identity(user, db)
         return screenshot_response(source_message(db, actor, contacts, message_id), number)
 
 
 @admin_router.get("/owners/messages/{message_id}/photo")
-def staff_owner_photo(message_id: int, user: CurrentUser):
-    with control_session() as db:
+def staff_owner_photo(message_id: int, user: CurrentUser, tenant: Db):
+    with workspace_control_session(tenant) as db:
         actor, contacts = staff_owner_identity(user, db)
         return message_photo(db, actor, contacts, message_id)
 
