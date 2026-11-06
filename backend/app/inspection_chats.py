@@ -94,8 +94,11 @@ def inspector_contacts(db, account):
     contacts = [contact(f"o:{owner.id}", owner.name, "Владелец сервиса", None, owner.avatar_image)
                 for owner in db.scalars(select(User).join(PlatformOwner, PlatformOwner.user_id == User.id)
                                         .where(User.active).order_by(User.name))]
-    # The shared workspace account cannot be attributed to a specific owner when there is more than one.
-    single_owner = contacts[0] if len(contacts) == 1 and db.scalar(select(func.count()).select_from(PlatformOwner)) == 1 else None
+    # Workspace messages use a shared account. Keep that history attached to the original owner.
+    primary_id = db.scalar(select(Organization.owner_user_id).where(Organization.legacy).limit(1))
+    primary_owner = next((item for item in contacts if item["key"] == f"o:{primary_id}"), None)
+    if primary_id is None and len(contacts) == 1 and db.scalar(select(func.count()).select_from(PlatformOwner)) == 1:
+        primary_owner = contacts[0]
     contacts += [contact(f"i:{a.id}", a.name, "Проверяющий", None, a.avatar_image)
                  for a in db.scalars(select(Inspector).where(Inspector.agency_id == account.agency_id,
                                      Inspector.id != account.id, Inspector.active).order_by(Inspector.name))]
@@ -106,8 +109,8 @@ def inspector_contacts(db, account):
         with Session(database_engine(scope.database_url)) as tenant:
             for admin in tenant.scalars(select(User).where(User.active, User.role == "ADMIN_OPERATOR").order_by(User.name)):
                 key = f"a:{org.id}:{admin.id}"
-                if single_owner is not None and admin.id == scope.owner_user_id:
-                    single_owner.setdefault("aliases", []).append(key)
+                if primary_owner is not None and admin.id == scope.owner_user_id:
+                    primary_owner.setdefault("aliases", []).append(key)
                     continue
                 name = "Администратор" if admin.id == scope.owner_user_id and admin.name == "Владелец сервиса" else admin.name
                 contacts.append(contact(key, name,
@@ -625,8 +628,8 @@ def owner_messages(account_id: int, db: Db, user: Owner, before_id: Annotated[in
     if before_id:
         condition.append(InspectionMessage.id < before_id)
     rows = list(db.scalars(select(InspectionMessage).where(*condition).order_by(InspectionMessage.id.desc()).limit(100)))
-    names = {c["key"]: c["name"] + (" · " + c["organization_name"] if c["organization_name"] else "")
-             for c in inspector_contacts(db, account)}
+    names = {key: c["name"] + (" · " + c["organization_name"] if c["organization_name"] else "")
+             for c in inspector_contacts(db, account) for key in contact_keys(c)}
     cache = {}
     return {"items": [message_dict(m, actor, db, "/api/platform/inspection/chat", cache, f"o:{user.id}") | {
                 "screenshots": [f"/api/platform/inspection/accounts/{account_id}/messages/{m.id}/screenshots/{number}"
