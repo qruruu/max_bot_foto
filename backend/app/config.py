@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.organization_context import current_organization
@@ -16,8 +16,6 @@ class Settings(BaseSettings):
     app_origin: str = "http://localhost:8080"
     public_appeals_origin: str = ""
     app_timezone: str = "Asia/Yekaterinburg"
-    local_assistant_url: str = ""
-    local_assistant_api_key: SecretStr = SecretStr("")
     session_hours: int = 12
     cookie_secure: bool = True
     organizations_enabled: bool = False

@@ -9,7 +9,6 @@
 .operator-chat-contact { display: flex; align-items: center; width: 100%; gap: 10px; border: 0; border-radius: 0; padding: 16px 14px; text-align: left; background: transparent; }
 .operator-chat-contact.selected { background: #edf4ec; }
 .operator-chat-contact .avatar { width: 40px; height: 40px; font-size: 16px; }
-.avatar.operator-assistant-avatar { background: var(--accent-surface); color: var(--accent); }
 .operator-chat-contact-copy { min-width: 0; flex: 1; }
 .operator-chat-contact-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .operator-chat-contact-copy > span { display: block; margin-top: 6px; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -81,8 +80,3 @@
 .operator-message-forwarded { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; margin-bottom: 8px; }
 .operator-message-meta .operator-message-forward { display: inline-flex; align-items: center; padding: 3px; border: 0; background: transparent; color: var(--muted); }
 .inspection-forward-summary { padding: 12px; border-left: 3px solid var(--accent,var(--green)); margin: 18px 0; max-height: 200px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
-
-.operator-chat-compose > .operator-assistant-actions { display: grid; gap: 8px; max-height: 30dvh; overflow: auto; margin-bottom: 8px; }
-.operator-assistant-action-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-.operator-assistant-actions label, .operator-assistant-actions small { display: block; }
-.operator-assistant-actions input { display: block; width: 100%; }

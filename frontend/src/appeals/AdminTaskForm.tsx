@@ -2,15 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api } from '../api';
 import TaskImageInput, { pastedImages } from './TaskImageInput';
-import { createAdminTask } from './adminTaskData';
-import type { TaskOperator } from './adminTaskData';
+import { galleryPhoto } from './gallery';
+
+type Operator = {id: number; name: string};
 
 export default function AdminTaskForm({endpoint, onClose, onCreated}: {
   endpoint: string;
   onClose: () => void;
   onCreated: (id: number) => void;
 }) {
-  const [operators, setOperators] = useState<TaskOperator[] | null>(null);
+  const [operators, setOperators] = useState<Operator[] | null>(null);
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
   const [operatorId, setOperatorId] = useState('');
@@ -24,7 +25,7 @@ export default function AdminTaskForm({endpoint, onClose, onCreated}: {
 
   useEffect(() => {
     const abort = new AbortController();
-    api<TaskOperator[]>(endpoint + '/options', 'GET', undefined, abort.signal)
+    api<Operator[]>(endpoint + '/options', 'GET', undefined, abort.signal)
       .then(items => {if (!abort.signal.aborted) setOperators(items);})
       .catch(reason => {if (!abort.signal.aborted) setError(reason.message);});
     return () => abort.abort();
@@ -46,13 +47,19 @@ export default function AdminTaskForm({endpoint, onClose, onCreated}: {
     setBusy(true);
     setError('');
     try {
-      const task = await createAdminTask(endpoint, {
+      const body = new FormData();
+      body.append('metadata', JSON.stringify({
         client_id: clientId.current,
         subject: subject.trim(),
         description: description.trim(),
         operator_id: Number(operatorId),
         due_date: dueDate || null,
-      }, files);
+      }));
+      for (const file of files) {
+        const {blob} = await galleryPhoto(file);
+        body.append('photos', blob, file.name);
+      }
+      const task = await api<{id: number}>(endpoint, 'POST', body);
       onCreated(task.id);
     } catch (reason) {
       setError((reason as Error).message);
