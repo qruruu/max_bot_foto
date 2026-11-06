@@ -42,3 +42,11 @@ it('shows the selected period and keeps active filters reachable from a collapse
   expect(html).toContain('Фильтры и даты<span class="count-pill">1</span>');
   expect(html).toContain('aria-label="Микрорайон"');
 });
+
+it('only shows the combined status when the user opens that selection from a report', () => {
+  const normal = renderToStaticMarkup(<FilterBar filters={{work_only:'true'}} change={() => {}}/>);
+  expect(normal).toContain('Основная лента');
+  expect(normal).not.toContain('ACCEPTED_ALL');
+  const fromReport = renderToStaticMarkup(<FilterBar filters={{work_only:'true',accepted_only:'true'}} change={() => {}}/>);
+  expect(fromReport).toContain('value="ACCEPTED_ALL" selected="">Принято и требует проверки');
+});
