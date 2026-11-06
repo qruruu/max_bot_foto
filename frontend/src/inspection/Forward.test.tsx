@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { api } from '../api';
+import { ApiError, api } from '../api';
 import InspectionForward from './Forward';
 import type { Message } from './types';
 
@@ -90,4 +90,24 @@ it('forwards selected messages across both chat types and resumes at the first u
     {client_id: expect.any(String), forward_operator_message_id: 42},
   ]);
   expect(onSent).toHaveBeenCalledWith(expect.objectContaining({name: 'Анна'}), 2);
+});
+
+it.each([true, false])('routes a workspace photo to the right chat API (inspectors available: %s)', async inspectorAvailable => {
+  vi.mocked(api).mockImplementation(async (path, method) => {
+    if (method === 'POST') return {id: 1};
+    if (path.startsWith('/operator-chats?')) return {items: [{id: 2, name: 'Олег', active: true, role: 'OPERATOR'}]};
+    if (!inspectorAvailable) throw new ApiError(404, 'Фотография недоступна');
+    return [{key: 'i:9', name: 'Ирина', kind: 'Проверяющий', organization_name: 'Организация'}];
+  });
+  await act(async () => root.render(<InspectionForward base="/inspection-admin" unified
+    photo={{id: 85, organization_id: 'company', preview_url: null}} onClose={() => {}} onSent={() => {}}/>));
+  expect(api).toHaveBeenCalledWith('/operator-chats?photo_id=85', 'GET', undefined, expect.any(AbortSignal));
+  expect(api).toHaveBeenCalledWith('/inspection-admin/contacts?photo_organization_id=company&photo_id=85', 'GET', undefined, expect.any(AbortSignal));
+  const recipients = [...element.querySelectorAll<HTMLButtonElement>('.forward-destinations button')];
+  expect(recipients).toHaveLength(inspectorAvailable ? 2 : 1);
+  if (!inspectorAvailable) expect(element.textContent).toContain('после закрытия дня');
+  await act(async () => recipients.find(item => item.textContent?.includes(inspectorAvailable ? 'Ирина' : 'Олег'))!.click());
+  await send();
+  expect(api).toHaveBeenLastCalledWith(inspectorAvailable ? '/inspection-admin/messages?peer=i%3A9' : '/operator-chats/2/messages',
+    'POST', {photo_id: 85, body: '', client_id: expect.any(String), ...(inspectorAvailable ? {photo_organization_id: 'company'} : {})});
 });

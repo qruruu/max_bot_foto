@@ -54,7 +54,7 @@ async function personalRecipients(base: string, messages: PersonalMessage[], pho
   if (!filters.length && messages.length) filters.push(messages[0]);
   async function recipients(operatorTarget: boolean) {
     if (photo) return loadRecipients(base, operatorTarget, new URLSearchParams({
-      ...(photo.organization_id ? {photo_organization_id: photo.organization_id} : {}), photo_id: String(photo.id),
+      ...(!operatorTarget && photo.organization_id ? {photo_organization_id: photo.organization_id} : {}), photo_id: String(photo.id),
     }), signal);
     const field = forwardField(operatorSource, operatorTarget);
     const [first, ...others] = await Promise.all(filters.map(message => loadRecipients(base, operatorTarget, new URLSearchParams({[field]: String(message.id)}), signal)));
@@ -62,7 +62,11 @@ async function personalRecipients(base: string, messages: PersonalMessage[], pho
     return first.filter(item => allowed.every(keys => keys.has(item.key)));
   }
   if (!unified) return recipients(operatorSource);
-  const lists = await Promise.all([recipients(true), recipients(false)]);
+  const inspectors = recipients(false).catch(error => {
+    if (photo && error instanceof ApiError && error.status === 404) return [];
+    throw error;
+  });
+  const lists = await Promise.all([recipients(true), inspectors]);
   return lists.flat().sort((a, b) => (b.recent || '').localeCompare(a.recent || '') || a.name.localeCompare(b.name, 'ru'));
 }
 
@@ -135,7 +139,7 @@ export default function InspectionForward({base: endpoint, photo, message, opera
         await api(path, 'POST', {client_id: current.ids[index],
           ...(source ? {[taskTarget ? 'forward_message_id' : appeal ? 'forward_task_message_id' : forwardField(operatorMessage(personal[sourceIndex]), operatorTarget)]: source.id,
             ...(taskTarget && appeal.channel ? {channel: appeal.channel} : {})}
-            : {body: text, photo_id: photo!.id, ...(photo!.organization_id ? {photo_organization_id: photo!.organization_id} : {})})});
+            : {body: text, photo_id: photo!.id, ...(!operatorTarget && photo!.organization_id ? {photo_organization_id: photo!.organization_id} : {})})});
         current.completed++;
         setProgress(current.completed);
       }
@@ -197,6 +201,8 @@ export default function InspectionForward({base: endpoint, photo, message, opera
       })}
       {!searching && !loading && !visible.length && !error && <p>{term ? 'По этому запросу ничего не найдено.' : appeal ? 'Нет доступных задач.' : 'В этом списке пока нет чатов.'}</p>}
     </div>
+    {photo && unified && !loading && !error && !contacts.some(item => item.kind === 'inspector') &&
+      <p className="hint">Фото можно отправить проверяющему с доступом к организации после закрытия дня.</p>}
     {photo && <label>Комментарий (необязательно)<textarea rows={3} maxLength={4000} disabled={busy} value={body} onChange={event => setBody(event.target.value)}/></label>}
     {selection.length > 0 && <div className="forward-selected" aria-label="Выбранные получатели">{selection.map(peer => <button key={peer.key} type="button"
       disabled={busy || locked} aria-label={'Убрать из получателей: ' + peer.name} onClick={() => toggle(peer)}>{peer.name}<X size={14}/></button>)}</div>}

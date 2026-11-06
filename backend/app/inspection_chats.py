@@ -97,9 +97,9 @@ def inspector_contacts(db, account):
     for org in orgs:
         scope = scope_for(org)
         with Session(database_engine(scope.database_url)) as tenant:
-            for admin in tenant.scalars(select(User).where(User.active, User.role == "ADMIN_OPERATOR",
-                                                         User.id != scope.owner_user_id).order_by(User.name)):
-                contacts.append(contact(f"a:{org.id}:{admin.id}", admin.name,
+            for admin in tenant.scalars(select(User).where(User.active, User.role == "ADMIN_OPERATOR").order_by(User.name)):
+                name = "Администратор" if admin.id == scope.owner_user_id and admin.name == "Владелец сервиса" else admin.name
+                contacts.append(contact(f"a:{org.id}:{admin.id}", name,
                                         "Администратор организации", org.name, admin.avatar_image))
     return contacts
 
@@ -153,7 +153,7 @@ def can_view_photo(db, actor, org_id, photo_id, cache=None):
             scope = scope_for(org)
             with Session(database_engine(scope.database_url)) as tenant:
                 account = tenant.get(User, int(parts[2]))
-                allowed = bool(account and account.active and account.role == "ADMIN_OPERATOR" and account.id != scope.owner_user_id)
+                allowed = bool(account and account.active and account.role == "ADMIN_OPERATOR")
     else:
         allowed = False
     if allowed:
