@@ -20,6 +20,8 @@ import type { InspectionPhotoPosition } from './PhotoDetail';
 import InspectionAccounts from './Accounts';
 import InspectionPhotoTable from './PhotoTable';
 import PhotoNumberSearch from '../PhotoNumberSearch';
+import { capturePhotoListPosition, photoListAnchor, photoListPage, restorePhotoListPosition } from '../photoNavigation';
+import type { PhotoListPosition } from '../photoNavigation';
 import InspectionPhotoMap from './Maps';
 import InspectionFilters, { inspectionFilterKeys } from './FilterBar';
 import Avatar from '../Avatar';
@@ -44,16 +46,48 @@ export default function InspectorApp() {
   const [revision,setRevision]=useState(0),[dataLoading,setDataLoading]=useState(false);
   const invitation=useRef<string|null>(null),redeeming=useRef(false),openedHere=useRef(false);
   const location=useLocation(),photoPosition=useRef<InspectionPhotoPosition|null>(null);
+  const listPosition=useRef<PhotoListPosition|undefined>(undefined);
+  const lastListPhoto=useRef<{context:string;id:number}|null>(null);
+  const loadedPhotoQuery=useRef('');
+  const restoredLocation=useRef('');
   const pathPhoto=location.pathname.match(/^\/inspection\/photos\/([1-9]\d*)$/)?.[1];
   const org=params.get('org') || '',tab=params.get('tab')==='reports'?'photos':params.get('tab') || 'photos',photoId=Number(pathPhoto||params.get('photo'));
   const viewingPhoto=!!org&&Number.isSafeInteger(photoId)&&photoId>0;
-  const page=Math.max(1,Number(params.get('page'))||1),orgInfo=organizations.find(o=>o.id===org);
+  const page=photoListPage(params.get('page')),orgInfo=organizations.find(o=>o.id===org);
   const filters=new URLSearchParams();for(const key of inspectionFilterKeys){const value=params.get(key);if(value)filters.set(key,value);}
   const filterQuery=filters.toString(),base='/inspection/organizations/'+org;
+  const anchorId=photoListAnchor(params.get('anchor_id'));
+  const listParams=new URLSearchParams(filters);
+  listParams.set('page',String(page));
+  const listContext=base+'/photos?'+listParams;
+  const listQuery=listContext+(anchorId?'&anchor_id='+anchorId:'');
   const appealOrganization = org || organizations[0]?.id || '';
   const appeals = useAppealNotifications(!!user && organizations.length > 0, user?.id, '/inspection/appeals/notifications');
   useEffect(()=>{if(params.get('tab')==='reports')setParams(previous=>{const next=new URLSearchParams(previous);next.set('tab','photos');return next;},{replace:true});},[params,setParams]);
   useLayoutEffect(()=>{if(!viewingPhoto&&photoPosition.current){const previous=photoPosition.current;photoPosition.current=null;window.scrollTo(0,previous.scrollY);const log=document.querySelector<HTMLElement>('.operator-message-list'),table=document.querySelector<HTMLElement>('.inspection-photos .table-scroll');if(log&&previous.chatScrollTop!==undefined)log.scrollTop=previous.chatScrollTop;if(table&&previous.tableScrollLeft!==undefined)table.scrollLeft=previous.tableScrollLeft;if(previous.focus?.isConnected)previous.focus.focus({preventScroll:true});}},[viewingPhoto]);
+  // The list's history entry can still point at the first photo after Previous/Next.
+  useLayoutEffect(()=>{
+    if(viewingPhoto){
+      lastListPhoto.current=tab==='photos'?{context:listContext,id:photoId}:null;
+      return;
+    }
+    openedHere.current=false;
+    const last=lastListPhoto.current;
+    lastListPhoto.current=null;
+    if(last&&last.context!==listContext)listPosition.current=undefined;
+    if(tab==='photos'&&last?.context===listContext&&last.id!==anchorId){
+      const next=new URLSearchParams(params);
+      next.set('anchor_id',String(last.id));
+      restoredLocation.current=location.key;
+      setParams(next,{replace:true});
+    }
+  },[viewingPhoto,tab,photoId,listContext,anchorId,location.key,params,setParams]);
+  useLayoutEffect(()=>{
+    if(viewingPhoto||tab!=='photos'||!anchorId||loadedPhotoQuery.current!==listQuery||restoredLocation.current===location.key)return;
+    restoredLocation.current=location.key;
+    restorePhotoListPosition(photos.focus_id??undefined,listPosition.current);
+    listPosition.current=undefined;
+  },[viewingPhoto,tab,anchorId,listQuery,location.key,photos]);
   function signedIn(account: User) {if(account.role==='INSPECTOR')setUser(account as Inspector);else window.location.replace(signInDestination(account));}
   async function loadOrganizations(){const list=await api<Organization[]>('/inspection/organizations');setOrganizations(list);return list;}
   useEffect(()=>{
@@ -74,20 +108,25 @@ export default function InspectorApp() {
     const abort=new AbortController();api<InspectionMeta>(base+'/meta','GET',undefined,abort.signal).then(value=>setMeta({...emptyMeta,...value})).catch(e=>{if(!abort.signal.aborted)setError(e.message);});return()=>abort.abort();
   },[user?.id,org,revision]);
   useEffect(()=>{
+    loadedPhotoQuery.current='';
     setPhotos({items:[],total:0,page:1,page_size:40});setDataLoading(false);
     if(!user||!org||tab!=='photos')return;
     const abort=new AbortController();setDataLoading(true);setError('');
-    const suffix='?'+filterQuery+(filterQuery?'&':'')+'page='+page;
-    const request=api<PhotoPage>(base+'/photos'+suffix,'GET',undefined,abort.signal).then(setPhotos);
+    const request=api<PhotoPage>(listQuery,'GET',undefined,abort.signal).then(value=>{
+      if(!abort.signal.aborted){loadedPhotoQuery.current=listQuery;setPhotos(value);}
+    });
     request.catch(e=>{if(!abort.signal.aborted)setError(e.message);}).finally(()=>{if(!abort.signal.aborted)setDataLoading(false);});return()=>abort.abort();
-  },[user?.id,org,tab,filterQuery,page,revision]);
+  },[user?.id,org,tab,listQuery,revision]);
   useEffect(()=>{const refresh=()=>setRevision(v=>v+1);window.addEventListener('refresh-photo-list',refresh);return()=>window.removeEventListener('refresh-photo-list',refresh);},[]);
-  function update(key:string,value:string){const next=new URLSearchParams(params);value?next.set(key,value):next.delete(key);next.delete('photo');if(key!=='page')next.delete('page');setParams(next);}
-  function change(values:Record<string,string>){const next=new URLSearchParams(params);for(const [key,value] of Object.entries(values)){value?next.set(key,value):next.delete(key);}next.delete('page');next.delete('photo');setParams(next);}
+  function update(key:string,value:string){const next=new URLSearchParams(params);value?next.set(key,value):next.delete(key);next.delete('photo');next.delete('anchor_id');if(key!=='page')next.delete('page');setParams(next);}
+  function change(values:Record<string,string>){const next=new URLSearchParams(params);for(const [key,value] of Object.entries(values)){value?next.set(key,value):next.delete(key);}next.delete('page');next.delete('photo');next.delete('anchor_id');setParams(next);}
   function rememberPhotoPosition(){photoPosition.current={scrollY:window.scrollY,focus:document.activeElement as HTMLElement|null,chatScrollTop:document.querySelector<HTMLElement>('.operator-message-list')?.scrollTop,tableScrollLeft:document.querySelector<HTMLElement>('.inspection-photos .table-scroll')?.scrollLeft};}
   function openPhoto(id:number,replace=false){
     const next=new URLSearchParams(params);next.delete('photo');
-    if(!replace){openedHere.current=true;rememberPhotoPosition();}
+    if(!replace){
+      openedHere.current=true;rememberPhotoPosition();
+      listPosition.current=tab==='photos'?capturePhotoListPosition(id):undefined;
+    }
     navigate('/inspection/photos/'+id+'?'+next,{replace});
   }
   function closePhoto(){
@@ -100,7 +139,7 @@ export default function InspectorApp() {
   const choosingOrganization = !org && !independent;
   const title=tab==='accounts'?'Аккаунты':!org&&!independent?'Организации':tabs.find(t=>t.id===tab)?.label || 'Фотографии';
   function sectionLink(section:string,extra:Record<string,string>={}) {
-    const next=new URLSearchParams(params);next.set('tab',section);next.delete('page');next.delete('photo');next.delete('section');next.delete('appeal');
+    const next=new URLSearchParams(params);next.set('tab',section);next.delete('page');next.delete('photo');next.delete('anchor_id');next.delete('section');next.delete('appeal');
     for(const [key,value] of Object.entries(extra))value?next.set(key,value):next.delete(key);
     return '/inspection?'+next;
   }
@@ -155,7 +194,7 @@ export default function InspectorApp() {
           {dataLoading&&<p className="loading">Загружаем данные…</p>}
           {tab==='photos'&&<>
             <section className="panel photo-panel inspection-photos"><div className="section-title"><h2>Все фотографии <span className="count-pill appeal-count">{photos.total}</span></h2><span>Закрытые дни</span></div>
-              {photos.items.length>0&&<InspectionPhotoTable photos={photos.items} openPhoto={openPhoto} workTypes={meta.work_types}/>}
+              {photos.items.length>0&&<InspectionPhotoTable photos={photos.items} openPhoto={openPhoto} focusId={photos.focus_id} workTypes={meta.work_types}/>}
               {!photos.items.length&&!dataLoading&&<p className="empty">За выбранный период нет фотографий закрытых дней.</p>}
               {photos.total>photos.page_size&&<div className="pagination"><span>Страница {photos.page} из {Math.max(1,Math.ceil(photos.total/photos.page_size))}</span><button disabled={photos.page<=1} onClick={()=>update('page',String(photos.page-1))}><ChevronLeft size={16}/>Назад</button><button disabled={photos.page*photos.page_size>=photos.total} onClick={()=>update('page',String(photos.page+1))}>Далее<ChevronRight size={16}/></button></div>}
             </section></>}

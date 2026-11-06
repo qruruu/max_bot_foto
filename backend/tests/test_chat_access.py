@@ -188,6 +188,8 @@ def test_next_photo_and_list_anchor_cannot_cross_the_boundary(access_api):
     client, _ = access_api
     assert client.get("/api/photos/50/next").json() == {"id":10}
     assert client.get("/api/photos/10/next").json() == {"id":None}
+    allowed = client.get("/api/photos?anchor_id=10&page_size=1").json()
+    assert allowed["page"] == 2 and allowed["focus_id"] == 10
     data = client.get("/api/photos?anchor_id=20&page_size=1").json()
     assert data["page"] == 1 and data["focus_id"] is None
 

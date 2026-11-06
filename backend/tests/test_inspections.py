@@ -132,6 +132,7 @@ def test_closure_gates_every_photo_route_and_reports_are_unavailable(inspection)
     seed_photos(scope)
     base = f"/api/inspection/organizations/{scope.id}"
     assert client.get(base + "/photos").json()["total"] == 0
+    assert client.get(base + "/photos?anchor_id=10").json()["focus_id"] is None
     assert client.get(base + "/reports").status_code == 404
     assert client.get(base + "/export.xlsx").status_code == 404
     assert client.get(base + "/photos/map").json()["summary"]["total"] == 0
@@ -141,6 +142,15 @@ def test_closure_gates_every_photo_route_and_reports_are_unavailable(inspection)
     close(owner, scope)
     result = client.get(base + "/photos").json()
     assert result["total"] == 2
+    for anchor, order in ((10, "desc"), (20, "asc")):
+        anchored = client.get(base + "/photos", params={"anchor_id": anchor, "sort_order": order, "page_size": 1}).json()
+        assert anchored["page"] == 2
+        assert anchored["focus_id"] == anchor
+        assert [p["id"] for p in anchored["items"]] == [anchor]
+    excluded = client.get(base + "/photos?photo_id=20&anchor_id=10&page_size=1").json()
+    assert excluded["page"] == 1
+    assert excluded["focus_id"] is None
+    assert [p["id"] for p in excluded["items"]] == [20]
     assert client.get(base + "/photos/10/preview").content == b"safe preview"
     serialized = json.dumps(result) + client.get(base + "/photos/10").text + client.get(base + "/meta").text
     assert not any(secret in serialized for secret in ("chat", "sender", "operator", "source", "ai_", "ocr", "filename", "disk", "secret"))

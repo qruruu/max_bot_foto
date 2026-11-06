@@ -3,14 +3,14 @@ import { dateLabel } from '../api';
 import WorkTypeHint from '../WorkTypeHint';
 import type { InspectionPhoto } from './types';
 
-export default function InspectionPhotoTable({photos, openPhoto, workTypes = []}: {
-  photos: InspectionPhoto[]; openPhoto: (id: number) => void; workTypes?: {code: string; description?: string}[];
+export default function InspectionPhotoTable({photos, openPhoto, focusId, workTypes = []}: {
+  photos: InspectionPhoto[]; openPhoto: (id: number) => void; focusId?: number | null; workTypes?: {code: string; description?: string}[];
 }) {
   return <div className="table-scroll"><table className="photos-table inspection-photo-table" aria-label="Фотографии закрытых дней">
     <thead><tr><th scope="col">Фотография</th><th scope="col">Дата / время</th><th scope="col">Микрорайон</th>
       <th scope="col">Координаты</th><th scope="col">Вид работы</th><th scope="col" className="defect-column">Неисправность</th>
       <th scope="col">Статус</th><th scope="col"><span className="inspection-sr-only">Просмотр</span></th></tr></thead>
-    <tbody>{photos.map(photo => <tr key={photo.id} id={'inspection-photo-row-' + photo.id}>
+    <tbody>{photos.map(photo => <tr key={photo.id} id={'photo-row-' + photo.id} className={photo.id === focusId ? 'photo-return-row' : undefined}>
       <td className="photo-cell-preview"><button id={'inspection-photo-' + photo.id} className="photo-thumb" onClick={() => openPhoto(photo.id)}>
         <img src={photo.preview_url} loading="lazy" alt={'Фото №' + photo.id}/><small>#{photo.id}</small>
       </button></td>

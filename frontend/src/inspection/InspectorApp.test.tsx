@@ -2,7 +2,7 @@
 import { act, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import InspectorApp from './InspectorApp';
 import { api } from '../api';
@@ -14,10 +14,11 @@ vi.mock('../api',async importOriginal=>({...await importOriginal<typeof import('
 const account={id:1,name:'Проверяющий',role:'INSPECTOR',agency_name:'Администрация',can_create_accounts:true} as Inspector;
 const photo={id:85,photo_date:'2026-10-18',photo_time:'12:30',received_at:'2026-10-18T13:00:00Z',latitude:null,longitude:null,
   district_name:'Центр',work_type_name:'Уборка',is_defect:false,preview_url:'/safe-photo'};
-let element:HTMLDivElement,root:Root;
+let element:HTMLDivElement,root:Root,navigate:ReturnType<typeof useNavigate>;
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
 const button=(text:string)=>[...element.querySelectorAll('button')].find(b=>b.getAttribute('aria-label')===text || b.textContent?.includes(text))!;
-async function mount(url='/inspection?org=company&page=3') {await act(async()=>{root.render(<StrictMode><ThemeProvider><MemoryRouter initialEntries={[url]}><InspectorApp/></MemoryRouter></ThemeProvider></StrictMode>);await tick();await tick();});}
+function TestApp(){navigate=useNavigate();return <InspectorApp/>;}
+async function mount(url='/inspection?org=company&page=3') {await act(async()=>{root.render(<StrictMode><ThemeProvider><MemoryRouter initialEntries={[url]}><TestApp/></MemoryRouter></ThemeProvider></StrictMode>);await tick();await tick();});}
 beforeEach(()=>{
   (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
   element=document.createElement('div');document.body.append(element);root=createRoot(element);
@@ -28,7 +29,7 @@ beforeEach(()=>{
     if(path==='/inspection/me')return account;
     if(path==='/inspection/organizations')return [{id:'company',name:'Организация'}];
     if(path.endsWith('/meta'))return {districts:[],work_types:[]};
-    if(path.includes('/photos?'))return {items:[photo],total:120,page:3,page_size:40};
+    if(path.includes('/photos?'))return {items:[photo],total:120,page:3,page_size:40,focus_id:path.includes('anchor_id=85')?85:null};
     if(path.endsWith('/photos/85'))return photo;
     if(path.includes('/navigation?'))return {previous:null,next:null};
     if(path.endsWith('/photos/arrivals'))return {photo_ids:[]};
@@ -57,16 +58,36 @@ it('keeps the same page, photo list, scroll and focus after closing a photo',asy
   await act(async()=>{button('К списку').click();await tick();});
   expect(element.querySelector('.inspection-photo-detail')).toBeNull();
   expect(element.textContent).toContain('Страница 3 из 3');
-  expect(window.scrollTo).toHaveBeenLastCalledWith(0,1200);
-  expect(document.activeElement).toBe(row);
-  expect(row.closest('tr')?.id).toBe('inspection-photo-row-85');
+  expect(window.scrollTo).toHaveBeenLastCalledWith({top:1200,behavior:'instant'});
+  expect(document.activeElement).toBe(element.querySelector('#inspection-photo-85'));
+  expect(element.querySelector('#photo-row-85')?.classList.contains('photo-return-row')).toBe(true);
   expect(element.querySelector('table.inspection-photo-table')).not.toBeNull();
   expect(element.querySelector('nav.inspection-modules')).toBeNull();
   const navigation=element.querySelector('.sidebar nav')!;
   const content=element.querySelector('main.inspection-workspace')!;
   expect(navigation.compareDocumentPosition(content)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(vi.mocked(api).mock.calls.filter(([path])=>path.includes('/photos?'))).toHaveLength(calls);
+  expect(vi.mocked(api).mock.calls.filter(([path])=>path.includes('/photos?'))).toHaveLength(calls+1);
   for(const hidden of ['Чаты MAX','Операторы','Отправитель','Нейросеть'])expect(element.textContent).not.toContain(hidden);
+});
+
+it.each(['list button','browser back'])('returns to the last viewed photo on a different page via %s',async(exit)=>{
+  const original=vi.mocked(api).getMockImplementation()!;
+  const nextPhoto={...photo,id:84};
+  vi.mocked(api).mockImplementation(async(path,...args)=>{
+    if(path.includes('anchor_id=84'))return {items:[nextPhoto],total:120,page:2,page_size:40,focus_id:84};
+    if(path.includes('/85/navigation?'))return {previous:null,next:84};
+    if(path.endsWith('/photos/84'))return nextPhoto;
+    return original(path,...args);
+  });
+  await mount('/inspection?org=company&work_type=CLEAN&page=3');
+  await act(async()=>{element.querySelector<HTMLButtonElement>('#inspection-photo-85')!.click();await tick();});
+  await act(async()=>{button('Следующая').click();await tick();});
+  expect(element.querySelector('.inspection-photo-detail h1')?.textContent).toBe('Фотография #84');
+  await act(async()=>{if(exit==='browser back')navigate(-1);else button('К списку').click();await tick();await tick();});
+  expect(element.textContent).toContain('Страница 2 из 3');
+  expect(element.querySelector('#photo-row-84')?.classList.contains('photo-return-row')).toBe(true);
+  expect(document.activeElement).toBe(element.querySelector('#inspection-photo-84'));
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.includes('/photos?work_type=CLEAN&page=3&anchor_id=84'))).toBe(true);
 });
 
 it('redeems a QR link only once under StrictMode and removes its secret from the URL',async()=>{

@@ -8,7 +8,7 @@ export type InspectionPhoto = {id: number; photo_date: string | null; photo_time
   work_type: string | null; district_id: number | null; original_available?: boolean;
   longitude: number | null; district_name: string | null; work_type_name: string | null; is_defect: boolean;
   detected_address: string | null; detected_city: string | null; preview_url: string};
-export type PhotoPage = {items: InspectionPhoto[]; total: number; page: number; page_size: number};
+export type PhotoPage = {items: InspectionPhoto[]; total: number; page: number; page_size: number; focus_id?: number | null};
 export type InspectionMeta = Pick<Meta, 'districts' | 'work_types' | 'today' | 'timezone' | 'yandex_maps_api_key'>;
 export type Appeal = {id: number; organization_name: string; address: string; place: string; description: string;
   work_type_name: string; category: string; status: string; created_at: string; photos: {id: string; url: string}[]};

@@ -440,18 +440,30 @@ def arrivals(organization_id: UUID, db: Db, user: InspectorUser):
         return {"photo_ids": list(rows)}
 
 
+class InspectionPhotoListFilters(InspectionFilters):
+    anchor_id: int | None = Field(default=None, gt=0)
+
+
 @router.get("/organizations/{organization_id}/photos")
-def photos(organization_id: UUID, db: Db, user: InspectorUser, filters: Annotated[InspectionFilters, Query()]):
+def photos(organization_id: UUID, db: Db, user: InspectorUser,
+           filters: Annotated[InspectionPhotoListFilters, Query()]):
     with tenant_reader(db, user, organization_id) as tenant:
         stmt = visible_photos(filters)
         total = tenant.scalar(select(func.count()).select_from(stmt.subquery()))
         page = min(filters.page, max(1, (total + filters.page_size - 1) // filters.page_size))
+        if filters.anchor_id and total:
+            anchor = tenant.scalar(stmt.where(Photo.id == filters.anchor_id))
+            if anchor is not None:
+                preceding = stmt.with_only_columns(Photo.id).where(photo_position(filters, anchor, before=True))
+                index = tenant.scalar(select(func.count()).select_from(preceding.subquery()))
+                page = index // filters.page_size + 1
         rows = tenant.scalars(stmt.order_by(*photo_order(filters))
                               .offset((page - 1) * filters.page_size).limit(filters.page_size))
         districts = dict(tenant.execute(select(District.id, District.name)).all())
         catalog = work_catalog(tenant)
-        return {"items": [restricted_photo(p, districts, catalog, str(organization_id)) for p in rows],
-                "page": page, "page_size": filters.page_size, "total": total}
+        items = [restricted_photo(p, districts, catalog, str(organization_id)) for p in rows]
+        focus_id = next((item["id"] for item in items if item["id"] == filters.anchor_id), None)
+        return {"items": items, "page": page, "page_size": filters.page_size, "total": total, "focus_id": focus_id}
 
 
 def require_visible_photo(tenant, photo_id):
