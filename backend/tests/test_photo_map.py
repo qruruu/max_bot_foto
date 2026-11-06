@@ -3,7 +3,8 @@ from datetime import date, datetime, timezone
 from sqlalchemy import select
 
 from app.domain import now
-from app.models import Inbox, Photo, User
+from app.media import media_path
+from app.models import Chat, Inbox, Photo, User
 
 
 def photo(db, inbox, i, **values):
@@ -20,7 +21,7 @@ def photo(db, inbox, i, **values):
         inbox_id=inbox.id,
         attachment_index=i,
         max_message_id=inbox.message_id,
-        max_chat_id=123,
+        max_chat_id=inbox.max_chat_id,
         chat_name="Map test",
         **fields,
     )
@@ -29,8 +30,8 @@ def photo(db, inbox, i, **values):
     return row
 
 
-def inbox(db):
-    row = Inbox(max_chat_id=123, message_id="map-test", payload={})
+def inbox(db, chat_id=123, message_id="map-test"):
+    row = Inbox(max_chat_id=chat_id, message_id=message_id, payload={})
     db.add(row)
     db.flush()
     return row
@@ -47,6 +48,30 @@ def test_map_requires_photo_permission_and_separate_spam_permission(client, user
     db.commit()
     assert client.get("/api/photos/map").status_code == 200
     assert client.get("/api/photos/map?status=SPAM").status_code == 403
+
+
+def test_operator_can_load_previews_only_for_map_points_in_allowed_chats(client, users, db):
+    chat = Chat(max_chat_id=123, name="Allowed chat")
+    db.add(chat)
+    db.flush()
+    operator = db.scalar(select(User).where(User.login == "operator"))
+    operator.allowed_chat_ids = [chat.id]
+    message = inbox(db)
+    visible = photo(db, message, 0, sha256="a" * 64)
+    hidden = photo(db, inbox(db, 456, "private-map-test"), 0, sha256="b" * 64)
+    db.commit()
+    media_path(visible.id, preview=True).write_bytes(b"allowed preview")
+    media_path(hidden.id, preview=True).write_bytes(b"private preview")
+
+    assert client.post("/api/auth/login", json={"login": "operator", "password": "test-password-123"}).status_code == 200
+    result = client.get("/api/photos/map")
+    assert result.status_code == 200
+    points = result.json()["items"]
+    assert [point["id"] for point in points] == [visible.id]
+    preview = client.get(points[0]["preview_url"])
+    assert preview.headers["content-type"] == "image/jpeg"
+    assert preview.content == b"allowed preview"
+    assert client.get(f"/api/photos/{hidden.id}/preview").status_code == 404
 
 
 def test_map_omits_missing_coordinates_and_private_metadata(admin, db):

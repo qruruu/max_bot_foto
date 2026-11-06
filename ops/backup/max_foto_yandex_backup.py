@@ -4,15 +4,14 @@ import argparse
 import fcntl
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import signal
 import subprocess
 import tempfile
+from pathlib import Path
 
 from max_foto_backup import Backup, BackupError, atomic_json, file_hash, interrupted, utcnow
-
 
 # Executed inside the existing API container. Tokens go only to a private pipe,
 # then a temporary 0600 rclone config; never to arguments, journals or snapshots.
@@ -269,4 +268,4 @@ if __name__ == '__main__':
         main()
     except (BackupError, OSError, ValueError, subprocess.SubprocessError) as error:
         print('ERROR: ' + str(error), flush=True)
-        raise SystemExit(1)
+        raise SystemExit(1) from None

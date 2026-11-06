@@ -3,7 +3,10 @@
 import re
 from asyncio import Semaphore
 
-PREVIEW_PATH = re.compile(r"(?:/org/[0-9a-f-]{36})?/api/photos/[0-9]+/preview")
+PREVIEW_PATH = re.compile(
+    r"(?:(?:/org/[0-9a-f-]{36})?/api|/api/inspection/organizations/[0-9a-f-]{36})"
+    r"/photos/[0-9]+/preview"
+)
 
 
 class PreviewAdmission:

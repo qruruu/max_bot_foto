@@ -1,5 +1,5 @@
 import { createContext, lazy, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, CheckCheck, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MapPin, MessageSquare, Newspaper, RefreshCw, ShieldCheck, Users } from 'lucide-react';
 import { api, dateLabel, photoLink, query, reportPhotoLink, shiftDate, statusNames } from './api';
@@ -175,7 +175,7 @@ function Overview() {
 }
 
 function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boolean}) {
-  const {meta,user,notify}=useApp();
+  const {user,notify}=useApp();
   const {filters,change}=useFilters(review,spam,false,true);
   const [params,setParams]=useSearchParams();
   const location=useLocation();const navigate=useNavigate();

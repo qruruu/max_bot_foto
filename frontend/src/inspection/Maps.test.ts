@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { api } from '../api';
-import { inspectionMapFeature, loadInspectionMap } from './Maps';
+import { inspectionMapFeature } from './Maps';
+import { loadPhotoMap } from '../photoMapData';
 import type { InspectionPhoto } from './types';
 
 vi.mock('../api', async importOriginal => ({...await importOriginal<typeof import('../api')>(),api:vi.fn()}));
@@ -12,8 +13,8 @@ const photo={id:10,latitude:61.1,longitude:72.5,received_at:'2026-10-25T12:00:00
 it('loads every map batch using the original snapshot and filters without the table page limit',async()=>{
   vi.mocked(api).mockResolvedValueOnce({items:[photo],summary:{total:2,located:2,without_coordinates:0},snapshot_id:50,next_after_id:10})
     .mockResolvedValueOnce({items:[{...photo,id:20}],summary:null,snapshot_id:50,next_after_id:null});
-  const progress=vi.fn();const result=await loadInspectionMap('/inspection/organizations/org','work_type=CLEAN',new AbortController().signal,progress);
-  expect(result.items.map(p=>p.id)).toEqual([10,20]);
+  const progress=vi.fn();const result=await loadPhotoMap<InspectionPhoto>('/inspection/organizations/org/photos/map','work_type=CLEAN',new AbortController().signal,progress);
+  expect(result.photos.map(p=>p.id)).toEqual([10,20]);
   expect(vi.mocked(api).mock.calls[1][0]).toContain('after_id=10');
   expect(vi.mocked(api).mock.calls[1][0]).toContain('snapshot_id=50');
   expect(vi.mocked(api).mock.calls[1][0]).toContain('work_type=CLEAN');
@@ -30,6 +31,6 @@ it('escapes map labels and never includes operator, sender, chat or classificati
 
 it('rejects a stalled cursor instead of looping indefinitely',async()=>{
   vi.mocked(api).mockResolvedValue({items:[],summary:{total:2,located:2,without_coordinates:0},snapshot_id:50,next_after_id:0});
-  await expect(loadInspectionMap('/inspection/organizations/org','',new AbortController().signal,()=>{})).rejects.toThrow('Обновите карту');
+  await expect(loadPhotoMap<InspectionPhoto>('/inspection/organizations/org/photos/map','',new AbortController().signal,()=>{})).rejects.toThrow('Обновите карту');
   expect(api).toHaveBeenCalledTimes(1);
 });

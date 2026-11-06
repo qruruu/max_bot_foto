@@ -144,6 +144,7 @@ def test_closure_gates_every_photo_route_and_reports_are_unavailable(inspection)
     points = client.get(base + "/photos/map").json()
     assert points["summary"] == {"total": 2, "located": 2, "without_coordinates": 0}
     assert [p["id"] for p in points["items"]] == [10, 20]
+    assert client.get(points["items"][0]["preview_url"]).content == b"safe preview"
     assert not any(key in str(points) for key in ("chat_name", "sender_id", "work_type_source", "secret"))
     assert client.get(base + "/photos/map?after_id=10&snapshot_id=20").json()["items"][0]["id"] == 20
     assert client.get(base + "/photos/arrivals").json() == {"photo_ids": [10, 20]}

@@ -13,7 +13,7 @@ it('shows a newly issued key once, avoids browser storage and permits revocation
   const issued={id:'public-id',name:'Отчёты',scopes:['photos:read','geozones:read','changes:read'],cohort:'production',
     expires_at:'2027-01-01T00:00:00Z',revoked_at:null,last_used_at:null};
   let created=false;
-  vi.mocked(api).mockImplementation(async(path,method)=>{
+  vi.mocked(api).mockImplementation(async(_path,method)=>{
     if(method==='POST'){created=true;return {...issued,key:'PRIVATE_API_KEY'};}
     if(method==='DELETE')return {ok:true};
     return {items:created?[issued]:[]};

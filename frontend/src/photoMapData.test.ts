@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { loadMapPhotos, mapPhotoFeature, type MapPhoto } from './photoMapData';
+import { loadPhotoMap, mapPhotoFeature, type MapPhoto } from './photoMapData';
 import { api } from './api';
 vi.mock('./api', async importOriginal => ({...await importOriginal<typeof import('./api')>(), api: vi.fn()}));
 const photo: MapPhoto = {id: 7, latitude: 61.1, longitude: 72.6, photo_date: null, photo_time: null,
@@ -25,7 +25,7 @@ describe('photo map', () => {
     vi.mocked(api).mockResolvedValueOnce({items: [photo], summary, snapshot_id: 9, next_after_id: 7})
       .mockResolvedValueOnce({items: [{...photo,id:9}], summary: null, snapshot_id: 9, next_after_id: null});
     const progress = vi.fn();
-    const result = await loadMapPhotos({chat_id:'123'}, new AbortController().signal, progress);
+    const result = await loadPhotoMap<MapPhoto>('/photos/map', 'chat_id=123', new AbortController().signal, progress);
     expect(result.photos.map(p => p.id)).toEqual([7,9]);
     expect(result.summary).toEqual(summary);
     expect(vi.mocked(api).mock.calls[1][0]).toBe('/photos/map?chat_id=123&after_id=7&snapshot_id=9');
@@ -35,12 +35,12 @@ describe('photo map', () => {
     const controller = new AbortController();
     vi.mocked(api).mockImplementationOnce(async () => {controller.abort(); return {items: [photo]};});
     const progress = vi.fn();
-    await expect(loadMapPhotos({}, controller.signal, progress)).rejects.toThrow();
+    await expect(loadPhotoMap<MapPhoto>('/photos/map', '', controller.signal, progress)).rejects.toThrow();
     expect(progress).not.toHaveBeenCalled();
   });
   it('rejects a repeated cursor instead of looping forever', async () => {
     vi.mocked(api).mockResolvedValue({items:[photo],summary:{total:2,located:2,without_coordinates:0},snapshot_id:9,next_after_id:7});
-    await expect(loadMapPhotos({}, new AbortController().signal, vi.fn())).rejects.toThrow('следующую часть');
+    await expect(loadPhotoMap<MapPhoto>('/photos/map', '', new AbortController().signal, vi.fn())).rejects.toThrow('следующую часть');
     expect(api).toHaveBeenCalledTimes(2);
   });
 });

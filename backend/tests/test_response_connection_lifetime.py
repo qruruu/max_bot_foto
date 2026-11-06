@@ -6,6 +6,7 @@ from typing import Annotated
 
 import anyio
 import httpx
+import pytest
 from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import create_engine, text
@@ -91,7 +92,11 @@ def test_database_connections_are_released_before_slow_file_transfer(monkeypatch
         engine.dispose()
 
 
-def test_large_map_preview_burst_leaves_worker_threads_for_active_requests(monkeypatch, tmp_path):
+@pytest.mark.parametrize("prefix", [
+    "/org/00000000-0000-0000-0000-000000000000/api",
+    "/api/inspection/organizations/00000000-0000-0000-0000-000000000000",
+])
+def test_large_map_preview_burst_leaves_worker_threads_for_active_requests(monkeypatch, tmp_path, prefix):
     engine = create_engine(
         "sqlite://", poolclass=QueuePool, pool_size=10, max_overflow=0,
         pool_timeout=0.3, connect_args={"check_same_thread": False},
@@ -108,7 +113,7 @@ def test_large_map_preview_burst_leaves_worker_threads_for_active_requests(monke
         time.sleep(0.025)
         return True
 
-    @app.get("/org/{workspace}/api/photos/{photo_id}/preview")
+    @app.get(prefix + "/photos/{photo_id}/preview")
     def preview(db: Db, _allowed: Annotated[bool, Depends(authorized)]):
         db.execute(text("SELECT 1"))
         return FileResponse(image)
@@ -122,7 +127,7 @@ def test_large_map_preview_burst_leaves_worker_threads_for_active_requests(monke
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             previews = asyncio.gather(*(
-                client.get(f"/org/00000000-0000-0000-0000-000000000000/api/photos/{photo_id}/preview")
+                client.get(f"{prefix}/photos/{photo_id}/preview")
                 for photo_id in range(1, 81)
             ))
             await asyncio.sleep(0.05)

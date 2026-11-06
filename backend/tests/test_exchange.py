@@ -391,6 +391,8 @@ def test_migration_preserves_old_paths_labels_and_defaults_to_test(db):
     )
     db.commit()
     with Operations.context(MigrationContext.configure(db.connection())):
+        # The historical schema predates this trigger. Roll back the whole replay below.
+        db.execute(text("ALTER TABLE photos DISABLE TRIGGER integration_photo_change"))
         files_migration["downgrade"]()
         preview_migration["downgrade"]()
         migration["downgrade"]()
@@ -408,16 +410,13 @@ def test_migration_preserves_old_paths_labels_and_defaults_to_test(db):
         migration["upgrade"]()
         preview_migration["upgrade"]()
         files_migration["upgrade"]()
-        # Rebuilding 0006 also replaces this shared function; restore its current guard
-        # so later tests do not inherit the historical immutable-cohort implementation.
-        runpy.run_path(str(Path(__file__).parents[1] / "alembic/versions/0032_owner_photo_promotion.py"))["upgrade"]()
-    db.commit()
     db.expire_all()
     photo = db.scalar(select(Photo))
     assert photo.archive_layout == "legacy" and photo.cohort == "test"
     assert photo.yandex_disk_path == "disk:/legacy/chat/photo.jpg" and photo.work_type == "BIN_EMPTYING"
     assert photo.version == 7 and photo.classification_mode == "LEGACY_UNKNOWN"
     assert db.get(ExchangeState, 1).intake_cohort == "test"
+    db.rollback()
 
 
 def test_500_photos_full_snapshot_matches_sql_count(db):

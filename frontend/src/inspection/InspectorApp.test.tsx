@@ -8,6 +8,7 @@ import InspectorApp from './InspectorApp';
 import { api } from '../api';
 import type { Inspector } from './types';
 import { ThemeProvider } from '../theme';
+import * as yandexMaps from '../yandexMaps';
 
 vi.mock('../api',async importOriginal=>({...await importOriginal<typeof import('../api')>(),api:vi.fn(),dateLabel:(date:string|null)=>date||'—'}));
 const account={id:1,name:'Проверяющий',role:'INSPECTOR',agency_name:'Администрация',can_create_accounts:true} as Inspector;
@@ -114,6 +115,44 @@ it('offers both maps and saves the personal sidebar order through the inspector 
   await act(async()=>{element.querySelector<HTMLButtonElement>('button[aria-label="Поднять «Фотографии»"]')!.click();await tick();});
   await act(async()=>{button('Сохранить').click();await tick();});
   expect(vi.mocked(api).mock.calls.some(([path,method])=>path==='/inspection/sidebar-order'&&method==='PUT')).toBe(true);
+});
+
+it('opens a photo from the map and returns without losing the filtered map',async()=>{
+  const fallback=vi.mocked(api).getMockImplementation()!;
+  const endpoint='/inspection/organizations/company/photos/map?district_id=2&after_id=0';
+  vi.mocked(api).mockImplementation(async(path,method,body,signal)=>{
+    if(path===endpoint)return {items:[{...photo,latitude:61.1,longitude:72.6,
+      preview_url:'/api/inspection/organizations/company/photos/85/preview'}],
+      summary:{total:2,located:1,without_coordinates:1},snapshot_id:85,next_after_id:null};
+    return fallback(path,method,body,signal);
+  });
+  const add=vi.fn<(collection: {features: yandexMaps.MapFeature[]})=>void>();
+  const fitToViewport=vi.fn();
+  vi.spyOn(yandexMaps,'loadYandexMaps').mockResolvedValue({
+    Map: function(){return {geoObjects:{add:vi.fn()},container:{fitToViewport},setBounds:vi.fn(),destroy:vi.fn()};},
+    ObjectManager: function(){return {add,removeAll:vi.fn(),getBounds:()=>[[72.6,61.1],[72.6,61.1]]};},
+    templateLayoutFactory:{createClass:vi.fn()},
+  } as unknown as yandexMaps.YMaps);
+
+  await mount('/inspection?org=company&tab=photo-map&district_id=2');
+  expect(element.textContent).toContain('На карте: 1');
+  expect(element.textContent).toContain('Без координат: 1');
+  const calls=vi.mocked(api).mock.calls.filter(([path])=>path===endpoint).length;
+  const canvas=element.querySelector<HTMLDivElement>('.photo-map-canvas')!;
+  const point=add.mock.lastCall![0].features[0];
+  expect(point.geometry.coordinates).toEqual([72.6,61.1]);
+  expect(point.properties.photoPreviewUrl).toBe('/api/inspection/organizations/company/photos/85/preview');
+  canvas.innerHTML=point.properties.balloonContentBody;
+  expect(canvas.querySelector('img')?.getAttribute('src')).toBe(point.properties.photoPreviewUrl);
+  await act(async()=>{canvas.querySelector('a')!.click();await tick();});
+  expect(element.querySelector('.inspection-photo-detail h1')?.textContent).toBe('Фотография #85');
+  await act(async()=>{button('К карте').click();await tick();});
+  expect(element.querySelector('.inspection-photo-detail')).toBeNull();
+  expect(element.querySelector('.photo-map-canvas')).toBe(canvas);
+  expect(fitToViewport).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(api).mock.calls.filter(([path])=>path===endpoint)).toHaveLength(calls);
+  await act(async()=>{element.querySelector<HTMLAnchorElement>('.photo-map-actions a')!.click();await tick();});
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.includes('/photos?district_id=2'))).toBe(true);
 });
 
 it('does not show an all-organizations selector on the overview or with a single organization',async()=>{

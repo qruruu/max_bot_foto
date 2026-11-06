@@ -1,4 +1,4 @@
-import { api, dateLabel, photoLink, query, statusNames } from './api';
+import { api, dateLabel, photoLink, statusNames } from './api';
 import type { Filters } from './types';
 import { escapeMapLabel, type MapFeature } from './yandexMaps';
 import { apiUrl, workspaceUrl } from './workspace';
@@ -9,16 +9,18 @@ export type MapPhoto = {
   status: string; work_type_name: string | null; preview_url: string | null;
 };
 export type MapSummary = {total: number; located: number; without_coordinates: number};
-type MapBatch = {
-  items: MapPhoto[]; summary: MapSummary | null; snapshot_id: number; next_after_id: number | null;
+type MapBatch<Photo> = {
+  items: Photo[]; summary: MapSummary | null; snapshot_id: number; next_after_id: number | null;
 };
 
-export async function loadMapPhotos(filters: Filters, signal: AbortSignal, progress: (count: number) => void) {
-  const photos: MapPhoto[] = [];
+export async function loadPhotoMap<Photo>(endpoint: string, filters: string, signal: AbortSignal, progress: (count: number) => void) {
+  const photos: Photo[] = [];
   let after = 0, snapshot: number | undefined, summary: MapSummary | null = null;
   do {
-    const params = {...filters, after_id: String(after), ...(snapshot === undefined ? {} : {snapshot_id: String(snapshot)})};
-    const batch = await api<MapBatch>('/photos/map?' + query(params), 'GET', undefined, signal);
+    const params = new URLSearchParams(filters);
+    params.set('after_id', String(after));
+    if (snapshot !== undefined) params.set('snapshot_id', String(snapshot));
+    const batch = await api<MapBatch<Photo>>(endpoint + '?' + params, 'GET', undefined, signal);
     signal.throwIfAborted();
     summary ??= batch.summary;
     snapshot = batch.snapshot_id;

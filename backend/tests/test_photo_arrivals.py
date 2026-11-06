@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.domain import now
 from app.models import Inbox, Photo, User
@@ -82,9 +82,12 @@ def test_arrivals_include_a_late_committed_lower_id(admin, db):
     db.add(inbox)
     db.commit()
     with Session(engine()) as late:
-        older_id = add_photo(late, inbox, 0).id
+        # Reserve the ID first. Inserting would hold the commit-ordered journal lock.
+        older_id = late.scalar(text("SELECT nextval(pg_get_serial_sequence('photos', 'id'))"))
         newer = add_photo(db, inbox, 1)
         db.commit()
+        assert older_id < newer.id
         assert admin.get("/api/photos/arrivals").json() == {"photo_ids": [newer.id]}
+        add_photo(late, inbox, 0, id=older_id)
         late.commit()
         assert admin.get("/api/photos/arrivals").json() == {"photo_ids": [older_id, newer.id]}

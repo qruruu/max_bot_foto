@@ -132,7 +132,7 @@ export default function InspectorApp() {
         {notice&&<div className="organization-notice" role="status">{notice}<button className="text-button" aria-label="Закрыть уведомление" onClick={()=>setNotice('')}>×</button></div>}
         {appeals.notice > 0 && <div className="organization-notice" role="status">Новых обращений: {appeals.notice}. <Link to={sectionLink('appeals', {org: appeals.organizationId || appealOrganization})} onClick={appeals.dismiss}>Открыть обращения</Link><button onClick={appeals.dismiss} aria-label="Закрыть уведомление об обращениях">×</button></div>}
         <div hidden={viewingPhoto}>
-        {tab!=='settings'&&(!org||!['districts','appeals'].includes(tab))&&<header className="page-header"><div><span className="eyebrow">{tab==='photos'&&org?'АРХИВ ФОТОГРАФИЙ':'КАБИНЕТ ПРОВЕРЯЮЩЕГО'}</span><h1>{title}</h1>
+        {tab!=='settings'&&(!org||!['districts','appeals'].includes(tab))&&<header className="page-header"><div><span className="eyebrow">{tab==='photos'&&org?'АРХИВ ФОТОГРАФИЙ':tab==='photo-map'&&org?'ГЕОГРАФИЯ СНИМКОВ':'КАБИНЕТ ПРОВЕРЯЮЩЕГО'}</span><h1>{title}</h1>
           <p>{tab==='photos'&&org?'Фотографии выполненных работ после закрытия дня в Метке.':tab==='photo-map'?'География снимков за выбранный период.':tab==='messages'?'Личные переписки с администраторами организаций и коллегами.':tab==='accounts'?'Сотрудники вашей администрации.':'Выберите организацию или отсканируйте QR для получения доступа.'}</p></div>
           <div className="inspection-actions"><button disabled={busy||dataLoading} onClick={()=>{setRevision(v=>v+1);void loadOrganizations().catch(e=>setError(e.message));}}><RefreshCw size={17}/>Обновить</button>
             {tab==='photos'&&org&&<button onClick={()=>change({tab:'photo-map'})}><MapPin size={17}/>На карте</button>}
@@ -156,10 +156,10 @@ export default function InspectorApp() {
               {!photos.items.length&&!dataLoading&&<p className="empty">За выбранный период нет фотографий закрытых дней.</p>}
               {photos.total>0&&<div className="pagination"><span>Страница {photos.page} из {Math.max(1,Math.ceil(photos.total/photos.page_size))}</span><button disabled={photos.page<=1} onClick={()=>update('page',String(photos.page-1))}><ChevronLeft size={16}/>Назад</button><button disabled={photos.page*photos.page_size>=photos.total} onClick={()=>update('page',String(photos.page+1))}>Далее<ChevronRight size={16}/></button></div>}
             </section></>}
-          {tab==='photo-map'&&<InspectionPhotoMap key={org} base={base} filters={filterQuery} meta={meta} revision={revision} openPhoto={openPhoto} photoLink={id=>sectionLink('photo-map',{photo:String(id)})} showList={()=>change({tab:'photos'})}/>}
+          {tab==='photo-map'&&<InspectionPhotoMap key={org} base={base} filters={filterQuery} meta={meta} revision={revision} active={!viewingPhoto} openPhoto={openPhoto} mapLink={sectionLink('photo-map')} listLink={sectionLink('photos')}/>}
         </>}
         </div>
-        {viewingPhoto&&<InspectionPhotoDetail org={org} id={photoId} filters={filterQuery} fromChat={tab==='messages'} onClose={closePhoto} onMove={id=>openPhoto(id,true)}/>}
+        {viewingPhoto&&<InspectionPhotoDetail org={org} id={photoId} filters={filterQuery} fromChat={tab==='messages'} fromMap={tab==='photo-map'} onClose={closePhoto} onMove={id=>openPhoto(id,true)}/>}
 
       </main>
     </div></PhotoNotificationsProvider></OperatorChatsProvider>

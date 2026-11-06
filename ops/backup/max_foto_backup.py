@@ -10,7 +10,6 @@ import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import signal
@@ -19,6 +18,7 @@ import sys
 import tempfile
 import time
 import uuid
+from pathlib import Path
 
 CONFIG = Path('/etc/max-foto-backup/config.json')
 
@@ -432,7 +432,7 @@ def main():
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise BackupError('Another backup operation is already running')
+            raise BackupError('Another backup operation is already running') from None
         signal.signal(signal.SIGTERM, interrupted)
         signal.signal(signal.SIGINT, interrupted)
         try:

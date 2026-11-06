@@ -7,9 +7,10 @@ import type { InspectionPhoto } from './types';
 
 export type InspectionPhotoPosition = {scrollY: number; focus: HTMLElement | null; chatScrollTop?: number; tableScrollLeft?: number};
 
-export default function InspectionPhotoDetail({org, id, filters, onClose, onMove, fromChat}: {
+export default function InspectionPhotoDetail({org, id, filters, onClose, onMove, fromChat, fromMap}: {
   org: string; id: number; filters: string; onClose: () => void; onMove: (id: number) => void;
   fromChat: boolean;
+  fromMap?: boolean;
 }) {
   const {meta, notify} = useApp();
   const [photo, setPhoto] = useState<InspectionPhoto | null>(null), [error, setError] = useState('');
@@ -25,7 +26,7 @@ export default function InspectionPhotoDetail({org, id, filters, onClose, onMove
     return () => controller.abort();
   }, [org,id,filters,revision]);
   return <section className="inspection-photo-detail">
-    <button className="back-link" onClick={onClose}><ArrowLeft size={16}/>{fromChat ? 'К переписке' : 'Все фотографии'}</button>
+    <button className="back-link" onClick={onClose}><ArrowLeft size={16}/>{fromChat ? 'К переписке' : fromMap ? 'Карта фотографий' : 'Все фотографии'}</button>
     <header className="page-header"><div><span className="eyebrow">КАРТОЧКА ФОТОГРАФИИ</span><h1>Фотография #{id}</h1>{photo && <p>Получена {dateLabel(photo.received_at)}</p>}</div><div className="inspection-actions">{photo && <StatusBadge value="ACCEPTED"/>}<button aria-label="Обновить карточку" onClick={()=>setRevision(value=>value+1)}><RefreshCw size={17}/></button></div></header>
     <ErrorBox error={error}/>
     {!photo && !error && <p className="loading">Открываем фотографию…</p>}
@@ -43,7 +44,7 @@ export default function InspectionPhotoDetail({org, id, filters, onClose, onMove
         <button type="button" className="photo-forward-button" onClick={()=>setForwarding(true)}><Share2 size={17}/>Переслать фото</button>
       </section></div></div>}
     <footer className="inspection-photo-navigation"><button disabled={!navigation.previous} onClick={()=>navigation.previous&&onMove(navigation.previous)}><ChevronLeft size={17}/>Предыдущая</button>
-      <button onClick={onClose}>{fromChat?'К переписке':'К списку'}</button><button disabled={!navigation.next} onClick={()=>navigation.next&&onMove(navigation.next)}>Следующая<ChevronRight size={17}/></button></footer>
+      <button onClick={onClose}>{fromChat?'К переписке':fromMap?'К карте':'К списку'}</button><button disabled={!navigation.next} onClick={()=>navigation.next&&onMove(navigation.next)}>Следующая<ChevronRight size={17}/></button></footer>
     {photo && forwarding && <InspectionForward photo={{...photo,organization_id:org}} onClose={()=>setForwarding(false)} onSent={peer=>{setForwarding(false);notify('Фотография отправлена: '+peer.name);}}/>}
   </section>;
 }

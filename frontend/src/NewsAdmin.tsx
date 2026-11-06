@@ -4,7 +4,7 @@ import { api, ApiError } from './api';
 import ArticleView from './news/ArticleView';
 import RichEditor from './news/RichEditor';
 import { DraftSession } from './news/DraftSession';
-import { editorAssetUrl, newsAssetIds, newsDate } from './news/types';
+import { editorAssetUrl, newsAssetIds } from './news/types';
 import type { NewsArticle, NewsAsset, NewsListItem, NewsNode, NewsPost, NewsRevision } from './news/types';
 import './news.css';
 import './news-editor.css';

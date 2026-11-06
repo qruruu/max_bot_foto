@@ -1,9 +1,10 @@
-import type { CaptureMetadata, CaptureSession } from './camera';
-
 export type AppealForm = {city: string; organization_id: string; address: string; place: string; category: string; subject: string; description: string;
   contact: string; website: string; address_id: string; latitude: number | null; longitude: number | null};
 export const EMPTY_FORM: AppealForm = {city: '', organization_id: '', address: '', address_id: '', latitude: null, longitude: null,
   place: '', category: '', subject: '', description: '', contact: '', website: ''};
+type CaptureMetadata = {
+  captured_at: string; position_at: string; latitude: number; longitude: number; accuracy: number;
+};
 export type StoredPhoto = {id: string; blob: Blob; preview: Blob; capture?: CaptureMetadata};
 export type AppealDraft = {form: AppealForm; photos: StoredPhoto[]; token: string | null; pending: boolean; savedAt: number; receipt?: string; clientId?: string; documents?: File[]; inspectorDueDate?: string};
 const DATABASE = 'citizen-appeal-drafts', STORE = 'drafts', KEY = 'current';
@@ -57,4 +58,7 @@ export function hasDraftContent(form: AppealForm, photos: StoredPhoto[], pending
   return photos.length > 0 || pending || Object.values(form).some(value => typeof value === 'string' && value.trim().length > 0);
 }
 
-export type ResumeSession = Omit<CaptureSession, 'receivedAt'> & {expired: boolean; submitted: {number: string} | null};
+export type ResumeSession = {
+  token: string; server_time: string; expires_at: string; timezone: string;
+  expired: boolean; submitted: {number: string} | null;
+};

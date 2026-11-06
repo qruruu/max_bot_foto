@@ -17,7 +17,7 @@ afterEach(async()=>{await act(async()=>root.unmount());element.remove();});
 
 it('offers the permitted recipients and retries photo forwarding with the same organization, comment and client id',async()=>{
   const attempts:unknown[]=[],onSent=vi.fn();
-  vi.mocked(api).mockImplementation(async(path,method,body)=>{
+  vi.mocked(api).mockImplementation(async(path,_method,body)=>{
     if(path.startsWith('/inspection/contacts?'))return [owner];
     attempts.push(body);if(attempts.length===1)throw new Error('offline');return {id:1};
   });
