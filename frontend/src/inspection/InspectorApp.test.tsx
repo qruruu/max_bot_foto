@@ -138,42 +138,69 @@ it('offers both maps and saves the personal sidebar order through the inspector 
   expect(vi.mocked(api).mock.calls.some(([path,method])=>path==='/inspection/sidebar-order'&&method==='PUT')).toBe(true);
 });
 
-it('opens a photo from the map and returns without losing the filtered map',async()=>{
+it('links visible cards and map points, and keeps the map when closing a photo',async()=>{
   const fallback=vi.mocked(api).getMockImplementation()!;
-  const endpoint='/inspection/organizations/company/photos/map?district_id=2&after_id=0';
+  const endpoint='/inspection/organizations/company/photos/map?district_id=2&';
+  const sample={...photo,latitude:61.1,longitude:72.6,preview_url:'/api/inspection/organizations/company/photos/85/preview'};
   vi.mocked(api).mockImplementation(async(path,method,body,signal)=>{
-    if(path===endpoint)return {items:[{...photo,latitude:61.1,longitude:72.6,
-      preview_url:'/api/inspection/organizations/company/photos/85/preview'}],
-      summary:{total:2,located:1,without_coordinates:1},snapshot_id:85,next_after_id:null};
+    if(path.startsWith(endpoint))return {items:[sample,{...sample,id:86}],next_after_id:86};
+    if(path==='/inspection/organizations/company/meta')return {...await fallback(path,method,body,signal) as object,yandex_maps_api_key:'map-test'};
     return fallback(path,method,body,signal);
   });
   const add=vi.fn<(collection: {features: yandexMaps.MapFeature[]})=>void>();
+  const placemark = vi.fn();
+  const addToMap = vi.fn(), removeFromMap = vi.fn();
+  const setObjectOptions = vi.fn();
+  const mapState = vi.fn();
   const fitToViewport=vi.fn();
+  let pointClick: (event: yandexMaps.YMapEvent) => void;
+  const getBounds=()=>[[72.5,61],[72.7,61.2]];
   vi.spyOn(yandexMaps,'loadYandexMaps').mockResolvedValue({
-    Map: function(){return {geoObjects:{add:vi.fn()},container:{fitToViewport},setBounds:vi.fn(),destroy:vi.fn()};},
-    ObjectManager: function(){return {add,removeAll:vi.fn(),getBounds:()=>[[72.6,61.1],[72.6,61.1]]};},
-    templateLayoutFactory:{createClass:vi.fn()},
+    Map: function(_container: HTMLElement, state: object){
+      mapState(state);
+      return {getBounds,geoObjects:{add:addToMap,remove:removeFromMap},container:{fitToViewport},destroy:vi.fn()};
+    },
+    ObjectManager: function(){
+      return {add,removeAll:vi.fn(),getObjectState:(id:number)=>({isClustered:id===86}),
+        objects:{setObjectOptions,events:{add:(_name:string,click:typeof pointClick)=>{pointClick=click;}}}};
+    },
+    Placemark: function(coordinates: number[], properties: object, options: object){
+      return placemark(coordinates, properties, options) || {properties};
+    },
   } as unknown as yandexMaps.YMaps);
 
   await mount('/inspection?org=company&tab=photo-map&district_id=2');
-  expect(element.textContent).toContain('На карте: 1');
-  expect(element.textContent).toContain('Без координат: 1');
-  const calls=vi.mocked(api).mock.calls.filter(([path])=>path===endpoint).length;
+  expect(element.textContent).toContain('На карте: 2');
+  expect(mapState).toHaveBeenCalledWith(expect.objectContaining({behaviors:['default','scrollZoom']}));
+  const calls=vi.mocked(api).mock.calls.filter(([path])=>path.startsWith(endpoint));
+  expect(calls).toHaveLength(1);
+  expect(new URLSearchParams(calls[0][0].split('?')[1]).get('bounds')).toBe('72.50000,61.00000,72.70000,61.20000');
   const canvas=element.querySelector<HTMLDivElement>('.photo-map-canvas')!;
   const point=add.mock.lastCall![0].features[0];
   expect(point.geometry.coordinates).toEqual([72.6,61.1]);
-  expect(point.properties.photoPreviewUrl).toBe('/api/inspection/organizations/company/photos/85/preview');
-  canvas.innerHTML=point.properties.balloonContentBody;
-  expect(canvas.querySelector('img')?.getAttribute('src')).toBe(point.properties.photoPreviewUrl);
-  await act(async()=>{canvas.querySelector('a')!.click();await tick();});
+  expect(canvas.querySelector('img')).toBeNull();
+  expect(element.querySelector('[data-map-photo="85"] img')?.getAttribute('src')).toBe(sample.preview_url);
+  await act(async()=>{pointClick({get:()=>86});await tick();});
+  expect(element.querySelector('article.is-selected')?.getAttribute('data-map-photo')).toBe('86');
+  expect(element.querySelector('article.is-selected .photo-map-selected-label')?.textContent).toContain('Выбрано');
+  const oldMarker = addToMap.mock.lastCall![0];
+  expect(placemark).toHaveBeenCalledWith([72.6,61.1],{},expect.objectContaining({preset:'islands#circleDotIcon',iconColor:'#000',zIndex:10000}));
+  await act(async()=>{element.querySelector<HTMLButtonElement>('[data-map-photo="85"] button')!.click();await tick();});
+  expect(removeFromMap).toHaveBeenCalledWith(oldMarker);
+  expect(setObjectOptions).toHaveBeenLastCalledWith(85,{iconColor:'#000'});
+  expect(element.querySelectorAll('article.is-selected')).toHaveLength(1);
+  await act(async()=>{pointClick({get:()=>86});await tick();});
+  expect(setObjectOptions).toHaveBeenLastCalledWith(85,{iconColor:'#1e98ff'});
+  await act(async()=>{element.querySelector<HTMLButtonElement>('[data-map-photo="85"] button')!.click();await tick();});
+  await act(async()=>{element.querySelector<HTMLAnchorElement>('article.is-selected a')!.click();await tick();});
   expect(element.querySelector('.inspection-photo-detail h1')?.textContent).toBe('Фотография #85');
   await act(async()=>{button('К карте').click();await tick();});
   expect(element.querySelector('.inspection-photo-detail')).toBeNull();
   expect(element.querySelector('.photo-map-canvas')).toBe(canvas);
   expect(fitToViewport).toHaveBeenCalledTimes(2);
-  expect(vi.mocked(api).mock.calls.filter(([path])=>path===endpoint)).toHaveLength(calls);
+  expect(vi.mocked(api).mock.calls.filter(([path])=>path.startsWith(endpoint))).toHaveLength(calls.length);
   await act(async()=>{element.querySelector<HTMLAnchorElement>('.photo-map-actions a')!.click();await tick();});
-  expect(vi.mocked(api).mock.calls.some(([path])=>path.includes('/photos?district_id=2'))).toBe(true);
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.includes('/photos?') && new URLSearchParams(path.split('?')[1]).get('district_id') === '2')).toBe(true);
 });
 
 it('does not show an all-organizations selector on the overview or with a single organization',async()=>{

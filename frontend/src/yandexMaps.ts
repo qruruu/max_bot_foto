@@ -10,17 +10,27 @@ export interface YPolygon {
   events: { add(name: string, callback: (event: YMapEvent) => void): void };
 }
 export interface YMap {
+  behaviors?: {disable(name: string): void};
   container?: {fitToViewport(): void};
   geoObjects: { add(object: YPolygon | YObjectManager | YMarker | YPolyline): void; remove(object: YPolygon | YObjectManager | YMarker | YPolyline): void; getBounds(): number[][] | null };
   events?: {add(name: string, callback: (event: YMapEvent) => void): void};
+  getBounds?(): number[][];
+  getCenter?(): number[];
+  getZoom?(): number;
+  setCenter?(center: number[], zoom?: number): void;
   setBounds(bounds: number[][], options?: Record<string, unknown>): void;
   destroy(): void;
 }
 export interface YObjectManager {
-  objects: {options: {set(options: Record<string, unknown>): void}};
-  clusters: {options: {set(options: Record<string, unknown>): void}};
+  objects: {
+    options: {set(options: Record<string, unknown>): void};
+    events?: YMap['events'];
+    setObjectOptions?(id: number, options: Record<string, unknown>): void;
+  };
+  clusters: {options: {set(options: Record<string, unknown>): void}; events?: YMap['events']; getById?(id: number): {properties: {geoObjects: MapFeature[]}} | undefined};
   add(collection: {type: 'FeatureCollection'; features: MapFeature[]}): void;
   removeAll(): void;
+  getObjectState?(id: number): {isClustered: boolean};
   getBounds(): number[][] | null;
 }
 export interface MapFeature {

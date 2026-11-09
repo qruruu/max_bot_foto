@@ -1,9 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { api } from './api';
+import { api, photoLink } from './api';
 import { apiUrl, workspacePrefix, workspaceStorageKey, workspaceUrl } from './workspace';
 import { OrganizationCard } from './Organizations';
-import { mapPhotoFeature } from './photoMapData';
+import { mapPreviewUrl } from './photoMapData';
 import Login, { signInDestination } from './Login';
 import ConnectDisk from './ConnectDisk';
 import type { User } from './types';
@@ -44,14 +44,10 @@ it('uses the global CSRF token for the owner while retaining the selected compan
   expect(fetch.mock.calls[1][1].headers['X-CSRF-Token']).toBe('owner-token');
 });
 
-it('builds scoped map links without trusting an arbitrary preview URL', () => {
+it('keeps map preview and detail links in the selected workspace', () => {
   vi.stubGlobal('window', {location: {pathname: prefix + '/photo-map'}});
-  const feature = mapPhotoFeature({id: 1, latitude: 61, longitude: 72, photo_date: null, photo_time: null,
-    received_at: '2026-10-16T12:00:00Z', chat_name: 'Alpha', status: 'ACCEPTED', work_type_name: null,
-    preview_url: 'https://other.invalid/private'}, {}, 'Asia/Yekaterinburg');
-  expect(feature.properties.photoPreviewUrl).toBe(prefix + '/api/photos/1/preview');
-  expect(feature.properties.balloonContentBody).toContain(prefix + '/photos/1?');
-  expect(feature.properties.balloonContentBody).not.toContain('other.invalid');
+  expect(mapPreviewUrl('/photos/map', 1)).toBe(prefix + '/api/photos/1/preview');
+  expect(workspaceUrl(photoLink(1, {from_map:'1'}))).toContain(prefix + '/photos/1?from_map=1');
 });
 
 it('shows the independent model and workspace link on an organization card', () => {

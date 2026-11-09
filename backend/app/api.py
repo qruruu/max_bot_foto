@@ -100,6 +100,8 @@ from app.permissions import (
     has_permission,
     permission_catalog,
 )
+from app.photo_map import PAGE_SIZE as MAP_PAGE_SIZE
+from app.photo_map import PhotoMapAdmission, map_read, viewport_page
 from app.photo_ordering import apply_sort_permission, photo_order, photo_position
 from app.photo_promotion import production_duplicate
 from app.photo_promotion import router as photo_promotion_router
@@ -160,6 +162,7 @@ app.add_middleware(IntegrationAccess)
 app.add_middleware(SecurityTelemetry)
 app.add_middleware(OrganizationsMiddleware)
 app.add_middleware(PreviewAdmission)
+app.add_middleware(PhotoMapAdmission)
 app.add_middleware(AppealBodyLimit)
 Filters = Annotated[PhotoFilters, Query()]
 
@@ -309,6 +312,12 @@ def photo_filter_options(db: Db, user: CurrentUser, filters: Filters):
     return photo_filter_counts(db, filters, include_spam=has_permission(user, Permission.SPAM_VIEW), user=user)
 
 
+@app.get("/api/photos/map-filter-counts")
+def photo_map_filter_options(db: Db, user: PhotosReader, filters: Filters):
+    with map_read(db):
+        return photo_filter_options(db, user, filters)
+
+
 @app.get("/api/photos/arrivals")
 def photo_arrivals(db: Db, user: PhotosReader):
     """Lightweight arrival snapshot for open panels; updates do not create new arrivals."""
@@ -336,32 +345,39 @@ def photo_map(
     user: PhotosReader,
     filters: Annotated[PhotoMapFilters, Query()],
 ):
-    """Compact map batches, independent of the photo table's 30-row pagination."""
+    """Read one viewport page, with legacy cursor support for existing callers."""
+    with map_read(db):
+        return read_photo_map(db, user, filters)
+
+
+def read_photo_map(db, user, filters):
     filters = apply_sort_permission(filters, user)
     check_spam_filter(user, filters, db)
     after_id, snapshot_id = filters.after_id, filters.snapshot_id
-    source = filtered(filters, user).with_only_columns(
+    selection = filtered(filters, user).with_only_columns(
         Photo.id, Photo.latitude, Photo.longitude, Photo.photo_date, Photo.photo_time,
         Photo.received_at, Photo.chat_name, Photo.work_type, Photo.is_defect, Photo.status, Photo.sha256,
-    ).subquery()
-    if snapshot_id is None:
-        snapshot_id = db.scalar(select(func.max(source.c.id))) or 0
-    valid_coordinates = (
-        source.c.latitude.between(-90, 90) & source.c.longitude.between(-180, 180)
     )
     summary = None
-    if after_id == 0:
-        total, located = db.execute(
-            select(func.count(), func.count().filter(valid_coordinates))
-            .select_from(source).where(source.c.id <= snapshot_id)
-        ).one()
-        summary = {"total": total, "located": located, "without_coordinates": total - located}
-    rows = db.execute(
-        select(source).where(
-            source.c.id > after_id, source.c.id <= snapshot_id, valid_coordinates,
-        ).order_by(source.c.id).limit(1001)
-    ).mappings().all()
-    catalog = work_catalog(db)
+    page_size = MAP_PAGE_SIZE if filters.bounds is not None else 1000
+    if filters.bounds is not None:
+        rows = viewport_page(db, selection, filters.bounds, after_id)
+    else:
+        source = selection.subquery()
+        if snapshot_id is None:
+            snapshot_id = db.scalar(select(func.max(source.c.id))) or 0
+        valid_coordinates = source.c.latitude.between(-90, 90) & source.c.longitude.between(-180, 180)
+        if after_id == 0:
+            total, located = db.execute(
+                select(func.count(), func.count().filter(valid_coordinates))
+                .select_from(source).where(source.c.id <= snapshot_id)
+            ).one()
+            summary = {"total": total, "located": located, "without_coordinates": total - located}
+        rows = db.execute(
+            select(source).where(source.c.id > after_id, source.c.id <= snapshot_id, valid_coordinates)
+            .order_by(source.c.id).limit(page_size + 1)
+        ).mappings().all()
+    catalog = work_catalog(db) if rows else {}
     items = [
         {
             "id": p["id"], "longitude": p["longitude"], "latitude": p["latitude"],
@@ -371,11 +387,11 @@ def photo_map(
             "work_type_name": work_type_label(p["work_type"], p["is_defect"], catalog),
             "preview_url": workspace_url(f"/api/photos/{p['id']}/preview") if p["sha256"] else None,
         }
-        for p in rows[:1000]
+        for p in rows[:page_size]
     ]
     return {
         "items": items, "summary": summary, "snapshot_id": snapshot_id,
-        "next_after_id": items[-1]["id"] if len(rows) > 1000 else None,
+        "next_after_id": items[-1]["id"] if len(rows) > page_size else None,
     }
 
 

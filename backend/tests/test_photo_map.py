@@ -158,3 +158,48 @@ def test_map_empty_result(admin):
         snapshot_id=0,
         next_after_id=None,
     )
+
+
+def test_viewport_limits_results_and_filters_before_paginating(admin, db):
+    message = inbox(db)
+    photo(db, message, 0, longitude=73)
+    photo(db, message, 1, longitude=None, latitude=None)
+    inside = [photo(db, message, i).id for i in range(2, 126)]
+    photo(db, message, 126, photo_date=date(2026, 10, 15))
+    db.commit()
+
+    params = {"bounds": "72.5,61,72.7,61.2", "date_from": "2026-10-16"}
+    first = admin.get("/api/photos/map", params=params)
+    assert first.status_code == 200
+    first_page = first.json()
+    assert first_page["summary"] is None
+    assert [p["id"] for p in first_page["items"]] == inside[:120]
+    second = admin.get("/api/photos/map", params={**params, "after_id": first_page["next_after_id"]}).json()
+    assert [p["id"] for p in second["items"]] == inside[120:]
+    assert second["next_after_id"] is None
+    assert admin.get("/api/photos/map", params={"bounds": "72.5,NaN,72.7,61.2"}).status_code == 422
+
+
+def test_viewport_handles_the_date_line(admin, db):
+    message = inbox(db)
+    visible = [photo(db, message, i, longitude=lng).id for i, lng in enumerate((179.5, -179.5))]
+    photo(db, message, 2, longitude=0)
+    db.commit()
+    response = admin.get("/api/photos/map", params={"bounds": "179,61,-179,62"})
+    assert [p["id"] for p in response.json()["items"]] == visible
+
+
+def test_map_and_filter_counts_degrade_without_blocking_regular_requests(admin, db):
+    from sqlalchemy import text
+
+    db.execute(text("SELECT pg_advisory_xact_lock(7041, 1), pg_advisory_xact_lock(7041, 2)"))
+    try:
+        for path in ("/api/photos/map?bounds=72,61,73,62", "/api/photos/map-filter-counts"):
+            response = admin.get(path)
+            assert response.status_code == 503
+            assert response.headers["retry-after"] == "2"
+        assert admin.get("/api/health").status_code == 200
+        assert admin.get("/api/photos").status_code == 200
+    finally:
+        db.rollback()
+    assert admin.get("/api/photos/map?bounds=72,61,73,62").status_code == 200

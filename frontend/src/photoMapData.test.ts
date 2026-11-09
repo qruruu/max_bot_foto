@@ -1,46 +1,28 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { loadPhotoMap, mapPhotoFeature, type MapPhoto } from './photoMapData';
+import { afterEach, expect, it, vi } from 'vitest';
+import { loadPhotoMap, viewportBounds } from './photoMapData';
 import { api } from './api';
+
 vi.mock('./api', async importOriginal => ({...await importOriginal<typeof import('./api')>(), api: vi.fn()}));
-const photo: MapPhoto = {id: 7, latitude: 61.1, longitude: 72.6, photo_date: null, photo_time: null,
-  received_at: '2026-10-15T21:00:00Z', chat_name: '<script>bad</script>', status: 'ACCEPTED',
-  work_type_name: 'Урны', preview_url: 'https://untrusted.example/picture'};
 afterEach(() => vi.resetAllMocks());
-describe('photo map', () => {
-  it('keeps longitude/latitude order, escapes content and uses authenticated local links', () => {
-    const feature = mapPhotoFeature(photo, {chat_id:'123', date_from:'', date_to:''}, 'Asia/Yekaterinburg');
-    expect(feature.geometry.coordinates).toEqual([72.6, 61.1]);
-    expect(feature.properties.balloonContentBody).not.toContain('<script>');
-    expect(feature.properties.balloonContentBody).not.toContain('untrusted.example');
-    expect(feature.properties.photoPreviewUrl).toBe('/api/photos/7/preview');
-    expect(mapPhotoFeature({...photo, preview_url: null}, {}, 'Asia/Yekaterinburg').properties.photoPreviewUrl).toBe('');
-    expect(feature.properties.balloonContentBody).toContain('/api/photos/7/preview');
-    expect(feature.properties.balloonContentBody).toContain('from_map=1');
-    expect(feature.properties.balloonContentBody).toContain('all_dates=1');
-    expect(feature.properties.balloonContentBody).toContain('Дата снимка не определена');
-    expect(feature.properties.balloonContentBody).toContain('16.10.2026');
-  });
-  it('loads every batch with a fixed upper ID and preserves filters', async () => {
-    const summary = {total: 3, located: 2, without_coordinates: 1};
-    vi.mocked(api).mockResolvedValueOnce({items: [photo], summary, snapshot_id: 9, next_after_id: 7})
-      .mockResolvedValueOnce({items: [{...photo,id:9}], summary: null, snapshot_id: 9, next_after_id: null});
-    const progress = vi.fn();
-    const result = await loadPhotoMap<MapPhoto>('/photos/map', 'chat_id=123', new AbortController().signal, progress);
-    expect(result.photos.map(p => p.id)).toEqual([7,9]);
-    expect(result.summary).toEqual(summary);
-    expect(vi.mocked(api).mock.calls[1][0]).toBe('/photos/map?chat_id=123&after_id=7&snapshot_id=9');
-    expect(progress).toHaveBeenLastCalledWith(2);
-  });
-  it('does not apply stale results after filters change', async () => {
-    const controller = new AbortController();
-    vi.mocked(api).mockImplementationOnce(async () => {controller.abort(); return {items: [photo]};});
-    const progress = vi.fn();
-    await expect(loadPhotoMap<MapPhoto>('/photos/map', '', controller.signal, progress)).rejects.toThrow();
-    expect(progress).not.toHaveBeenCalled();
-  });
-  it('rejects a repeated cursor instead of looping forever', async () => {
-    vi.mocked(api).mockResolvedValue({items:[photo],summary:{total:2,located:2,without_coordinates:0},snapshot_id:9,next_after_id:7});
-    await expect(loadPhotoMap<MapPhoto>('/photos/map', '', new AbortController().signal, vi.fn())).rejects.toThrow('следующую часть');
-    expect(api).toHaveBeenCalledTimes(2);
-  });
+
+it('loads one page for the current viewport without following its cursor', async () => {
+  const page = {items: [{id: 7}], next_after_id: 7};
+  vi.mocked(api).mockResolvedValueOnce(page);
+  const controller = new AbortController();
+  const bounds = viewportBounds([[72.5, 61], [72.7, 61.2]]);
+  expect(await loadPhotoMap('/photos/map', 'chat_id=123', bounds, 0, controller.signal)).toEqual(page);
+  expect(api).toHaveBeenCalledTimes(1);
+  const params = new URLSearchParams(vi.mocked(api).mock.calls[0][0].split('?')[1]);
+  expect(Object.fromEntries(params)).toEqual({chat_id: '123', bounds: '72.50000,61.00000,72.70000,61.20000', after_id: '0'});
+});
+
+it('ignores the result of an aborted viewport query', async () => {
+  const controller = new AbortController();
+  vi.mocked(api).mockImplementationOnce(async () => {controller.abort(); return {items: []};});
+  await expect(loadPhotoMap('/photos/map', '', '72,61,73,62', 0, controller.signal)).rejects.toThrow();
+});
+
+it('wraps a viewport crossing the date line and clamps a whole-world view', () => {
+  expect(viewportBounds([[170, -85], [190, 85]])).toBe('170.00000,-85.00000,-170.00000,85.00000');
+  expect(viewportBounds([[-181, -91], [181, 91]])).toBe('-180.00000,-90.00000,180.00000,90.00000');
 });

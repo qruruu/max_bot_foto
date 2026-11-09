@@ -55,6 +55,8 @@ from app.models import (
 from app.organization_context import current_organization, organization_scope
 from app.organization_registry import control_session, scope_for
 from app.organizations import Owner
+from app.photo_map import PAGE_SIZE as MAP_PAGE_SIZE
+from app.photo_map import map_read, viewport_page
 from app.photo_ordering import photo_order, photo_position, sort_keys
 from app.schemas import StrictModel
 from app.work_types import work_catalog
@@ -406,29 +408,55 @@ def district_map(organization_id: UUID, db: Db, user: InspectorUser):
 
 
 class MapFilters(InspectionFilters):
+    bounds: str | None = Field(default=None, max_length=120)
     after_id: int = Field(default=0, ge=0)
     snapshot_id: int | None = Field(default=None, ge=0)
 
 
 @router.get("/organizations/{organization_id}/photos/map")
 def photo_map(organization_id: UUID, db: Db, user: InspectorUser, filters: Annotated[MapFilters, Query()]):
-    with tenant_reader(db, user, organization_id) as tenant:
-        selection = visible_photos(filters)
-        snapshot = filters.snapshot_id
-        if snapshot is None:
-            snapshot = tenant.scalar(selection.with_only_columns(func.max(Photo.id))) or 0
-        selection = selection.where(Photo.id <= snapshot)
-        located = Photo.latitude.between(-90, 90) & Photo.longitude.between(-180, 180)
-        summary = None
-        if filters.after_id == 0:
-            total, count = tenant.execute(selection.with_only_columns(func.count(), func.count().filter(located))).one()
-            summary = {"total": total, "located": count, "without_coordinates": total - count}
-        rows = list(tenant.scalars(selection.where(located, Photo.id > filters.after_id).order_by(Photo.id).limit(1001)))
-        districts = dict(tenant.execute(select(District.id, District.name)).all())
-        catalog = work_catalog(tenant)
-        return {"items": [restricted_photo(p, districts, catalog, str(organization_id)) for p in rows[:1000]],
-                "summary": summary, "snapshot_id": snapshot,
-                "next_after_id": rows[999].id if len(rows) > 1000 else None}
+    with tenant_reader(db, user, organization_id) as tenant, map_read(tenant):
+        if filters.bounds is not None:
+            return inspection_viewport(tenant, filters, organization_id)
+        return inspection_map_batches(tenant, filters, organization_id)
+
+
+def inspection_viewport(tenant, filters, organization_id):
+    selection = visible_photos(filters).with_only_columns(
+        Photo.id, Photo.longitude, Photo.latitude, Photo.photo_date, Photo.photo_time,
+        Photo.received_at, Photo.work_type, Photo.is_defect, District.name.label("district_name"),
+    ).outerjoin(District, District.id == Photo.district_id)
+    rows = viewport_page(tenant, selection, filters.bounds, filters.after_id)
+    catalog = work_catalog(tenant) if rows else {}
+    from app.catalog import work_type_label
+
+    items = [
+        {**row,
+         "work_type_name": work_type_label(row["work_type"], row["is_defect"], catalog),
+         "preview_url": f"/api/inspection/organizations/{organization_id}/photos/{row['id']}/preview"}
+        for row in rows[:MAP_PAGE_SIZE]
+    ]
+    return {"items": items, "summary": None, "snapshot_id": None,
+            "next_after_id": items[-1]["id"] if len(rows) > MAP_PAGE_SIZE else None}
+
+
+def inspection_map_batches(tenant, filters, organization_id):
+    selection = visible_photos(filters)
+    snapshot = filters.snapshot_id
+    if snapshot is None:
+        snapshot = tenant.scalar(selection.with_only_columns(func.max(Photo.id))) or 0
+    selection = selection.where(Photo.id <= snapshot)
+    located = Photo.latitude.between(-90, 90) & Photo.longitude.between(-180, 180)
+    summary = None
+    if filters.after_id == 0:
+        total, count = tenant.execute(selection.with_only_columns(func.count(), func.count().filter(located))).one()
+        summary = {"total": total, "located": count, "without_coordinates": total - count}
+    rows = list(tenant.scalars(selection.where(located, Photo.id > filters.after_id).order_by(Photo.id).limit(1001)))
+    districts = dict(tenant.execute(select(District.id, District.name)).all())
+    catalog = work_catalog(tenant)
+    return {"items": [restricted_photo(p, districts, catalog, str(organization_id)) for p in rows[:1000]],
+            "summary": summary, "snapshot_id": snapshot,
+            "next_after_id": rows[999].id if len(rows) > 1000 else None}
 
 
 @router.get("/organizations/{organization_id}/photos/arrivals")

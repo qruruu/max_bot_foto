@@ -1,57 +1,54 @@
-import { api, dateLabel, photoLink, statusNames } from './api';
-import type { Filters } from './types';
-import { escapeMapLabel, type MapFeature } from './yandexMaps';
-import { apiUrl, workspaceUrl } from './workspace';
+import { api, dateLabel, statusNames } from './api';
+import { escapeMapLabel } from './yandexMaps';
+import { apiUrl } from './workspace';
 
 export type MapPhoto = {
-  id: number; latitude: number; longitude: number; photo_date: string | null;
-  photo_time: string | null; received_at: string; chat_name: string;
-  status: string; work_type_name: string | null; preview_url: string | null;
-};
-export type MapSummary = {total: number; located: number; without_coordinates: number};
-type MapBatch<Photo> = {
-  items: Photo[]; summary: MapSummary | null; snapshot_id: number; next_after_id: number | null;
+  id: number; latitude: number; longitude: number;
+  photo_date: string | null; photo_time: string | null; received_at: string;
+  work_type_name: string | null; preview_url: string | null;
+  chat_name?: string; district_name?: string | null; status?: string;
 };
 
-export async function loadPhotoMap<Photo>(endpoint: string, filters: string, signal: AbortSignal, progress: (count: number) => void) {
-  const photos: Photo[] = [];
-  let after = 0, snapshot: number | undefined, summary: MapSummary | null = null;
-  do {
-    const params = new URLSearchParams(filters);
-    params.set('after_id', String(after));
-    if (snapshot !== undefined) params.set('snapshot_id', String(snapshot));
-    const batch = await api<MapBatch<Photo>>(endpoint + '?' + params, 'GET', undefined, signal);
-    signal.throwIfAborted();
-    summary ??= batch.summary;
-    snapshot = batch.snapshot_id;
-    photos.push(...batch.items);
-    progress(photos.length);
-    if (batch.next_after_id === null) break;
-    if (batch.next_after_id <= after) throw new Error('Не удалось загрузить следующую часть карты. Обновите карту.');
-    after = batch.next_after_id;
-  } while (!signal.aborted);
-  if (!summary) throw new Error('Сервис не вернул данные карты. Обновите страницу.');
-  return {photos, summary};
+export type MapPage = {items: MapPhoto[]; next_after_id: number | null};
+
+export function viewportBounds(bounds: number[][] | undefined) {
+  if (!bounds) return '';
+  const [[left, bottom], [right, top]] = bounds;
+  const round = 100_000;
+  const longitude = (value: number) => ((value + 180) % 360 + 360) % 360 - 180;
+  const west = right - left >= 360 ? -180 : longitude(Math.floor(left * round) / round);
+  const east = right - left >= 360 ? 180 : longitude(Math.ceil(right * round) / round);
+  const south = Math.max(-90, Math.floor(bottom * round) / round);
+  const north = Math.min(90, Math.ceil(top * round) / round);
+  return [west, south, east, north].map(value => value.toFixed(5)).join(',');
 }
 
-export function mapPhotoFeature(photo: MapPhoto, filters: Filters, timezone: string): MapFeature {
+export function mapPreviewUrl(endpoint: string, id: number) {
+  return apiUrl(endpoint.replace(/\/map$/, '/' + id + '/preview'));
+}
+
+export function previewMarkerProperties(photo: MapPhoto, preview: string, href: string, timezone: string) {
   const escape = escapeMapLabel;
+  const label = 'Фото №' + photo.id;
+  const captured = photo.photo_date ? dateLabel(photo.photo_date) + ' ' + (photo.photo_time || '') : 'Дата снимка не определена';
   const received = new Date(photo.received_at).toLocaleString('ru-RU', {timeZone: timezone});
-  const date = photo.photo_date ? `${dateLabel(photo.photo_date)} ${photo.photo_time || ''}` : 'Дата снимка не определена';
-  // Construct local URLs ourselves; never interpolate an OCR string or an arbitrary image URL into HTML.
-  const previewUrl = apiUrl(`/photos/${photo.id}/preview`);
-  const preview = photo.preview_url ? `<img class="map-photo-preview" src="${previewUrl}" alt="Фото №${photo.id}" loading="lazy"/>` : '';
-  const href = workspaceUrl(photoLink(photo.id, {...filters, from_map: '1'}, false, filters.status === 'SPAM'));
+  const image = preview ? `<img class="map-photo-preview" src="${escape(preview)}" alt="${label}"/>` : '';
   return {
-    type: 'Feature', id: photo.id,
-    geometry: {type: 'Point', coordinates: [photo.longitude, photo.latitude]},
-    properties: {
-      photoLabel: `Фото №${photo.id}`,
-      photoPreviewUrl: photo.preview_url ? previewUrl : '',
-      hintContent: escape(`Фото №${photo.id} · ${photo.chat_name}`),
-      clusterCaption: escape(`Фото №${photo.id} · ${date}`),
-      balloonContentHeader: escape(`Фото №${photo.id}`),
-      balloonContentBody: `<div class="map-photo-balloon">${preview}<strong>${escape(photo.chat_name)}</strong><div>${escape(date)}</div><div>Получено ${escape(received)}</div><div>${escape(photo.work_type_name || 'Вид работы не определён')}</div><div>${escape(statusNames[photo.status] || photo.status)}</div><a href="${escape(href)}">Открыть фотографию →</a></div>`,
-    },
+    photoLabel: label,
+    photoPreviewUrl: preview,
+    hintContent: escape(label + (photo.chat_name ? ' · ' + photo.chat_name : '')),
+    clusterCaption: escape(label + ' · ' + captured),
+    balloonContentHeader: label,
+    balloonContentBody: `<div class="map-photo-balloon">${image}<strong>${escape(photo.chat_name || '')}</strong><div>${escape(captured)}</div><div>Получено ${escape(received)}</div><div>${escape(photo.work_type_name || 'Вид работы не определён')}</div><div>${escape(photo.status ? statusNames[photo.status] || photo.status : '')}</div><a href="${escape(href)}">Открыть фотографию →</a></div>`,
   };
+}
+
+export async function loadPhotoMap(endpoint: string, filters: string, bounds: string, after: number, signal: AbortSignal) {
+  const params = new URLSearchParams(filters);
+  params.delete('snapshot_id');
+  params.set('bounds', bounds);
+  params.set('after_id', String(after));
+  const page = await api<MapPage>(endpoint + '?' + params, 'GET', undefined, signal);
+  signal.throwIfAborted();
+  return page;
 }

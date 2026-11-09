@@ -176,6 +176,7 @@ class PhotoListFilters(PhotoBrowseFilters):
 
 
 class PhotoMapFilters(PhotoBrowseFilters):
+    bounds: str | None = Field(default=None, max_length=120)
     after_id: int = Field(default=0, ge=0)
     snapshot_id: int | None = Field(default=None, ge=0)
 

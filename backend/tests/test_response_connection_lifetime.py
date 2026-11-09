@@ -144,3 +144,41 @@ def test_large_map_preview_burst_leaves_worker_threads_for_active_requests(monke
         asyncio.run(exercise())
     finally:
         engine.dispose()
+
+
+def test_map_burst_is_rejected_before_using_the_shared_database_pool():
+    from app.photo_map import PhotoMapAdmission
+
+    async def exercise():
+        app = FastAPI()
+        app.add_middleware(PhotoMapAdmission)
+        ready, release = asyncio.Event(), asyncio.Event()
+        entered = 0
+
+        @app.get("/api/photos/map")
+        @app.get("/api/photos/map-filter-counts")
+        async def map_read():
+            nonlocal entered
+            entered += 1
+            if entered == 2:
+                ready.set()
+            await release.wait()
+            return {"ok": True}
+
+        @app.get("/api/health")
+        async def health():
+            return {"ok": True}
+
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            in_progress = [asyncio.create_task(client.get("/api/photos/map")) for _ in range(2)]
+            try:
+                await asyncio.wait_for(ready.wait(), timeout=2)
+                others = [client.get("/api/photos/map-filter-counts") for _ in range(8)]
+                responses = await asyncio.wait_for(asyncio.gather(*others, client.get("/api/health")), timeout=2)
+                assert [response.status_code for response in responses] == [503] * 8 + [200]
+                assert entered == 2
+            finally:
+                release.set()
+                await asyncio.wait_for(asyncio.gather(*in_progress), timeout=2)
+
+    asyncio.run(exercise())

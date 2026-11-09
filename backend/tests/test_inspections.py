@@ -161,6 +161,10 @@ def test_closure_gates_every_photo_route_and_reports_are_unavailable(inspection)
     assert client.get(points["items"][0]["preview_url"]).content == b"safe preview"
     assert not any(key in str(points) for key in ("chat_name", "sender_id", "work_type_source", "secret"))
     assert client.get(base + "/photos/map?after_id=10&snapshot_id=20").json()["items"][0]["id"] == 20
+    viewport = client.get(base + "/photos/map?bounds=70,60,74,62").json()
+    assert [p["id"] for p in viewport["items"]] == [10, 20]
+    assert not any(key in str(viewport) for key in ("chat_name", "sender_id", "work_type_source", "secret"))
+    assert client.get(base + "/photos/map?bounds=0,0,1,1").json()["items"] == []
     assert client.get(base + "/photos/arrivals").json() == {"photo_ids": [10, 20]}
     assert client.get(base + "/photos/20/navigation").json() == {"previous": None, "next": 10}
     assert client.get(base + "/photos/10/navigation?sort_order=asc").json() == {"previous": None, "next": 20}

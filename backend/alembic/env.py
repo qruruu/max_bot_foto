@@ -17,6 +17,7 @@ else:
             connection=connection,
             target_metadata=Base.metadata,
             compare_type=True,
+            transaction_per_migration=True,
             include_object=lambda obj, name, type_, reflected, compare_to: name != "spatial_ref_sys",
         )
         with context.begin_transaction():

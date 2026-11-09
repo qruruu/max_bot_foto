@@ -55,6 +55,9 @@ export default function InspectorApp() {
   const viewingPhoto=!!org&&Number.isSafeInteger(photoId)&&photoId>0;
   const page=photoListPage(params.get('page')),orgInfo=organizations.find(o=>o.id===org);
   const filters=new URLSearchParams();for(const key of inspectionFilterKeys){const value=params.get(key);if(value)filters.set(key,value);}
+  if(tab==='photo-map'&&!params.has('all_dates')&&!filters.has('date_from')&&!filters.has('date_to')){
+    filters.set('date_from',meta.today);filters.set('date_to',meta.today);
+  }
   const filterQuery=filters.toString(),base='/inspection/organizations/'+org;
   const anchorId=photoListAnchor(params.get('anchor_id'));
   const listParams=new URLSearchParams(filters);
@@ -119,10 +122,11 @@ export default function InspectorApp() {
   },[user?.id,org,tab,listQuery,revision]);
   useEffect(()=>{const refresh=()=>setRevision(v=>v+1);window.addEventListener('refresh-photo-list',refresh);return()=>window.removeEventListener('refresh-photo-list',refresh);},[]);
   function update(key:string,value:string){const next=new URLSearchParams(params);value?next.set(key,value):next.delete(key);next.delete('photo');next.delete('anchor_id');if(key!=='page')next.delete('page');setParams(next);}
-  function change(values:Record<string,string>){const next=new URLSearchParams(params);for(const [key,value] of Object.entries(values)){value?next.set(key,value):next.delete(key);}next.delete('page');next.delete('photo');next.delete('anchor_id');setParams(next);}
+  function change(values:Record<string,string>){const next=new URLSearchParams(params);if(tab==='photo-map')for(const [key,value] of filters)next.set(key,value);for(const [key,value] of Object.entries(values)){value?next.set(key,value):next.delete(key);}if(tab==='photo-map'&&('date_from' in values||'date_to' in values)){if(next.has('date_from')||next.has('date_to'))next.delete('all_dates');else next.set('all_dates','1');}next.delete('page');next.delete('photo');next.delete('anchor_id');setParams(next);}
   function rememberPhotoPosition(){photoPosition.current={scrollY:window.scrollY,focus:document.activeElement as HTMLElement|null,chatScrollTop:document.querySelector<HTMLElement>('.operator-message-list')?.scrollTop,tableScrollLeft:document.querySelector<HTMLElement>('.inspection-photos .table-scroll')?.scrollLeft};}
   function openPhoto(id:number,replace=false){
     const next=new URLSearchParams(params);next.delete('photo');
+    if(tab==='photo-map')for(const [key,value] of filters)next.set(key,value);
     if(!replace){
       openedHere.current=true;rememberPhotoPosition();
       listPosition.current=tab==='photos'?capturePhotoListPosition(id):undefined;
@@ -140,6 +144,7 @@ export default function InspectorApp() {
   const title=tab==='accounts'?'Аккаунты':!org&&!independent?'Организации':tabs.find(t=>t.id===tab)?.label || 'Фотографии';
   function sectionLink(section:string,extra:Record<string,string>={}) {
     const next=new URLSearchParams(params);next.set('tab',section);next.delete('page');next.delete('photo');next.delete('anchor_id');next.delete('section');next.delete('appeal');
+    if(tab==='photo-map'&&(section==='photos'||section==='photo-map'))for(const [key,value] of filters)next.set(key,value);
     for(const [key,value] of Object.entries(extra))value?next.set(key,value):next.delete(key);
     return '/inspection?'+next;
   }

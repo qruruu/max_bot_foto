@@ -38,10 +38,15 @@ from app.schemas import UserCreate, UserUpdate
 class AccessSession(Session):
     def execute(self, statement, *args, **kwargs):
         sql = str(statement)
-        if sql.startswith("SELECT pg_advisory_xact_lock") or sql.startswith("SET TRANSACTION"):
+        if sql.startswith(("SELECT pg_advisory_xact_lock", "SET TRANSACTION", "SET LOCAL statement_timeout")):
             statement = text("SELECT 1")
             args, kwargs = (), {}
         return super().execute(statement, *args, **kwargs)
+
+    def scalar(self, statement, *args, **kwargs):
+        if str(statement).startswith("SELECT pg_try_advisory_xact_lock"):
+            return True
+        return super().scalar(statement, *args, **kwargs)
 
     def get(self, entity, ident, **kwargs):
         result = super().get(entity, ident, **kwargs)

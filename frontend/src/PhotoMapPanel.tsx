@@ -1,68 +1,161 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
-import { LocateFixed } from 'lucide-react';
-import { loadPhotoMap, type MapSummary } from './photoMapData';
+import { Camera, Check, LocateFixed } from 'lucide-react';
+import { dateLabel } from './api';
+import { loadPhotoMap, mapPreviewUrl, previewMarkerProperties, viewportBounds, type MapPage, type MapPhoto } from './photoMapData';
 import { createPhotoMarkerLayout } from './photoMapMarker';
 import { loadYandexMaps, type MapFeature, type YMap, type YObjectManager } from './yandexMaps';
-import { useTheme } from './theme';
 import './photo-map.css';
 
-type Props<Photo> = {
+const city = [72.603, 61.099];
+const cityZoom = 12;
+const maxZoom = 19;
+const pinPreset = 'islands#circleDotIcon';
+const pinColor = '#1e98ff';
+const selectedPinColor = '#000';
+
+type Props = {
   endpoint: string;
   filterQuery: string;
   apiKey: string;
   revision: number;
-  feature: (photo: Photo) => MapFeature;
+  timezone: string;
+  photoHref: (id: number) => string;
+  openPhoto?: (id: number) => void;
   listAction: ReactNode;
   children?: ReactNode;
   active?: boolean;
-  onClick?: (event: MouseEvent<HTMLDivElement>) => void;
+  previewMarkers?: boolean;
 };
 
-export default function PhotoMapPanel<Photo>({
-  endpoint, filterQuery, apiKey, revision, feature, listAction, children, active = true, onClick,
-}: Props<Photo>) {
-  const {theme} = useTheme();
+function feature(photo: MapPhoto): MapFeature {
+  return {type: 'Feature', id: photo.id, geometry: {type: 'Point', coordinates: [photo.longitude, photo.latitude]}, properties: {}};
+}
+
+export default function PhotoMapPanel({
+  endpoint, filterQuery, apiKey, revision, timezone, photoHref, openPhoto, listAction, children, active = true, previewMarkers = false,
+}: Props) {
   const container = useRef<HTMLDivElement>(null);
-  const [view, setView] = useState<{map: YMap; manager: YObjectManager} | null>(null);
-  const [data, setData] = useState<{photos: Photo[]; summary: MapSummary} | null>(null);
-  const [error, setError] = useState(''), [mapError, setMapError] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [loaded, setLoaded] = useState(0);
+  const cards = useRef<HTMLDivElement>(null);
+  const camera = useRef({center: city, zoom: cityZoom});
+  const previewPhotoHref = previewMarkers ? photoHref : null;
+  const [view, setView] = useState<{map: YMap; points: YObjectManager; showHighlight: (photo: MapPhoto) => (() => void) | undefined} | null>(null);
+  const [bounds, setBounds] = useState('');
+  const [cursor, setCursor] = useState({scope: '', offsets: [0]});
+  const scope = [endpoint, filterQuery, bounds, revision].join('|');
+  const offsets = cursor.scope === scope ? cursor.offsets : [0];
+  const after = offsets.at(-1) ?? 0;
+  const request = scope + '|' + after;
+  const [data, setData] = useState<{request: string; page: MapPage}>();
+  const [error, setError] = useState<{request: string; message: string}>();
+  const [mapError, setMapError] = useState('');
+  const [retry, setRetry] = useState(0);
+  const selectionScope = [endpoint, filterQuery, revision, after].join('|');
+  const [selected, setSelected] = useState<{scope: string; id: number; fromMap: boolean}>();
+  const page = data?.request === request ? data.page : undefined;
+  const photos = page?.items;
+  const selection = selected?.scope === selectionScope ? photos?.find(photo => photo.id === selected.id) : undefined;
+  const selectionHandler = useRef<(id: number) => void>(() => {});
+  selectionHandler.current = id => setSelected({scope: selectionScope, id, fromMap: true});
+
+  useLayoutEffect(() => {
+    if (!selection || !selected?.fromMap) return;
+    cards.current?.querySelector<HTMLElement>('[data-map-photo="' + selection.id + '"]')
+      ?.scrollIntoView?.({block: 'nearest', inline: 'nearest'});
+  }, [selection, selected]);
 
   useEffect(() => {
+    if (!active || !view || !bounds || data?.request === request) return;
     const controller = new AbortController();
-    setData(null); setError(''); setLoading(true); setLoaded(0);
-    loadPhotoMap<Photo>(endpoint, filterQuery, controller.signal, setLoaded)
-      .then(setData)
-      .catch(e => {if (!controller.signal.aborted) setError(e.message);})
-      .finally(() => {if (!controller.signal.aborted) setLoading(false);});
+    setError(undefined);
+    loadPhotoMap(endpoint, filterQuery, bounds, after, controller.signal)
+      .then(page => setData({request, page}))
+      .catch(error => {if (!controller.signal.aborted) setError({request, message: error.message});});
     return () => controller.abort();
-  }, [endpoint, filterQuery, revision]);
+  }, [active, view, bounds, endpoint, filterQuery, after, request, retry, data?.request]);
 
   useEffect(() => {
     let cancelled = false;
     let map: YMap | undefined;
-    setView(null); setMapError('');
+    let timer: number | undefined;
+    setView(null); setBounds(''); setMapError('');
+    if (!apiKey) return;
     loadYandexMaps(apiKey).then(sdk => {
       if (cancelled || !container.current) return;
-      map = new sdk.Map(container.current, {
-        center: [72.603, 61.099], zoom: 12, controls: ['zoomControl', 'typeSelector', 'fullscreenControl'],
-      }, {suppressMapOpenBlock: true});
-      const iconLayout = createPhotoMarkerLayout(sdk);
-      const manager = new sdk.ObjectManager({
-        clusterize: true, gridSize: 80,
-        geoObjectIconLayout: iconLayout,
+      const instance = new sdk.Map(container.current, {
+        ...camera.current, behaviors: ['default', 'scrollZoom'], controls: ['zoomControl', 'typeSelector', 'fullscreenControl'],
+      }, {suppressMapOpenBlock: true, maxZoom});
+      map = instance;
+      const iconLayout = previewMarkers ? createPhotoMarkerLayout(sdk) : null;
+      const points = new sdk.ObjectManager(iconLayout ? {
+        clusterize: true, gridSize: 80, geoObjectIconLayout: iconLayout, clusterIconLayout: iconLayout,
         geoObjectIconShape: {type: 'Rectangle', coordinates: [[-28, -64], [28, 0]]},
-        geoObjectBalloonPanelMaxMapArea: 0,
-        clusterIconLayout: iconLayout,
         clusterIconShape: {type: 'Rectangle', coordinates: [[-28, -73], [37, 0]]},
-        clusterBalloonContentLayout: 'cluster#balloonCarousel', clusterBalloonPanelMaxMapArea: 0,
+        geoObjectBalloonPanelMaxMapArea: 0, clusterBalloonPanelMaxMapArea: 0, geoObjectHideIconOnBalloonOpen: false,
+        clusterBalloonContentLayout: 'cluster#balloonCarousel',
+      } : {
+        clusterize: true, gridSize: 56, geoObjectOpenBalloonOnClick: false, clusterOpenBalloonOnClick: false,
+        clusterDisableClickZoom: true, geoObjectPreset: pinPreset, geoObjectIconColor: pinColor,
       });
-      map.geoObjects.add(manager);
-      setView({map, manager});
-    }).catch(e => {if (!cancelled) setMapError(e.message);});
-    return () => {cancelled = true; map?.destroy();};
-  }, [apiKey, theme, revision]);
+      const selectedPreviewLayout = previewMarkers
+        ? sdk.templateLayoutFactory.createClass('<div class="photo-map-selected-preview"></div>')
+        : null;
+      const showHighlight = (photo: MapPhoto) => {
+        if (!previewMarkers && !points.getObjectState?.(photo.id).isClustered && points.objects.setObjectOptions) {
+          points.objects.setObjectOptions(photo.id, {iconColor: selectedPinColor});
+          return () => {if (!cancelled) points.objects.setObjectOptions?.(photo.id, {iconColor: pinColor});};
+        }
+        if (!sdk.Placemark) return;
+        // A clustered photo has no visible individual pin to recolor.
+        const marker = new sdk.Placemark([photo.longitude, photo.latitude], {}, {
+          ...(selectedPreviewLayout ? {iconLayout: selectedPreviewLayout} : {preset: pinPreset, iconColor: selectedPinColor}),
+          zIndex: 10000,
+          interactiveZIndex: false,
+          interactivityModel: 'default#silent',
+        });
+        instance.geoObjects.add(marker);
+        return () => {if (!cancelled) instance.geoObjects.remove(marker);};
+      };
+      instance.geoObjects.add(points);
+      const select = (id: unknown) => {
+        const photoId = Number(id);
+        if (Number.isSafeInteger(photoId) && photoId > 0) selectionHandler.current(photoId);
+      };
+      points.objects?.events?.add('click', event => select(event.get('objectId')));
+      if (!previewMarkers) {
+        points.clusters?.events?.add('click', event => {
+          const members = points.clusters.getById?.(Number(event.get('objectId')))?.properties.geoObjects;
+          if (!members?.length) return;
+          const lng = members.map(item => item.geometry.coordinates[0]);
+          const lat = members.map(item => item.geometry.coordinates[1]);
+          const groupBounds = [[Math.min(...lng), Math.min(...lat)], [Math.max(...lng), Math.max(...lat)]];
+          if ((instance.getZoom?.() ?? 0) >= maxZoom ||
+              (groupBounds[0][0] === groupBounds[1][0] && groupBounds[0][1] === groupBounds[1][1])) {
+            select(members[0].id);
+          } else {
+            instance.setBounds(groupBounds, {checkZoomRange: true, zoomMargin: 40});
+          }
+        });
+      }
+      const readBounds = () => {
+        const next = viewportBounds(instance.getBounds?.());
+        if (next) setBounds(next);
+      };
+      instance.events?.add('boundschange', () => {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(readBounds, 300);
+      });
+      setView({map: instance, points, showHighlight});
+      readBounds();
+    }).catch(error => {if (!cancelled) setMapError(error.message);});
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (map) {
+        camera.current = {center: map.getCenter?.() ?? city, zoom: map.getZoom?.() ?? cityZoom};
+        map.destroy();
+      }
+    };
+  }, [apiKey, previewMarkers]);
 
   useLayoutEffect(() => {
     if (active) view?.map.container?.fitToViewport();
@@ -70,31 +163,72 @@ export default function PhotoMapPanel<Photo>({
 
   useLayoutEffect(() => {
     if (!view) return;
-    view.manager.removeAll();
-    if (!data) return;
-    view.manager.add({type: 'FeatureCollection', features: data.photos.map(feature)});
-    fitPhotoBounds(view);
-  }, [view, data, feature]);
+    view.points.removeAll();
+    if (photos?.length) view.points.add({type: 'FeatureCollection', features: photos.map(photo => {
+      const point = feature(photo);
+      if (previewPhotoHref) point.properties = previewMarkerProperties(photo,
+        photo.preview_url ? mapPreviewUrl(endpoint, photo.id) : '', previewPhotoHref(photo.id), timezone);
+      return point;
+    })});
+    cards.current?.scrollTo?.({top: 0});
+  }, [view, photos, endpoint, previewPhotoHref, timezone]);
 
+  useLayoutEffect(() => {
+    if (view && selection) return view.showHighlight(selection);
+  }, [view, selection]);
+
+  function followPhoto(event: MouseEvent<HTMLAnchorElement>, id: number) {
+    if (!openPhoto || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    openPhoto(id);
+  }
+
+  const message = error?.request === request ? error.message : '';
+  const unavailable = mapError || (!apiKey ? 'Для карты укажите YANDEX_MAPS_API_KEY в настройках сервера.' : '');
+  const status = message ? <p role="alert">{message} <button type="button" onClick={() => setRetry(value => value + 1)}>Повторить</button></p>
+    : !page ? <p className="hint" role="status">Загружаем фотографии…</p>
+    : !photos?.length ? <p className="hint" role="status">В этой области нет фотографий за выбранный период.</p> : null;
+  const paging = (offsets.length > 1 || page?.next_after_id != null) && <div className="photo-map-paging">
+    {page?.next_after_id != null && <p className="hint">Здесь есть ещё снимки. Приблизьте карту или откройте следующую часть.</p>}
+    <button type="button" disabled={offsets.length < 2} onClick={() => setCursor({scope, offsets: offsets.slice(0, -1)})}>Назад</button>
+    <button type="button" disabled={page?.next_after_id == null} onClick={() => {
+      if (page?.next_after_id != null) setCursor({scope, offsets: [...offsets, page.next_after_id]});
+    }}>Далее</button>
+  </div>;
   return <section className="panel photo-map-panel">
     <div className="photo-map-toolbar">
-      <div aria-live="polite">{loading ? `Загружаем точки… ${loaded || ''}` : data && <>
-        <strong>На карте: {data.photos.length.toLocaleString('ru-RU')}</strong>
-        <span>Всего: {data.summary.total.toLocaleString('ru-RU')} · Без координат: {data.summary.without_coordinates.toLocaleString('ru-RU')}</span>
-      </>}</div>
-      <div className="photo-map-actions"><button onClick={() => view && fitPhotoBounds(view)} disabled={!view || !data?.photos.length}><LocateFixed size={16}/>Все точки</button>
-        {listAction}</div>
+      <strong aria-live="polite">{page ? 'На карте: ' + page.items.length : 'Фотографии на карте'}</strong>
+      <div className="photo-map-actions">
+        <button type="button" onClick={() => view?.map.setCenter?.(city, cityZoom)} disabled={!view}><LocateFixed size={16}/>К городу</button>
+        {listAction}
+      </div>
     </div>
-    {(error || mapError) && <p className="error" role="alert">{error || mapError}</p>}
-    {!loading && data && data.photos.length === 0 && <p className="photo-map-empty" role="status">{data.summary.total ? 'В этой выборке нет фотографий с координатами. Их можно открыть списком.' : 'За выбранный период и с этими фильтрами фотографий нет.'}</p>}
-    <div className="photo-map-canvas" ref={container} aria-label="Карта мест съёмки фотографий" hidden={!!mapError} onClickCapture={onClick}/>
-    {!mapError && !view && <p className="hint">Подключаем Яндекс.Карты…</p>}
-    <p className="hint">На карте показаны миниатюры снимков. Нажмите на миниатюру, чтобы открыть фотографию. Число в углу — количество фотографий рядом; увеличьте карту или откройте группу. Снимки без координат на карту не наносятся.</p>
+    {unavailable && <p className="error" role="alert">{unavailable}</p>}
+    {previewMarkers && !unavailable && status}
+    <div className={'photo-map-layout' + (previewMarkers ? ' is-preview-map' : '')} hidden={!!unavailable}>
+      {!previewMarkers && <aside className="photo-map-sidebar" aria-label="Фото в видимой области">
+        <h3>Фото в видимой области</h3>
+        {status}
+        <div className="photo-map-cards" ref={cards}>
+          {photos?.map(photo => <article key={photo.id} data-map-photo={photo.id} className={selection?.id === photo.id ? 'is-selected' : undefined}>
+            <button className="photo-map-card-button" type="button" aria-pressed={selection?.id === photo.id} onClick={() => setSelected({scope: selectionScope, id: photo.id, fromMap: false})}>
+              <span className="photo-map-card-image">
+                <Camera size={22} aria-hidden="true"/>
+                {photo.preview_url && <img src={mapPreviewUrl(endpoint, photo.id)} alt="" loading="lazy" decoding="async" onError={event => {event.currentTarget.hidden = true;}}/>}
+              </span>
+              {selection?.id === photo.id && <span className="photo-map-selected-label"><Check size={14} aria-hidden="true"/> Выбрано</span>}
+              <strong>Фото №{photo.id}</strong>
+              <small>{photo.photo_date ? dateLabel(photo.photo_date) : new Date(photo.received_at).toLocaleDateString('ru-RU', {timeZone: timezone})}</small>
+              <span>{photo.work_type_name || photo.district_name || photo.chat_name || 'Вид работы не указан'}</span>
+            </button>
+            {selection?.id === photo.id && <a href={photoHref(photo.id)} onClick={event => followPhoto(event, photo.id)}>Открыть фото</a>}
+          </article>)}
+        </div>
+        {paging}
+      </aside>}
+      <div className="photo-map-canvas" ref={container} aria-label="Карта мест съёмки фотографий"/>
+    </div>
+    {previewMarkers && !unavailable && paging}
     {children}
   </section>;
-}
-
-function fitPhotoBounds({map, manager}: {map: YMap; manager: YObjectManager}) {
-  const bounds = manager.getBounds();
-  if (bounds) map.setBounds(bounds, {checkZoomRange: true, zoomMargin: 45, maxZoom: 17});
 }
