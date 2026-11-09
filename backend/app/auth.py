@@ -162,6 +162,7 @@ def user_dict(user: User, *, workspace_profile=True):
         "name": user.name,
         "role": user.role,
         "active": user.active,
+        "last_seen_at": user.last_seen_at,
         "permissions": effective_permissions(user),
         "allowed_chat_ids": allowed_chat_ids(user),
         "sidebar_order": user.sidebar_order or [],
@@ -175,7 +176,7 @@ def user_dict(user: User, *, workspace_profile=True):
         result["managed_by_platform"] = bool(organization and organization.owner_user_id == user.id)
         owner = getattr(user, "_workspace_profile", None)
         if workspace_profile and organization and owner:
-            result.update(name=owner.name, login=owner.login, sidebar_order=owner.sidebar_order or [],
+            result.update(name=owner.name, login=owner.login, last_seen_at=owner.last_seen_at, sidebar_order=owner.sidebar_order or [],
                           avatar_url=f"/api/auth/avatar/{owner.id}?v={hashlib.sha256(owner.avatar_image).hexdigest()[:16]}"
                           if owner.avatar_image else None)
     return result
@@ -283,6 +284,15 @@ def issue_login(user, request, response, db, *, password=None):
 @router.get("/me")
 def me(user: CurrentUser):
     return user_dict(user)
+
+
+@router.post("/presence")
+def presence(db: Db, user: CurrentUser):
+    from app.presence import mark_present
+
+    # Owner requests from a workspace are redirected to the platform account.
+    mark_present(db, user)
+    return {"ok": True}
 
 
 @router.put("/sidebar-order")

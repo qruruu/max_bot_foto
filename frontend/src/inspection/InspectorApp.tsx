@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { usePresenceHeartbeat } from '../UserPresence';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Building2, Camera, ChevronLeft, ChevronRight, Layers, LogOut, Map, MapPin, MessageSquare, QrCode, RefreshCw, Users } from 'lucide-react';
 import { api } from '../api';
@@ -38,6 +39,7 @@ const emptyMeta:InspectionMeta={districts:[],work_types:[],today:new Intl.DateTi
 
 export default function InspectorApp() {
   const [user,setUser]=useState<Inspector|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[notice,setNotice]=useState('');
+  usePresenceHeartbeat(!!user, "/inspection/presence");
   const sidebar=useSidebar();
   const [organizations,setOrganizations]=useState<Organization[]>([]),[scanner,setScanner]=useState(false),[busy,setBusy]=useState(false);
   const [params,setParams]=useSearchParams(),navigate=useNavigate();

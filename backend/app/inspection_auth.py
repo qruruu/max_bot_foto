@@ -25,7 +25,7 @@ def lock_inspector(db, id):
 
 def inspector_dict(account, agency):
     return {"id": account.id, "login": account.login, "name": account.name, "role": "INSPECTOR",
-            "active": account.active, "agency_id": agency.id, "agency_name": agency.name,
+            "active": account.active, "last_seen_at": account.last_seen_at, "agency_id": agency.id, "agency_name": agency.name,
             "can_create_accounts": account.can_create_accounts, "created_by": account.created_by,
             "is_platform_owner": False, "organization": None, "permissions": [],
             "sidebar_order": [key for key in account.sidebar_order or [] if key in INSPECTION_MENU] or INSPECTION_MENU,

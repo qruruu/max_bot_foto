@@ -227,6 +227,14 @@ def me(user: InspectorUser):
     return inspector_dict(user, user._agency)
 
 
+@router.post("/presence")
+def presence(db: Db, user: InspectorUser):
+    from app.presence import mark_present
+
+    mark_present(db, user)
+    return {"ok": True}
+
+
 @router.post("/logout")
 def logout(request: Request, response: Response, db: Db, user: InspectorUser):
     db.delete(request.state.inspection_session)

@@ -1,3 +1,4 @@
+import UserPresence, { usePresenceRefresh } from '../UserPresence';
 import { useEffect, useRef, useState } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import { api } from '../api';
@@ -38,6 +39,7 @@ export default function InspectionOwner({organizations}: {organizations: Organiz
   }
   useEffect(()=>{void load().catch(e=>setError(e.message));},[]);
   useEffect(()=>{detailGeneration.current++;setAccounts([]);setAccount(null);void loadAccounts().catch(e=>setError(e.message));},[selected]);
+  usePresenceRefresh(!!selected && !busy, loadAccounts);
   const available=organizations.filter(org=>!grants.some(grant=>grant.id===org.id));
   const agency=agencies.find(a=>a.id===selected);
   return <div className="inspection-owner"><header className="page-header"><div><span className="eyebrow">КАБИНЕТ ВЛАДЕЛЬЦА</span><h1>Проверяющие</h1><p>Проверяющие, аккаунты, доступ к организациям.</p></div>
@@ -56,7 +58,7 @@ export default function InspectionOwner({organizations}: {organizations: Organiz
       <button className="primary" disabled={busy}>Сохранить</button><button type="button" onClick={()=>setEditing(false)}>Отмена</button></form>}
     {agency && <section className="panel"><h2>{agency.name} · Аккаунты</h2><p className="hint">Аккаунты, созданные здесь, могут добавлять сотрудников. Их сотрудники создавать аккаунты не смогут.</p>
       <AccountForm key={selected} busy={busy} onSave={async body=>{setBusy(true);setError('');try{await api('/platform/inspection/agencies/'+selected+'/accounts','POST',body);await loadAccounts();await load();}catch(e){setError((e as Error).message);throw e;}finally{setBusy(false);}}}/>
-      <div className="table-scroll"><table><thead><tr><th>Имя / логин</th><th>Создание аккаунтов</th><th>Статус</th><th/></tr></thead><tbody>{accounts.map(a=><tr key={a.id}><td>{a.name}<small>{a.login}</small></td><td>{a.can_create_accounts?'Разрешено владельцем':'Недоступно'}</td><td>{a.active?'Активен':'Приостановлен'}</td><td><button disabled={busy} onClick={()=>void details(a)}>Управлять</button></td></tr>)}</tbody></table></div>
+      <div className="table-scroll"><table><thead><tr><th>Имя / логин</th><th>Создание аккаунтов</th><th>Статус</th><th/></tr></thead><tbody>{accounts.map(a=><tr key={a.id}><td>{a.name}<small>{a.login}</small><UserPresence lastSeen={a.last_seen_at} active={a.active}/></td><td>{a.can_create_accounts?'Разрешено владельцем':'Недоступно'}</td><td>{a.active?'Активен':'Приостановлен'}</td><td><button disabled={busy} onClick={()=>void details(a)}>Управлять</button></td></tr>)}</tbody></table></div>
     </section>}
     {account && <section className="panel"><h2>{account.name}</h2><form className="inspection-account-form" onSubmit={e=>{e.preventDefault();void run(async()=>{
       const updated=await api<Inspector>('/platform/inspection/accounts/'+account.id,'PATCH',{name:accountName,...(password?{password}:{})});await loadAccounts();await details(updated);});}}>

@@ -205,7 +205,7 @@ def contacts(db: Db, user: CurrentUser, photo_id: Annotated[int | None, Query(gt
             if peer.active and peer.avatar_image else None
         items.append({
             "id": peer.id, "name": peer.name, "role": peer.role, "active": peer.active,
-            "avatar_url": avatar, "unread": unread or 0,
+            "avatar_url": avatar, "unread": unread or 0, "last_seen_at": peer.last_seen_at,
             "last_message": {**message_dict(latest, photos), "body": latest.body[:140]} if latest else None,
         })
     return {"items": items, "unread": sum(item["unread"] for item in items)}

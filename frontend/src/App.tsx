@@ -1,4 +1,5 @@
 import { ResponsePhotoDraftProvider, useResponsePhotoDraft } from './appeals/ResponsePhotoDraft';
+import { usePresenceHeartbeat } from './UserPresence';
 import { MAX_PHOTOS } from './appeals/TaskImageInput';
 import PhotoContextMenu, { type PhotoMenuTarget } from './PhotoContextMenu';
 import ForwardPhotos from './inspection/Forward';
@@ -66,6 +67,7 @@ export function StatusBadge({ value }: { value: string }) { return <span classNa
 export default function App() {
   const sidebar = useSidebar();
   const [user,setUser] = useState<User|null>(null), [meta,setMeta] = useState<Meta|null>(null), [loading,setLoading] = useState(true), [error,setError] = useState(''), [toast,setToast] = useState('');
+  usePresenceHeartbeat(!!user);
   const appeals = useAppealNotifications(!!user && !!meta?.organization, user?.id);
   const navigate = useNavigate();
   const {pathname} = useLocation();

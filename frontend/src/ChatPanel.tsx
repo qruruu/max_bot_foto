@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode, RefObject } from 'react';
 import { ArrowLeft, Check, CheckCheck, MessageCircle, Search, X } from 'lucide-react';
 import { ErrorBox } from './App';
 import Avatar from './Avatar';
+import UserPresence from './UserPresence';
 import ChatComposer from './ChatComposer';
 import { ChatMessageContent, revealMessage } from './ChatMessageContent';
 import ChatMessageMenu from './ChatMessageMenu';
@@ -13,7 +14,7 @@ import './operator-chats.css';
 
 export type ChatContact = {
   key: string; name: string; subtitle: string; avatar_url: string | null; active: boolean;
-  unread: number; preview: string | null; preview_at?: string | null; organization?: string | null;
+  unread: number; last_seen_at?: string | null; preview: string | null; preview_at?: string | null; organization?: string | null;
 };
 export type ChatMessage = ChatContent & {
   id: number; body: string; outgoing: boolean; created_at: string; read: boolean; attachment?: ReactNode; canForward?: boolean; author: string;
@@ -54,14 +55,14 @@ export default function ChatPanel(props: Props) {
         {!props.contactLoading && !filtered.length && <p className="operator-chat-note">{search ? labels.none : labels.empty}</p>}
         {filtered.map(contact => <button type="button" key={contact.key} className={`operator-chat-contact ${selected === contact.key ? 'selected' : ''}`} onClick={() => select(contact.key)} aria-pressed={selected === contact.key}>
           <Avatar name={contact.name} src={contact.avatar_url}/>
-          <span className="operator-chat-contact-copy"><strong>{contact.name}</strong><span>{contact.preview ?? [contact.subtitle, contact.organization].filter(Boolean).join(' · ')}</span></span>
+          <span className="operator-chat-contact-copy"><strong>{contact.name}</strong><span>{contact.preview ?? [contact.subtitle, contact.organization].filter(Boolean).join(' · ')}</span><UserPresence lastSeen={contact.last_seen_at} active={contact.active} timezone={timezone}/></span>
           <span className="operator-chat-contact-meta">{contact.preview_at && <time dateTime={contact.preview_at}>{messageTime(contact.preview_at, timezone)}</time>}{contact.unread > 0 && <span className="operator-chat-unread" aria-label={`Непрочитанных: ${contact.unread}`}>{contact.unread > 99 ? '99+' : contact.unread}</span>}</span>
         </button>)}
       </div>
     </aside>
     <div className="operator-conversation">
       {!selected ? <div className="operator-chat-empty"><MessageCircle size={44}/><h2>Выберите собеседника</h2><p>Откройте диалог из списка, чтобы начать переписку.</p></div> : <>
-        <div className="operator-conversation-header"><button type="button" className="operator-chat-back" aria-label={labels.back} onClick={() => select('')}><ArrowLeft size={18}/></button><Avatar name={peer?.name || 'Собеседник'} src={peer?.avatar_url || null}/><div><strong>{peer?.name || 'Переписка'}</strong><span>{peer?.subtitle || 'Загружаем…'}</span></div></div>
+        <div className="operator-conversation-header"><button type="button" className="operator-chat-back" aria-label={labels.back} onClick={() => select('')}><ArrowLeft size={18}/></button><Avatar name={peer?.name || 'Собеседник'} src={peer?.avatar_url || null}/><div><strong>{peer?.name || 'Переписка'}</strong><span>{peer?.subtitle || 'Загружаем…'}</span>{peer && <UserPresence lastSeen={peer.last_seen_at} active={peer.active} timezone={timezone}/>}</div></div>
         {props.forwardedTo && <div className="chat-forwarded-notice">
           <span role="status">Переслано · {props.forwardedTo.name}</span>
           {props.forwardedTo.key !== selected && <button type="button" className="text-button" onClick={() => select(props.forwardedTo!.key)}>Открыть чат</button>}

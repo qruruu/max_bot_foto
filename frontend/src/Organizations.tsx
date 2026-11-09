@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { usePresenceHeartbeat } from './UserPresence';
 import type { FormEvent } from 'react';
 import { ArrowUpRight, Building2, Camera, Layers, LogOut, MessageSquare, Moon, Newspaper, Plus, RefreshCw, Settings2, ShieldCheck, Sun, Users, X } from 'lucide-react';
 import { api } from './api';
@@ -48,6 +49,7 @@ export function OrganizationCard({item, edit, retry}: {item: Organization; edit:
 
 export default function Organizations() {
   const [user, setUser] = useState<User | null>(null), [loading, setLoading] = useState(true);
+  usePresenceHeartbeat(!!user);
   const [items, setItems] = useState<Organization[]>([]), [chats, setChats] = useState<Chat[]>([]);
   const [newsEditing,setNewsEditing]=useState(false);
   const [params, setParams] = useSearchParams();

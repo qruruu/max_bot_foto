@@ -12,7 +12,7 @@ export type PhotoPage = {items: InspectionPhoto[]; total: number; page: number; 
 export type InspectionMeta = Pick<Meta, 'districts' | 'work_types' | 'today' | 'timezone' | 'yandex_maps_api_key'>;
 export type Appeal = {id: number; organization_name: string; address: string; place: string; description: string;
   work_type_name: string; category: string; status: string; created_at: string; photos: {id: string; url: string}[]};
-export type Contact = {key: string; aliases?: string[]; name: string; kind: string; organization_name: string | null; avatar_url: string | null;
+export type Contact = {key: string; last_seen_at?: string | null; aliases?: string[]; name: string; kind: string; organization_name: string | null; avatar_url: string | null;
   unread: number; last_message: string | null; last_message_at: string | null; last_message_outgoing: boolean};
 export type MessagePhoto = {id: number; available: boolean; organization_id: string | null; organization_name: string | null;
   preview_url: string | null; detail_url: string | null};

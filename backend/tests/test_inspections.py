@@ -809,3 +809,21 @@ def test_second_owner_workspace_cannot_read_primary_chats_and_can_write_to_prima
         assert sent.status_code == 201, sent.text
         history = owner.get(direct + "/messages", params={"peer": f"o:{developer_id}"}).json()["items"]
         assert [item["id"] for item in history] == [sent.json()["id"]]
+
+
+def test_presence_is_available_to_authorized_inspection_contacts(inspection):
+    owner, scopes, _, _, accounts, clients = inspection
+    first, second = clients
+    assert owner.post(scopes[0].prefix + "/api/auth/presence").status_code == 200
+    owner_contact = next(item for item in second.get("/api/inspection/contacts").json()
+                         if item["key"].startswith("o:"))
+    assert owner_contact["last_seen_at"] == owner.get("/api/auth/me").json()["last_seen_at"]
+    assert owner_contact["last_seen_at"]
+    assert first.post("/api/inspection/presence").status_code == 200
+    contact = next(item for item in second.get("/api/inspection/contacts").json()
+                   if item["key"] == f"i:{accounts[0]['id']}")
+    assert contact["last_seen_at"] == first.get("/api/inspection/me").json()["last_seen_at"]
+    assert contact["last_seen_at"]
+    assert first.post("/api/inspection/logout").status_code == 200
+    assert next(item for item in second.get("/api/inspection/contacts").json()
+                if item["key"] == contact["key"])["last_seen_at"] == contact["last_seen_at"]

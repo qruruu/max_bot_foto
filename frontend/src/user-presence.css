@@ -1,0 +1,4 @@
+.user-presence { display: block; margin-top: 3px; color: var(--muted); font-size: .75rem; line-height: 1.35; }
+.user-presence.is-online { color: var(--green); }
+:root[data-theme="dark"] .user-presence.is-online { color: var(--accent); }
+.user-presence.is-online::before { content: ''; display: inline-block; width: .45em; height: .45em; margin-right: .35em; border-radius: 50%; vertical-align: .12em; background: currentColor; }

@@ -65,14 +65,14 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
       busy = true;
       const requests = [
         api<ContactPage>('/operator-chats', 'GET', undefined, controller.signal).then(page => page.items.map(contact => ({
-          key: String(contact.id), name: contact.name, avatar_url: contact.avatar_url, active: contact.active, unread: contact.unread,
+          key: String(contact.id), name: contact.name, avatar_url: contact.avatar_url, active: contact.active, unread: contact.unread, last_seen_at: contact.last_seen_at,
           subtitle: !contact.active ? 'Аккаунт отключён' : contact.role === 'ADMIN_OPERATOR' ? 'Администратор' : 'Оператор',
           preview: contact.last_message ? (contact.last_message.sender_id === user.id ? 'Вы: ' : '') + messagePreview(contact.last_message) : null,
           preview_at: contact.last_message?.created_at,
         }))),
         ...[...(includeInspectors ? [inspectionBase] : []), ...(meta.organization ? [ownersBase] : [])]
           .map(base => api<Contact[]>(base + '/contacts', 'GET', undefined, controller.signal).then(items => items.map(contact => ({
-            key: contact.key, name: contact.name, avatar_url: contact.avatar_url, active: true, unread: contact.unread,
+            key: contact.key, name: contact.name, avatar_url: contact.avatar_url, active: true, unread: contact.unread, last_seen_at: contact.last_seen_at,
             subtitle: contact.kind, organization: contact.organization_name,
             preview: contact.last_message ? (contact.last_message_outgoing ? 'Вы: ' : '') + contact.last_message : null,
             preview_at: contact.last_message_at,

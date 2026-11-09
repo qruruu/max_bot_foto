@@ -86,8 +86,8 @@ def other_participant(message, actor):
     return message.recipient_key if message.sender_key == actor else message.sender_key
 
 
-def contact(key, name, kind, organization, avatar, base="/api/inspection"):
-    return {"key": key, "name": name, "kind": kind, "organization_name": organization,
+def contact(key, name, kind, organization, avatar, base="/api/inspection", *, last_seen_at=None):
+    return {"key": key, "name": name, "kind": kind, "organization_name": organization, "last_seen_at": last_seen_at,
             "avatar_url": base + "/contact-avatar?" + urlencode({"peer": key, "v": sha256(avatar).hexdigest()[:16]})
             if avatar else None}
 
@@ -105,7 +105,7 @@ def inspection_tenant(db, org, scope=None):
 
 
 def inspector_contacts(db, account):
-    contacts = [contact(f"o:{owner.id}", owner.name, "Владелец сервиса", None, owner.avatar_image)
+    contacts = [contact(f"o:{owner.id}", owner.name, "Владелец сервиса", None, owner.avatar_image, last_seen_at=owner.last_seen_at)
                 for owner in db.scalars(select(User).join(PlatformOwner, PlatformOwner.user_id == User.id)
                                         .where(User.active).order_by(User.name))]
     owners = {int(item["key"].split(":")[1]): item for item in contacts}
@@ -114,7 +114,7 @@ def inspector_contacts(db, account):
     primary_owner = owners.get(primary_id)
     if primary_id is None and len(owners) == 1 and db.scalar(select(func.count()).select_from(PlatformOwner)) == 1:
         primary_owner = next(iter(owners.values()))
-    contacts += [contact(f"i:{a.id}", a.name, "Проверяющий", None, a.avatar_image)
+    contacts += [contact(f"i:{a.id}", a.name, "Проверяющий", None, a.avatar_image, last_seen_at=a.last_seen_at)
                  for a in db.scalars(select(Inspector).where(Inspector.agency_id == account.agency_id,
                                      Inspector.id != account.id, Inspector.active).order_by(Inspector.name))]
     orgs = db.scalars(select(Organization).join(InspectionGrant, InspectionGrant.organization_id == Organization.id)
@@ -130,7 +130,7 @@ def inspector_contacts(db, account):
                     continue
                 name = "Администратор" if admin.id == scope.owner_user_id and admin.name == "Владелец сервиса" else admin.name
                 contacts.append(contact(key, name,
-                                        "Администратор организации", org.name, admin.avatar_image))
+                                        "Администратор организации", org.name, admin.avatar_image, last_seen_at=admin.last_seen_at))
     return contacts
 
 
@@ -167,7 +167,7 @@ def owner_inboxes(db, owner_id, inspector_id):
 
 def admin_contacts(db, org_id):
     return [contact(f"i:{account.id}", account.name, "Проверяющий", agency.name, account.avatar_image,
-                    workspace_url("/api/inspection-admin"))
+                    workspace_url("/api/inspection-admin"), last_seen_at=account.last_seen_at)
             for account, agency in db.execute(select(Inspector, InspectionAgency).join(InspectionAgency)
                 .join(InspectionGrant, InspectionGrant.inspector_id == Inspector.id)
                 .join(Organization, Organization.id == InspectionGrant.organization_id)
@@ -176,7 +176,7 @@ def admin_contacts(db, org_id):
 
 
 def platform_contacts(db, exclude=None, base="/api/platform/inspection/chat"):
-    return [contact(f"o:{user.id}", user.name, "Владелец сервиса", None, user.avatar_image, base)
+    return [contact(f"o:{user.id}", user.name, "Владелец сервиса", None, user.avatar_image, base, last_seen_at=user.last_seen_at)
             for user in db.scalars(select(User).join(PlatformOwner, PlatformOwner.user_id == User.id)
                                    .where(User.active, User.id != exclude).order_by(User.name))]
 
@@ -191,7 +191,7 @@ def owner_message_inboxes(db, owner_id, message_id):
 
 
 def owner_contacts(db, owner_id, *, peer=None, organization_id=None, staff_only=False, base="/api/platform/inspection/chat"):
-    contacts = [] if staff_only else [contact(f"i:{account.id}", account.name, "Проверяющий", agency.name, account.avatar_image, base)
+    contacts = [] if staff_only else [contact(f"i:{account.id}", account.name, "Проверяющий", agency.name, account.avatar_image, base, last_seen_at=account.last_seen_at)
                 for account, agency in db.execute(select(Inspector, InspectionAgency).join(InspectionAgency)
                     .where(Inspector.active, InspectionAgency.active).order_by(InspectionAgency.name, Inspector.name))]
     contacts += platform_contacts(db, owner_id)
@@ -209,7 +209,7 @@ def owner_contacts(db, owner_id, *, peer=None, organization_id=None, staff_only=
         with inspection_tenant(db, org, scope) as tenant:
             for user in tenant.scalars(select(User).where(User.active, User.id.not_in(excluded)).order_by(User.name)):
                 kind = "Администратор" if user.role == "ADMIN_OPERATOR" else "Оператор"
-                contacts.append(contact(f"a:{org.id}:{user.id}", user.name, kind, org.name, user.avatar_image, base))
+                contacts.append(contact(f"a:{org.id}:{user.id}", user.name, kind, org.name, user.avatar_image, base, last_seen_at=user.last_seen_at))
     return contacts
 
 
