@@ -55,9 +55,9 @@ def test_sender_applies_to_list_map_reports_export_next_and_return_position(send
     assert client.get('/api/reports', params=params).json()['total'] == 2
     workbook = load_workbook(BytesIO(client.get('/api/export.xlsx', params=params).content))
     assert {row[0] for row in workbook['Все фото'].iter_rows(min_row=2, values_only=True)} == {10, 20}
-    assert client.get('/api/photos/20/next', params=params).json()['id'] == 10
-    position = client.get('/api/photos', params={**params, 'page_size': 1, 'anchor_id': 10}).json()
-    assert position['page'] == 2 and position['focus_id'] == 10
+    assert client.get('/api/photos/10/next', params=params).json()['id'] == 20
+    position = client.get('/api/photos', params={**params, 'page_size': 1, 'anchor_id': 20}).json()
+    assert position['page'] == 2 and position['focus_id'] == 20
     actor(client, 2)
     assert client.get('/api/photos', params=params).json()['total'] == 1
 

@@ -116,7 +116,7 @@ def test_changed_content_returns_to_pending_but_sync_and_label_source_do_not(acc
         db.commit()
     summary = client.get(ROOT).json()
     assert (summary["confirmed"], summary["pending"], summary["new"], summary["changed"]) == (1, 1, 0, 1)
-    assert client.get('/api/photos/50/next', params={"review_day": DAY, "day_review": "pending"}).json() == {"id":10}
+    assert client.get('/api/photos/50/next', params={"review_day": DAY, "day_review": "pending"}).json() == {"id": None}
     assert close(client)["confirmed"] == 1
 
 
@@ -209,7 +209,7 @@ def test_permission_is_opt_in_and_direct_filters_and_closure_require_it(access_a
 def test_scope_and_csrf_cannot_be_overridden_and_stale_scope_cannot_close(access_api):
     client, engine = access_api
     token = client.get(ROOT).json()["snapshot"]
-    assert client.post(ROOT+'/close', json={"snapshot": token,"chat_id":200}).status_code == 422
+    assert client.post(ROOT+'/close', json={"snapshot": token,"chat_id":200}).status_code == 403
     with AccessSession(engine) as db:
         db.get(User, 2).allowed_chat_ids = [2]
         db.commit()
@@ -344,3 +344,21 @@ def test_scope_migration_preserves_existing_confirmations_with_legacy_chat_fallb
         assert connection.execute(select(DayPhotoReview)).all() == before
     summary = client.get(ROOT).json()
     assert summary['confirmed'] == 2 and summary['closed_before'] and summary['pending'] == 0
+
+
+def test_admin_closes_only_selected_chat(access_api):
+    client, engine = access_api
+    actor(client, 1)
+    first = client.get(ROOT, params={"chat_id": 100}).json()
+    second = client.get(ROOT, params={"chat_id": 200}).json()
+    assert (first["pending"], second["pending"]) == (2, 1)
+    assert client.post(ROOT + "/close", json={"snapshot": first["snapshot"], "chat_id": "200"}).status_code == 409
+    result = client.post(ROOT + "/close", json={"snapshot": first["snapshot"], "chat_id": "100"})
+    assert result.status_code == 200, result.text
+    assert client.get(ROOT, params={"chat_id": 100}).json()["confirmed"] == 2
+    assert client.get(ROOT, params={"chat_id": 200}).json()["pending"] == 1
+    with AccessSession(engine) as db:
+        assert not db.scalar(select(DayClosure)).all_chats
+        assert list(db.scalars(select(DayClosureChat.max_chat_id))) == [100]
+    actor(client, 4)
+    assert client.get(ROOT, params={"chat_id": 100}).status_code == 403

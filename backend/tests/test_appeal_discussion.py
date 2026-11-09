@@ -72,14 +72,14 @@ def test_discussion_history_and_operator_status_access(workflow):
         assert citizen.get(f'/api/public/appeals/wall/{id}/events').status_code == 404
 
 
-def test_archive_preserves_public_response_and_can_be_restored(workflow):
+def test_personal_archive_preserves_public_response_and_can_be_restored(workflow):
     owner, scopes, operators, _, addresses, inspectors = workflow
     with TestClient(public_app) as citizen:
         assert submit(citizen, metadata(scopes[0], addresses[0])).status_code == 201
         list_endpoint = scopes[0].prefix + '/api/appeals'
         id = owner.get(list_endpoint).json()['items'][0]['id']
         endpoint = list_endpoint + f'/{id}'
-        assert owner.post(endpoint + '/archive', json={'archived': True, 'expected_version': 1}).status_code == 409
+        assert owner.post(endpoint + '/archive', json={'archived': True}).status_code == 409
         closed = multipart(owner, endpoint + '/close', {'comment': 'Проблема устранена', 'expected_version': 1})
         assert closed.status_code == 200, closed.text
         archived = owner.post(endpoint + '/archive', json={'archived': True, 'expected_version': 2})
@@ -87,16 +87,18 @@ def test_archive_preserves_public_response_and_can_be_restored(workflow):
         assert owner.get(list_endpoint).json()['total'] == 0
         assert owner.get(list_endpoint, params={'archived': True}).json()['total'] == 1
         inspection_endpoint = f'/api/inspection/organizations/{scopes[0].id}/appeals'
-        assert inspectors[0].get(inspection_endpoint).json()['total'] == 0
-        assert inspectors[0].get(inspection_endpoint, params={'archived': True}).json()['total'] == 1
-        assert owner.post(endpoint + '/comments', json={'client_id': str(uuid4()), 'comment': 'Позднее сообщение'}).status_code == 409
-        assert operators[0].post(endpoint + '/archive', json={'archived': False, 'expected_version': 3}).status_code == 403
+        assert inspectors[0].get(inspection_endpoint).json()['total'] == 1
+        assert inspectors[0].get(inspection_endpoint, params={'archived': True}).json()['total'] == 0
+        assert inspectors[0].post(inspection_endpoint + f'/{id}/archive', json={'archived': True}).status_code == 200
+        assert owner.post(endpoint + '/comments', json={'client_id': str(uuid4()), 'comment': 'Позднее сообщение'}).status_code == 201
+        assert operators[0].post(endpoint + '/archive', json={'archived': True}).status_code == 404
         public = citizen.get(f'/api/public/appeals/wall/{id}').json()
         assert public['response']['comment'] == 'Проблема устранена'
         assert citizen.get(public['response']['photos'][0]['url']).status_code == 200
         assert owner.post(endpoint + '/archive', json={'archived': False, 'expected_version': 3}).status_code == 200
         assert owner.get(list_endpoint).json()['total'] == 1
-        assert [event['kind'] for event in owner.get(endpoint + '/events').json()['items']] == ['CREATED', 'CLOSED', 'ARCHIVED', 'RESTORED']
+        assert [event['kind'] for event in owner.get(endpoint + '/events').json()['items']] == ['CREATED', 'CLOSED', 'COMMENT']
+        assert inspectors[0].get(inspection_endpoint, params={'archived': True}).json()['total'] == 1
 
 
 def test_wall_search_text_numbers_and_local_dates_never_searches_private_fields(workflow):
@@ -212,7 +214,7 @@ def test_inspector_changes_task_status_without_managing_or_publishing_an_appeal(
     assert owner.post(endpoint + '/archive', json={'archived': True, 'expected_version': 4}).status_code == 200
     assert owner.get(inbox, params={'archived': True}).json()['items'][0]['id'] == id
     assert owner.post(endpoint + '/archive', json={'archived': False, 'expected_version': 5}).status_code == 200
-    closed = multipart(owner, endpoint + '/close', {'comment': 'Принято решение', 'expected_version': 6}, False)
+    closed = multipart(owner, endpoint + '/close', {'comment': 'Принято решение', 'expected_version': 4}, False)
     assert closed.status_code == 200, closed.text
     assert not inspectors[0].get(checked).json()['can_set_task_status']
     assert inspectors[0].post(checked + '/task-status', json={'status': 'COMPLETED', 'expected_version': 7}).status_code == 409
@@ -296,8 +298,8 @@ def test_final_cancel_or_reject_stops_task_preserves_visibility_and_can_reopen(w
         assert archived['total'] == 1 and archived['items'][0]['status'] == status
         assert owner.post(endpoint + '/archive', json={'archived': False, 'expected_version': 4}).status_code == 200
         assert owner.get(endpoint).json()['status'] == status
-        assert owner.patch(endpoint, json={'status': 'IN_REVIEW', 'owner_note': '', 'expected_version': 5}).status_code == 200
-        assert owner.post(endpoint + '/assign', json={'operator_id': operator_ids[0], 'expected_version': 6}).status_code == 200
+        assert owner.patch(endpoint, json={'status': 'IN_REVIEW', 'owner_note': '', 'expected_version': 3}).status_code == 200
+        assert owner.post(endpoint + '/assign', json={'operator_id': operator_ids[0], 'expected_version': 4}).status_code == 200
         if public:
             assert citizen.get(wall_url).json()['response'] is None
             assert citizen.get(photo_url).status_code == 404
@@ -395,3 +397,66 @@ def test_read_checks_and_personal_forwarding_do_not_grant_task_chat_access(workf
     assert owner.post(path, json=payload).json()["id"] == forwarded.json()["id"]
     assert operators[0].get(endpoint + "/events?channel=inspector").status_code == 404
     assert owner.post(scopes[1].prefix + f"/api/operator-chats/{operator_ids[1]}/messages", json=payload).status_code == 404
+
+
+def test_task_edits_and_archive_photo_reply_are_recorded(workflow):
+    from PIL import Image
+    from sqlalchemy.orm import Session
+
+    from app.db import engine
+    from app.media import media_path
+    from app.models import ExchangeState, Inbox, Photo
+    from app.organization_context import organization_scope
+
+    owner, scopes, operators, operator_ids, addresses, inspectors = workflow
+    scope = scopes[0]
+    created = multipart(inspectors[0], f'/api/inspection/organizations/{scope.id}/appeals',
+                        inspector_metadata(scope, addresses[0]))
+    assert created.status_code == 201, created.text
+    endpoint = scope.prefix + f'/api/appeals/{created.json()["id"]}'
+    before = owner.get(endpoint).json()
+    edit = {'expected_version': before['version'], 'status': before['status'], 'owner_note': '',
+            'subject': 'Уточнённая задача', 'description': 'Обновлённое описание'}
+    assert owner.patch(endpoint, json=edit).status_code == 200
+    assert owner.patch(endpoint, json=edit).status_code == 409
+    history = owner.get(endpoint + '/changes').json()
+    assert history[0]['changes']['description'] == [before['description'], edit['description']]
+    assert history[0]['actor'] and history[0]['at']
+
+    assert owner.post(endpoint + '/assign', json={'operator_id': operator_ids[0],
+                      'expected_version': before['version'] + 1}).status_code == 200
+    with organization_scope(scope), Session(engine()) as db:
+        db.get(ExchangeState, 1).intake_cohort = 'production'
+        for photo_id in (10, 20):
+            db.add(Inbox(id=photo_id, max_chat_id=100, message_id=str(photo_id), payload={}))
+            db.flush()
+            db.add(Photo(id=photo_id, inbox_id=photo_id, attachment_index=0, cohort='production',
+                         max_chat_id=100, chat_name='Чат', max_message_id=str(photo_id),
+                         status='ACCEPTED', sha256=f'{photo_id:064x}'))
+            Image.new('RGB', (320, 240), 'green').save(media_path(photo_id, preview=True))
+        db.commit()
+    body = {'client_id': str(uuid4()), 'photo_ids': [10, 20], 'channel': 'executor'}
+    missing = owner.post(endpoint + '/photo-comments', json={**body, 'photo_ids': [10, 999]})
+    assert missing.status_code == 404
+    sent = owner.post(endpoint + '/photo-comments', json=body)
+    assert sent.status_code == 201, sent.text
+    assert owner.post(endpoint + '/photo-comments', json=body).json() == sent.json()
+    events = operators[0].get(endpoint + '/events').json()['items']
+    replies = [item for item in events if item['kind'] == 'COMMENT']
+    assert len(replies) == 1 and len(replies[0]['files']) == 2
+    for file in replies[0]['files']:
+        assert operators[0].get(file['url']).status_code == 200
+
+    offered = owner.get(endpoint + '/close-chat-photos')
+    assert offered.status_code == 200, offered.text
+    chat_ids = [item['id'] for item in offered.json()['items']]
+    assert set(chat_ids) == {item['id'] for item in replies[0]['files']}
+    assert operators[0].get(endpoint + '/close-chat-photos').status_code == 403
+    version = owner.get(endpoint).json()['version']
+    close = {'comment': 'Результат принят', 'expected_version': version, 'chat_photo_ids': [chat_ids[0]],
+             'photo_ids': [20]}
+    assert multipart(owner, endpoint + '/close', {**close, 'photo_ids': [999]}, False).status_code == 404
+    assert multipart(owner, endpoint + '/close', {**close, 'chat_photo_ids': [str(uuid4())]}, False).status_code == 404
+    result = multipart(owner, endpoint + '/close', close, False)
+    assert result.status_code == 200, result.text
+    assert len(owner.get(endpoint).json()['response_photos']) == 2

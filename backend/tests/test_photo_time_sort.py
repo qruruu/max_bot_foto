@@ -44,7 +44,7 @@ def time_api(access_api):
 @pytest.mark.parametrize('basis,order,expected', [
     ('photo','asc',ASC_PHOTO), ('photo','desc',DESC_PHOTO),
     ('received','asc',ASC_RECEIVED), ('received','desc',DESC_RECEIVED),
-    ('photo','received_desc',DESC_RECEIVED), ('received','received_desc',DESC_RECEIVED),
+    ('photo','received_asc',ASC_RECEIVED), ('photo','received_desc',DESC_RECEIVED), ('received','received_desc',DESC_RECEIVED),
 ])
 def test_pages_next_return_position_and_excel_use_the_same_time_order(time_api,basis,order,expected):
     client, _ = time_api
@@ -121,21 +121,21 @@ def test_operator_without_sort_permission_cannot_override_order_in_links(time_ap
     actor(client,4)
     query = f'date_basis={basis}&sort_order={order}'
     result = client.get('/api/photos?'+query).json()
-    assert [p['id'] for p in result['items']] == DESC_PHOTO
-    for index, id in enumerate(DESC_PHOTO):
+    assert [p['id'] for p in result['items']] == ASC_PHOTO
+    for index, id in enumerate(ASC_PHOTO):
         assert client.get(f'/api/photos/{id}/next?{query}').json()['id'] == (
-            DESC_PHOTO[index+1] if index+1<len(DESC_PHOTO) else None
+            ASC_PHOTO[index+1] if index+1<len(ASC_PHOTO) else None
         )
-    returned = client.get(f'/api/photos?{query}&page_size=3&anchor_id={DESC_PHOTO[7]}').json()
-    assert returned['page'] == 3 and returned['focus_id'] == DESC_PHOTO[7]
-    assert [p['id'] for p in returned['items']] == DESC_PHOTO[6:9]
+    returned = client.get(f'/api/photos?{query}&page_size=3&anchor_id={ASC_PHOTO[7]}').json()
+    assert returned['page'] == 3 and returned['focus_id'] == ASC_PHOTO[7]
+    assert [p['id'] for p in returned['items']] == ASC_PHOTO[6:9]
     book = load_workbook(BytesIO(client.get('/api/export.xlsx?'+query).content))
-    assert [row[0] for row in list(book['Все фото'].values)[1:]] == DESC_PHOTO
+    assert [row[0] for row in list(book['Все фото'].values)[1:]] == ASC_PHOTO
 
 
 def test_locked_sort_date_basis_agrees_across_list_reports_map_counts_and_export(time_api):
     client, engine = time_api
-    expected = [10,70,20,90,50]
+    expected = [90,20,70,10,50]
     with AccessSession(engine) as db:
         db.get(User,4).permissions = list(DEFAULT_OPERATOR_PERMISSIONS)
         for id in expected:

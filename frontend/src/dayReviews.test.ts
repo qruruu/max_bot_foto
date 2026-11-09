@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayNeedsReviewLink, dayPhotoFilters, dayPhotoLink, dayReviewDate } from './dayReviewData';
+import { dayCountLink, dayNeedsReviewLink, dayPhotoFilters, dayPhotoLink, dayReviewDate } from './dayReviewData';
 import { photoListBackLink } from './photoNavigation';
 
 describe('day verification navigation', () => {
@@ -19,6 +19,17 @@ describe('day verification navigation', () => {
     const link = new URL(dayNeedsReviewLink('2026-10-16'), 'http://test');
     expect(link.pathname).toBe('/review');
     expect(Object.fromEntries(link.searchParams)).toEqual({review_day: '2026-10-16', date_from: '2026-10-16', date_to: '2026-10-16', date_basis: 'photo', work_only: 'true', status: 'NEEDS_REVIEW', sort_order: 'desc'});
+  });
+  it('opens the exact closed and pending sets for the selected chat', () => {
+    const chat = '-793571819218061234';
+    for (const view of ['all', 'confirmed', 'pending', 'ai'] as const) {
+      const link = new URL(dayCountLink('2026-10-16', chat, view), 'http://test');
+      expect(link.pathname).toBe('/photos');
+      expect(link.searchParams.get('review_day')).toBe('2026-10-16');
+      expect(link.searchParams.get('chat_id')).toBe(chat);
+      expect(link.searchParams.get('day_review')).toBe(view === 'all' ? null : view === 'ai' ? 'pending' : view);
+      expect(link.searchParams.get('day_ai_only')).toBe(view === 'ai' ? 'true' : null);
+    }
   });
   it('falls back from invalid calendar dates in a saved URL', () => {
     for (const value of [null, '2026-99-99', '2026-02-30', 'bad']) expect(dayReviewDate(value, '2026-10-18')).toBe('2026-10-18');

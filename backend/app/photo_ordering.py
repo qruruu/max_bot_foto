@@ -10,12 +10,13 @@ def apply_sort_permission(filters, user):
     if has_permission(user, Permission.PHOTOS_SORT):
         return filters
     # Old links and direct requests must follow the same order as the operator's UI.
-    return filters.model_copy(update={"date_basis": "photo", "sort_order": "desc"})
+    return filters.model_copy(update={"date_basis": "photo", "sort_order": "asc"})
 
 
 def sort_keys(filters):
-    if filters.sort_order == "received_desc":
-        return [(Photo.received_at, "desc"), (Photo.id, "desc")]
+    if filters.sort_order in {"received_asc", "received_desc"}:
+        direction = filters.sort_order.removeprefix("received_")
+        return [(Photo.received_at, direction), (Photo.id, direction)]
     columns = [Photo.received_at, Photo.id]
     if filters.date_basis == "photo":
         columns = [Photo.photo_date, Photo.photo_time, *columns]

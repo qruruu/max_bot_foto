@@ -6,10 +6,10 @@ import type { Filters, PermissionDefinition, User } from './types';
 const operator = {role:'OPERATOR',permissions:['photos_view'],allowed_chat_ids:null} as User;
 
 describe('administrator-controlled photo sorting', () => {
-  it('overrides old links with photo time descending when permission is absent', () => {
+  it('overrides old links with photo time ascending when permission is absent', () => {
     const links: Filters[] = [{}, {date_basis:'received',sort_order:'asc'}, {sort_order:'received_desc'}, {date_basis:'photo',sort_order:'asc'}];
     for (const filters of links) {
-      expect(photoSortForUser(filters, operator)).toEqual({date_basis:'photo',sort_order:'desc'});
+      expect(photoSortForUser(filters, operator)).toEqual({date_basis:'photo',sort_order:'asc'});
     }
   });
 
@@ -18,13 +18,16 @@ describe('administrator-controlled photo sorting', () => {
       for (const date_basis of ['photo','received']) for (const sort_order of ['asc','desc']) {
         expect(photoSortForUser({date_basis,sort_order}, user)).toEqual({date_basis:'photo',sort_order});
       }
-      expect(photoSortForUser({},user)).toEqual({date_basis:'photo',sort_order:'desc'});
+      for (const sort_order of ['received_asc', 'received_desc']) {
+        expect(photoSortForUser({sort_order}, user)).toEqual({date_basis:'photo',sort_order});
+      }
+      expect(photoSortForUser({},user)).toEqual({date_basis:'photo',sort_order:'asc'});
     }
   });
 
   it('restores the fixed order immediately after revocation without changing other filters', () => {
     const filters = {date_basis:'received',sort_order:'asc',sender_id:'455424204',chat_id:'-79357181921806'};
-    expect({...filters,...photoSortForUser(filters,operator)}).toEqual({...filters,date_basis:'photo',sort_order:'desc'});
+    expect({...filters,...photoSortForUser(filters,operator)}).toEqual({...filters,date_basis:'photo',sort_order:'asc'});
   });
 
   it('enables photo viewing together with sorting and removes sorting with viewing', () => {

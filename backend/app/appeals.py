@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import appeal_reporting as reporting
+from app.appeal_archive import archived_condition, is_archived
 from app.appeal_catalog import organization_catalog, public_organizations
 from app.appeal_events import unanswered_comments
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS
@@ -25,6 +26,7 @@ from app.models import (
     AppealCaptureSession,
     AppealPhoto,
     AppealRateLimit,
+    Audit,
     CitizenAppeal,
     Organization,
     PlatformOwner,
@@ -62,6 +64,9 @@ class OwnerEdit(StrictModel):
     owner_note: str = Field(max_length=4000)
     expected_version: int = Field(ge=1)
     category: str | None = Field(default=None, max_length=60)
+    subject: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, min_length=1, max_length=4000)
+    due_date: date | None = None
 
 
 def require_appeal_access(user: CurrentUser):
@@ -229,7 +234,8 @@ def list_appeals(user: AppealReader, status: AppealStatus | None = None, page: i
                  operator: str = Query(default="", max_length=100), deadline: reporting.DeadlineFilter = 'any', source: reporting.SourceFilter = 'all'):
     with control_session() as db:
         conditions = appeal_conditions(user) + ([CitizenAppeal.status == status] if status else [])
-        conditions.append(CitizenAppeal.archived_at.is_not(None) if archived else CitizenAppeal.archived_at.is_(None))
+        personal = archived_condition(user)
+        conditions.append(personal if archived else ~personal)
         conditions.extend(appeal_search(q))
         conditions.extend(reporting.filters(category, operator, deadline, source=source))
         total = db.scalar(select(func.count()).select_from(CitizenAppeal).where(*conditions))
@@ -260,7 +266,7 @@ def appeal_statistics(user: AppealReader, start: date, end: date, category: str 
 def appeal_notifications(user: AppealReader):
     with control_session() as db:
         conditions = appeal_conditions(user)
-        conditions.append(CitizenAppeal.archived_at.is_(None))
+        conditions.append(~archived_condition(user))
         statuses = ("ASSIGNED", "IN_PROGRESS") if user.role == "OPERATOR" else ("NEW", "COMPLETED", "REJECTED", "CANCELLED")
         count = db.scalar(select(func.count()).select_from(CitizenAppeal).where(
             *conditions, CitizenAppeal.status.in_(statuses), CitizenAppeal.resolved_at.is_(None)))
@@ -272,12 +278,13 @@ def appeal_notifications(user: AppealReader):
 @organization_router.get("/{appeal_id}")
 def appeal_detail(appeal_id: int, user: AppealReader):
     with control_session() as db:
-        from app.appeal_workflow import cancelled_by_inspector, workflow_detail
+        from app.appeal_workflow import can_archive_appeal, cancelled_by_inspector, workflow_detail
         appeal = find_appeal(db, appeal_id, user=user)
-        return {**private_appeal_dict(appeal, user), "unanswered_comments": unanswered_comments(db, [appeal.id], user).get(appeal.id, 0),
+        return {**private_appeal_dict(appeal, user), "personal_archived": is_archived(db, appeal, user), "unanswered_comments": unanswered_comments(db, [appeal.id], user).get(appeal.id, 0),
                 **workflow_detail(db, appeal, private_url, private=True,
                     operator_id=user.id if user.role == "OPERATOR" else None),
                 "can_manage": user.role == "ADMIN_OPERATOR", "can_execute": user.role == "OPERATOR",
+                "can_archive": can_archive_appeal(db, appeal),
                 "cancelled_by_inspector": user.role == "ADMIN_OPERATOR" and cancelled_by_inspector(db, appeal),
                 "photos": [photo_dict(photo) for photo in db.scalars(
             select(AppealPhoto).where(AppealPhoto.appeal_id == appeal.id).order_by(AppealPhoto.position))]}
@@ -300,6 +307,27 @@ def appeal_work_types(appeal_id: int, user: AppealReader):
         raise HTTPException(403, "Назначать вид работ может администратор")
     with control_session() as db:
         return work_types_for_appeal(db, find_appeal(db, appeal_id, user=user))
+
+
+@owner_router.get("/{appeal_id}/changes")
+@organization_router.get("/{appeal_id}/changes")
+def appeal_changes(appeal_id: int, user: AppealReader):
+    with control_session() as db:
+        appeal = find_appeal(db, appeal_id, user=user)
+        rows = db.scalars(select(Audit).where(
+            Audit.object_type == "citizen_appeal", Audit.object_id == appeal.id,
+            Audit.action == "CITIZEN_APPEAL_UPDATED",
+        ).order_by(Audit.id.desc()).limit(100))
+        result = []
+        for row in rows:
+            before, after = row.old_value or {}, row.new_value or {}
+            changes = {key: [before[key], after[key]] for key in
+                       ("subject", "description", "status", "work_type_name", "owner_note", "due_date")
+                       if key in before and key in after and before[key] != after[key]
+                       and (key != "owner_note" or user.role == "ADMIN_OPERATOR")}
+            if changes:
+                result.append({"id": row.id, "at": row.at, "actor": after.get("actor_name"), "changes": changes})
+        return result
 
 
 @owner_router.patch("/{appeal_id}")
@@ -328,7 +356,8 @@ def edit_appeal(appeal_id: int, body: OwnerEdit, user: AppealReader):
             children = list(db.scalars(select(CitizenAppeal).where(CitizenAppeal.parent_id == appeal.id)))
             if any(not is_final(child) for child in children):
                 raise HTTPException(409, "Родительская задача остаётся в работе до завершения подзадач")
-        before = {"status": appeal.status, "owner_note": appeal.owner_note,
+        before = {"subject": appeal.subject, "description": appeal.description,
+                  "status": appeal.status, "owner_note": appeal.owner_note,
                   "category": appeal.category, "work_type_name": appeal.work_type_name}
         if body.category is not None and body.category != appeal.category:
             work = None
@@ -337,9 +366,26 @@ def edit_appeal(appeal_id: int, body: OwnerEdit, user: AppealReader):
             if body.category and work is None:
                 raise HTTPException(422, "Выберите вид работ из справочника организации обращения")
             appeal.category, appeal.work_type_name = body.category, work["name"] if work else ""
+        if body.subject is not None or body.description is not None:
+            if appeal_source(appeal) == "signal":
+                raise HTTPException(422, "Редактирование текста доступно для задач")
+            for key in ("subject", "description"):
+                value = getattr(body, key)
+                if value is not None:
+                    if not value.strip():
+                        raise HTTPException(422, "Заполните название и описание задачи")
+                    setattr(appeal, key, value.strip())
         appeal.status, appeal.owner_note = body.status, body.owner_note
         if before["status"] != appeal.status and appeal.status in {"NEW", "IN_REVIEW"}:
             appeal.resolved_at = None
+        deadline_task = None
+        if "due_date" in body.model_fields_set:
+            from app.appeal_workflow import (active_executor_task, effective_due_date, update_executor_due_date,
+                                             validate_executor_due_date)
+            deadline_task = active_executor_task(db, appeal)
+            validate_executor_due_date(body.due_date, effective_due_date(db, appeal))
+            before["due_date"] = deadline_task.due_date
+            update_executor_due_date(db, appeal, deadline_task, user, body.due_date, standalone=False)
         from app.appeal_events import record_event
         if before["status"] != appeal.status:
             record_event(db, appeal, "STATUS", user)
@@ -352,8 +398,10 @@ def edit_appeal(appeal_id: int, body: OwnerEdit, user: AppealReader):
         appeal.updated_at = now()
         organization = current_organization()
         audit(db, None if organization else user.id, "CITIZEN_APPEAL_UPDATED", "citizen_appeal", appeal.id, before,
-              {"status": appeal.status, "owner_note": appeal.owner_note,
+              {"subject": appeal.subject, "description": appeal.description,
+               "status": appeal.status, "owner_note": appeal.owner_note,
                "category": appeal.category, "work_type_name": appeal.work_type_name,
+               **({"due_date": deadline_task.due_date} if deadline_task else {}),
                "organization_id": appeal.organization_id,
                "actor_user_id": user.id, "actor_name": user.name,
                "actor_organization_id": organization.id if organization else None})

@@ -8,48 +8,51 @@ import { hasPermission } from './permissions';
 import { photoSortFilters, photoSortForUser, photoSortOptions, photoSortValue } from './photoSorting';
 import type { FilterCounts, Filters } from './types';
 import CountedSelect from './CountedSelect';
-import { PhotoFilterOptions, PhotoPeriod } from './PhotoFiltersLayout';
+import { PhotoPeriod } from './PhotoFiltersLayout';
 
-export default function FilterBar({filters, change, fixedStatus = false, hideWork = false, refreshKey = 0}: {
+export default function FilterBar({filters, change, fixedStatus = false, hideWork = false, refreshKey = 0, mapView = false}: {
   filters: Filters;
   change: (values: Filters) => void;
   fixedStatus?: boolean;
   hideWork?: boolean;
   refreshKey?: number;
+  mapView?: boolean;
 }) {
   const {meta, user} = useApp();
   const canSort = hasPermission(user, 'photos_sort');
   const sortValue = photoSortValue(photoSortForUser(filters, user));
   const key = query(filters);
+  const [countRequest, setCountRequest] = useState('');
+  const countKey = refreshKey + ':' + key;
+  const fetchCounts = !mapView || countRequest === countKey;
   const [loaded, setLoaded] = useState<{key: string; counts: FilterCounts} | null>(null);
   const [error, setError] = useState(''), [retry, setRetry] = useState(0);
-  const counts = loaded?.key === key ? loaded.counts : undefined;
+  const counts = fetchCounts && loaded?.key === key ? loaded.counts : undefined;
   useEffect(() => {
+    if (!fetchCounts) return;
     const controller = new AbortController();
     setLoaded(null); setError('');
-    api<FilterCounts>('/photos/filter-counts?' + key, 'GET', undefined, controller.signal)
+    api<FilterCounts>((mapView ? '/photos/map-filter-counts?' : '/photos/filter-counts?') + key, 'GET', undefined, controller.signal)
       .then(value => {if (!controller.signal.aborted) setLoaded({key, counts: value});})
       .catch(e => {if (!controller.signal.aborted) setError(e.message);});
     return () => controller.abort();
-  }, [key, refreshKey, retry]);
+  }, [key, refreshKey, retry, mapView, fetchCounts]);
   const label = (name: string, facet: keyof FilterCounts, value?: string) => filterOptionLabel(name, counts?.[facet], value);
   const workOptions = [{value:'',name:'Все виды работ',description:''}, {value:'NONE',name:'Не определён',description:''}, ...meta.work_types.map(work => ({value:work.code,name:work.name,description:work.description||''}))]
     .map(option => ({value:option.value,name:option.name,description:option.description,label:label(option.name,'work_type',option.value||undefined),
       count:counts ? option.value ? counts.work_type.values[option.value]??0 : counts.work_type.total : undefined}));
   const senders = senderFilterOptions(counts?.sender_id, filters.sender_id);
 
-  const filterCount = [filters.district_id, filters.chat_id, !hideWork && filters.work_type,
-    !fixedStatus && (filters.status || filters.accepted_only), filters.operator_id, filters.sender_id,
-    sortValue === 'photo_asc', filters.day_review].filter(Boolean).length;
   return <div className="filter-panel photo-filters">
     <PhotoPeriod today={meta.today} from={filters.date_from} to={filters.date_to} change={change}>
+      <div className="photo-period-dates">
+      <label>Дата от<input type="date" value={filters.date_from || ''} onChange={e => change({date_from: e.target.value})}/></label>
+      <label>Дата до<input type="date" value={filters.date_to || ''} onChange={e => change({date_to: e.target.value})}/></label>
+      </div>
       {hasPermission(user, 'reports_export') && <a className="button export" href={apiUrl('/export.xlsx?' + key)}
         aria-label="Скачать Excel" title="Скачать Excel"><ArrowDownToLine size={16}/><span>Скачать Excel</span></a>}
     </PhotoPeriod>
-    <PhotoFilterOptions count={filterCount}>
-    <div className="filters" aria-busy={!counts && !error}>
-      <label>Дата от<input type="date" value={filters.date_from || ''} onChange={e => change({date_from: e.target.value})}/></label>
-      <label>Дата до<input type="date" value={filters.date_to || ''} onChange={e => change({date_to: e.target.value})}/></label>
+    <div className="filters" aria-busy={fetchCounts && !counts && !error}>
       <label>Микрорайон<select aria-label="Микрорайон" value={filters.district_id || ''} onChange={e => change({district_id: e.target.value})}>
         <option value="">{label('Все микрорайоны', 'district_id')}</option>
         <option value="0">{label('Не определён', 'district_id', '0')}</option>
@@ -74,6 +77,7 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
       <label>Отправитель<select aria-label="Отправитель" value={filters.sender_id || ''} onChange={e => change({sender_id: e.target.value})}>
         <option value="">{label('Все отправители', 'sender_id')}</option>
         <option value="0">{label('Не указан', 'sender_id', '0')}</option>
+        {filters.sender_id && filters.sender_id !== '0' && !senders.some(sender => sender.value === filters.sender_id) && <option value={filters.sender_id}>Отправитель №{filters.sender_id}</option>}
         {senders.map(sender => <option key={sender.value} value={sender.value}>{label(sender.name, 'sender_id', sender.value)}</option>)}
       </select></label>
       {canSort && <label>Сортировка<select aria-label="Сортировка" value={sortValue} onChange={e => change(photoSortFilters(e.target.value))}>
@@ -84,7 +88,7 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
       </select></label>}
     </div>
 
-    {error && <p className="hint filter-counts-error" role="status">Не удалось обновить количество фото. <button type="button" className="text-button" onClick={() => setRetry(value => value + 1)}>Повторить</button></p>}
-    </PhotoFilterOptions>
+    {mapView && !fetchCounts && <button type="button" onClick={() => setCountRequest(countKey)}>Загрузить количества и отправителей</button>}
+    {fetchCounts && error && <p className="hint filter-counts-error" role="status">Не удалось обновить количество фото. <button type="button" className="text-button" onClick={() => setRetry(value => value + 1)}>Повторить</button></p>}
   </div>;
 }

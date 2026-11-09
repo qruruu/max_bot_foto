@@ -16,6 +16,7 @@ from sqlalchemy import delete, func, insert, literal, select, text, update
 from sqlalchemy.orm import Session
 
 from app import appeal_reporting as reporting
+from app.appeal_archive import ArchiveInput, archived_condition, is_archived, set_archived
 from app.appeal_events import (
     CommentInput,
     CommentReadInput,
@@ -557,7 +558,7 @@ def find_inspector_appeal(db, organization_id, appeal_id, *, lock=False):
 def all_appeal_notifications(db: Db, user: InspectorUser):
     allowed = select(InspectionGrant.organization_id).join(Organization, Organization.id == InspectionGrant.organization_id).where(
         InspectionGrant.inspector_id == user.id, Organization.status == "ACTIVE")
-    condition = (CitizenAppeal.organization_id.in_(allowed) & CitizenAppeal.archived_at.is_(None)
+    condition = (CitizenAppeal.organization_id.in_(allowed) & ~archived_condition(user, inspector=True)
                  & CitizenAppeal.admin_submission_id.is_(None))
     latest = db.scalar(select(CitizenAppeal).where(condition, CitizenAppeal.status == "NEW")
                        .order_by(CitizenAppeal.id.desc()).limit(1))
@@ -644,7 +645,8 @@ def appeals(organization_id: UUID, db: Db, user: InspectorUser, page: int = Quer
     authorized_organization(db, user, organization_id)
     scope = inspector_appeal_scope(organization_id)
     condition = scope
-    condition = condition & (CitizenAppeal.archived_at.is_not(None) if archived else CitizenAppeal.archived_at.is_(None))
+    personal = archived_condition(user, inspector=True)
+    condition = condition & (personal if archived else ~personal)
     if status:
         condition = condition & (CitizenAppeal.status == status)
     for match in appeal_search(q):
@@ -694,7 +696,7 @@ def restricted_appeal(db, appeal):
 @router.get("/organizations/{organization_id}/appeals/notifications")
 def appeal_notifications(organization_id: UUID, db: Db, user: InspectorUser):
     authorized_organization(db, user, organization_id)
-    condition = inspector_appeal_scope(organization_id) & CitizenAppeal.archived_at.is_(None)
+    condition = inspector_appeal_scope(organization_id) & ~archived_condition(user, inspector=True)
     return {"new_count": db.scalar(select(func.count()).select_from(CitizenAppeal).where(
                 condition, CitizenAppeal.status == "NEW")),
             "latest_id": db.scalar(select(func.max(CitizenAppeal.id)).where(condition)) or 0}
@@ -747,10 +749,21 @@ def appeal_attachment(organization_id: UUID, appeal_id: int, photo_id: UUID, db:
 
 @router.get("/organizations/{organization_id}/appeals/{appeal_id}")
 def appeal_detail(organization_id: UUID, appeal_id: int, db: Db, user: InspectorUser):
+    from app.appeal_workflow import can_archive_appeal
     authorized_organization(db, user, organization_id)
     appeal = find_inspector_appeal(db, organization_id, appeal_id)
-    return {**restricted_appeal(db, appeal),
+    return {**restricted_appeal(db, appeal), "personal_archived": is_archived(db, appeal, user, inspector=True),
+            "can_archive": can_archive_appeal(db, appeal),
             "unanswered_comments": unanswered_comments(db, [appeal.id], user, inspector=True).get(appeal.id, 0)}
+
+
+@router.post("/organizations/{organization_id}/appeals/{appeal_id}/archive")
+def inspector_archive_appeal(organization_id: UUID, appeal_id: int, body: ArchiveInput, db: Db, user: InspectorUser):
+    authorized_organization(db, user, organization_id)
+    appeal = find_inspector_appeal(db, organization_id, appeal_id, lock=True)
+    from app.appeal_workflow import validate_archive
+    validate_archive(db, appeal, body.archived)
+    return set_archived(db, appeal, user, body.archived, inspector=True)
 
 
 @router.post("/organizations/{organization_id}/appeals/{appeal_id}/task-status")

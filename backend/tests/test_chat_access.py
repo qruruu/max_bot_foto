@@ -186,10 +186,10 @@ def test_direct_access_and_mutations_to_other_chats_are_denied(access_api, metho
 
 def test_next_photo_and_list_anchor_cannot_cross_the_boundary(access_api):
     client, _ = access_api
-    assert client.get("/api/photos/50/next").json() == {"id":10}
-    assert client.get("/api/photos/10/next").json() == {"id":None}
-    allowed = client.get("/api/photos?anchor_id=10&page_size=1").json()
-    assert allowed["page"] == 2 and allowed["focus_id"] == 10
+    assert client.get("/api/photos/10/next").json() == {"id":50}
+    assert client.get("/api/photos/50/next").json() == {"id":None}
+    allowed = client.get("/api/photos?anchor_id=50&page_size=1").json()
+    assert allowed["page"] == 2 and allowed["focus_id"] == 50
     data = client.get("/api/photos?anchor_id=20&page_size=1").json()
     assert data["page"] == 1 and data["focus_id"] is None
 
@@ -203,8 +203,8 @@ def test_save_and_next_finishes_the_review_list_before_revisiting_unresolved_pho
             photo.latitude = photo.longitude = photo.work_type = None
         db.commit()
     query = "status=NEEDS_REVIEW&chat_id=100"
-    assert [p["id"] for p in client.get('/api/photos?'+query).json()["items"]] == [50,30,10]
-    for id, expected in [(50,30),(30,10),(10,50)]:
+    assert [p["id"] for p in client.get('/api/photos?'+query).json()["items"]] == [10,30,50]
+    for id, expected in [(10,30),(30,50),(50,10)]:
         # The UI resolves navigation before saving. An uncertain category stays
         # unresolved, but must not pull the next click back to the first row.
         assert client.get(f'/api/photos/{id}/next?'+query).json() == {"id":expected}

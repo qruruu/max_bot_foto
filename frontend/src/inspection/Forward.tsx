@@ -70,13 +70,17 @@ async function personalRecipients(base: string, messages: PersonalMessage[], pho
   return lists.flat().sort((a, b) => (b.recent || '').localeCompare(a.recent || '') || a.name.localeCompare(b.name, 'ru'));
 }
 
-export default function InspectionForward({base: endpoint, photo, message, operatorMessage: operator, messages, appeal, unified = false, onClose, onSent}: {
-  base?: string; photo?: ForwardPhoto; message?: Message; operatorMessage?: OperatorMessage; messages?: PersonalMessage[];
-  appeal?: AppealForward; unified?: boolean; onClose: () => void; onSent: (peer: Destination, count?: number) => void;
+export default function InspectionForward({base: endpoint, photo, photos, message, operatorMessage: operator, messages, appeal, unified = false, onClose, onSent, onTask}: {
+  base?: string; photo?: ForwardPhoto; photos?: ForwardPhoto[]; message?: Message; operatorMessage?: OperatorMessage; messages?: PersonalMessage[];
+  appeal?: AppealForward; unified?: boolean; onTask?: () => void; onClose: () => void; onSent: (peer: Destination, count?: number) => void;
 }) {
   const base = endpoint || (appeal?.personal ? '/inspection-admin' : '/inspection');
   const personal = messages || (message ? [message] : operator ? [operator] : []);
   const sources = appeal?.messages || personal;
+  const photoBatch = photos || (photo ? [photo] : []);
+  const first = photoBatch[0];
+  const sourceCount = sources.length || photoBatch.length || 1;
+  const photoKey = photoBatch.map(item => item.id).join(',');
   const [contacts, setContacts] = useState<Recipient[]>([]), [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<Recipient[]>([]);
   const [search, setSearch] = useState(''), [remoteSearch, setRemoteSearch] = useState('');
@@ -100,12 +104,13 @@ export default function InspectionForward({base: endpoint, photo, message, opera
     const controller = new AbortController();
     setLoading(true); setError('');
     const request = appeal ? taskRecipients(base, appeal, remoteSearch, controller.signal)
-      : personalRecipients(base, personal, photo, unified, controller.signal);
+      : Promise.all((photos || [photo]).map(item => personalRecipients(base, personal, item, unified, controller.signal)))
+        .then(([firstList, ...others]) => firstList.filter(item => others.every(list => list.some(peer => peer.key === item.key))));
     request.then(value => {if (!controller.signal.aborted) setContacts(value);})
       .catch(error => {if (!controller.signal.aborted) setError(error.message);})
       .finally(() => {if (!controller.signal.aborted) setLoading(false);});
     return () => controller.abort();
-  }, [base, sourceKey, photo?.id, photo?.organization_id, appeal?.endpoint, appeal?.channel, appeal?.personal, remoteSearch, unified]);
+  }, [base, sourceKey, photoKey, photo?.organization_id, appeal?.endpoint, appeal?.channel, appeal?.personal, remoteSearch, unified]);
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null, overflow = document.body.style.overflow;
@@ -116,22 +121,22 @@ export default function InspectionForward({base: endpoint, photo, message, opera
 
   function toggle(recipient: Recipient) {
     setSelection(current => current.some(item => item.key === recipient.key) ? current.filter(item => item.key !== recipient.key)
-      : photo || (appeal && !appeal.personal) ? [recipient] : [...current, recipient]);
+      : first || (appeal && !appeal.personal) ? [recipient] : [...current, recipient]);
   }
   async function send(event: FormEvent) {
     event.preventDefault();
     if (!selection.length || pending.current || searching || loading) return;
     const text = body.trim();
     const signature = JSON.stringify([selection.map(item => item.key), text]);
-    const count = selection.length * (sources.length || 1);
+    const count = selection.length * sourceCount;
     if (attempt.current?.signature !== signature) attempt.current = {signature, completed: 0, ids: Array.from({length: count}, () => crypto.randomUUID())};
     const current = attempt.current;
     pending.current = true; setBusy(true); setError('');
     if (count > 1) setLocked(true);
     try {
       for (let index = current.completed; index < count; index++) {
-        const peer = selection[Math.floor(index / (sources.length || 1))];
-        const sourceIndex = index % (sources.length || 1), source = sources[sourceIndex];
+        const peer = selection[Math.floor(index / sourceCount)];
+        const sourceIndex = index % sourceCount, source = sources[sourceIndex], attachment = photoBatch[sourceIndex];
         const operatorTarget = peer.kind === 'staff' && /^\d+$/.test(peer.key);
         const taskTarget = !!appeal && peer.kind === 'task';
         const path = taskTarget ? appeal.endpoint.slice(0, appeal.endpoint.lastIndexOf('/')) + '/' + peer.key.slice(5) + '/comments'
@@ -139,7 +144,7 @@ export default function InspectionForward({base: endpoint, photo, message, opera
         await api(path, 'POST', {client_id: current.ids[index],
           ...(source ? {[taskTarget ? 'forward_message_id' : appeal ? 'forward_task_message_id' : forwardField(operatorMessage(personal[sourceIndex]), operatorTarget)]: source.id,
             ...(taskTarget && appeal.channel ? {channel: appeal.channel} : {})}
-            : {body: text, photo_id: photo!.id, ...(!operatorTarget && photo!.organization_id ? {photo_organization_id: photo!.organization_id} : {})})});
+            : {body: text, photo_id: attachment.id, ...(!operatorTarget && attachment.organization_id ? {photo_organization_id: attachment.organization_id} : {})})});
         current.completed++;
         setProgress(current.completed);
       }
@@ -154,10 +159,10 @@ export default function InspectionForward({base: endpoint, photo, message, opera
     }
   }
 
-  const title = photo ? 'Переслать фото' : sources.length === 1 ? 'Переслать сообщение' : 'Переслать сообщения';
+  const title = first ? 'Переслать фото' : sources.length === 1 ? 'Переслать сообщение' : 'Переслать сообщения';
   const source = sources[0];
   const firstPhoto = personal[0]?.photo;
-  const total = selection.length * (sources.length || 1);
+  const total = selection.length * sourceCount;
   return <div className="modal-backdrop" onKeyDown={event => {
     if (event.key === 'Escape' && !pending.current) {event.stopPropagation(); onClose();}
     if (event.key !== 'Tab') return;
@@ -166,7 +171,8 @@ export default function InspectionForward({base: endpoint, photo, message, opera
     if (event.shiftKey && document.activeElement === first) {event.preventDefault(); last?.focus();}
     if (!event.shiftKey && document.activeElement === last) {event.preventDefault(); first?.focus();}
   }}><form ref={form} className="modal forward-photo-modal" role="dialog" aria-modal="true" aria-labelledby="inspection-forward-title" onSubmit={send}>
-    <div className="section-title"><h2 id="inspection-forward-title">{title}</h2><button type="button" aria-label="Закрыть пересылку" disabled={busy} onClick={onClose}><X size={20}/></button></div>
+    <div className="section-title"><h2 id="inspection-forward-title">{onTask ? 'Переслать в чат' : title}</h2><button type="button" aria-label="Закрыть пересылку" disabled={busy} onClick={onClose}><X size={20}/></button></div>
+    {photos && <p>Выбрано фотографий: {photos.length}</p>}
     {photo && <div className="forward-photo-summary">{photo.preview_url ? <img src={photo.preview_url} alt={'Фотография №' + photo.id}/> : <Camera size={26}/>}<strong>Фотография #{photo.id}</strong></div>}
     {source && <div className="inspection-forward-summary">
       {sources.length > 1 ? <strong>Выбрано сообщений: {sources.length}</strong> : <>
@@ -175,13 +181,14 @@ export default function InspectionForward({base: endpoint, photo, message, opera
         {source.body && <p>{source.body}</p>}
       </>}
     </div>}
+    {onTask && <button type="button" disabled={busy || locked} onClick={onTask}>Переслать в задачу</button>}
     <ErrorBox error={error}/>
     {progress > 0 && total > 1 && <p role="status" className="hint">Отправлено {progress} из {total}</p>}
     <label className="forward-search"><Search size={18} aria-hidden="true"/>
       <input type="search" aria-label={appeal && !appeal.personal ? 'Найти задачу' : 'Найти получателя'} value={search} disabled={busy || locked}
         maxLength={200} placeholder={appeal?.personal ? 'Имя получателя или номер задачи' : appeal ? 'Номер или название задачи' : 'Найти чат по имени или роли'}
         onChange={event => setSearch(event.target.value)}/></label>
-    {(!appeal || appeal.personal) && !photo && <div className="forward-filters" role="group" aria-label="Список чатов">
+    {(!appeal || appeal.personal) && !first && <div className="forward-filters" role="group" aria-label="Список чатов">
       <button type="button" aria-pressed={filter === 'all'} disabled={busy || locked} onClick={() => setFilter('all')}>Все</button>
       <button type="button" aria-pressed={filter === 'recent'} disabled={busy || locked} onClick={() => setFilter('recent')}>Недавние</button>
       {(unified || appeal?.personal) && <>
@@ -201,9 +208,9 @@ export default function InspectionForward({base: endpoint, photo, message, opera
       })}
       {!searching && !loading && !visible.length && !error && <p>{term ? 'По этому запросу ничего не найдено.' : appeal ? 'Нет доступных задач.' : 'В этом списке пока нет чатов.'}</p>}
     </div>
-    {photo && unified && !loading && !error && !contacts.some(item => item.kind === 'inspector') &&
+    {first && unified && !loading && !error && !contacts.some(item => item.kind === 'inspector') &&
       <p className="hint">Фото можно отправить проверяющему с доступом к организации после закрытия дня.</p>}
-    {photo && <label>Комментарий (необязательно)<textarea rows={3} maxLength={4000} disabled={busy} value={body} onChange={event => setBody(event.target.value)}/></label>}
+    {first && <label>Комментарий (необязательно)<textarea rows={3} maxLength={4000} disabled={busy || locked} value={body} onChange={event => setBody(event.target.value)}/></label>}
     {selection.length > 0 && <div className="forward-selected" aria-label="Выбранные получатели">{selection.map(peer => <button key={peer.key} type="button"
       disabled={busy || locked} aria-label={'Убрать из получателей: ' + peer.name} onClick={() => toggle(peer)}>{peer.name}<X size={14}/></button>)}</div>}
     <button className="primary" disabled={busy || !selection.length || loading || searching}><Send size={17}/>{busy ? 'Отправляем…' : locked ? 'Повторить отправку' : selection.length > 1 ? 'Переслать · ' + selection.length : 'Переслать'}</button>

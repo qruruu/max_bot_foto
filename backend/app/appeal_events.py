@@ -2,7 +2,7 @@
 
 import base64
 import binascii
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -25,6 +25,8 @@ class CommentInput(StrictModel):
     reply_to_id: int | None = Field(default=None, gt=0)
     forward_message_id: int | None = Field(default=None, gt=0)
     screenshots: list[str] = Field(default_factory=list, max_length=MAX_PHOTOS)
+
+    photo_ids: list[Annotated[int, Field(gt=0)]] = Field(default_factory=list, max_length=MAX_PHOTOS)
 
     @field_validator("comment")
     @classmethod
@@ -134,7 +136,7 @@ def mark_comments_read(db, appeal, body, user, *, inspector=False):
     return {"ok": True}
 
 
-def add_comment(db, appeal, body, user, *, inspector=False):
+def add_comment(db, appeal, body, user, *, inspector=False, photos_db=None):
     if inspector and not appeal.submitted_by_inspector_id:
         raise HTTPException(403, "Обращения граждан доступны проверяющему только для просмотра")
     channel = resolve_channel(appeal, user=user, inspector=inspector, channel=body.channel)
@@ -151,7 +153,7 @@ def add_comment(db, appeal, body, user, *, inspector=False):
     screenshots, reply, forwarded_name = [], None, None
     content = body.comment
     if body.forward_message_id:
-        if body.comment or body.screenshots or body.reply_to_id:
+        if body.comment or body.screenshots or body.photo_ids or body.reply_to_id:
             raise HTTPException(422, "Пересылаемое сообщение нельзя изменять")
         source_appeal, source = forward_source(db, appeal, body.forward_message_id, user, inspector=inspector, channel=channel)
         if source_appeal.id == appeal.id:
@@ -159,7 +161,7 @@ def add_comment(db, appeal, body, user, *, inspector=False):
         content, forwarded_name = source.comment, source.forwarded_name or source.actor_name
         screenshots = [{"name": file.name, "media_type": file.media_type, "content": file.content}
                        for file in db.scalars(select(AppealFile).where(AppealFile.event_id == source.id))]
-    elif not body.comment and not body.screenshots:
+    elif not body.comment and not body.screenshots and not body.photo_ids:
         raise HTTPException(422, "Напишите сообщение или приложите скриншот")
     if body.reply_to_id:
         source = db.scalar(select(AppealEvent).where(AppealEvent.id == body.reply_to_id,
@@ -178,6 +180,21 @@ def add_comment(db, appeal, body, user, *, inspector=False):
         except (ValueError, binascii.Error) as exc:
             raise HTTPException(422, "Не удалось прочитать скриншот") from exc
         screenshots.append(prepare_screenshot(content_bytes))
+    if body.photo_ids:
+        from app.media import media_path
+        from app.operator_chats import visible_photos
+
+        ids = list(dict.fromkeys(body.photo_ids))
+        if photos_db is None or len(visible_photos(photos_db, user, ids)) != len(ids):
+            raise HTTPException(404, "Одна из фотографий недоступна")
+        if len(ids) + len(screenshots) > MAX_PHOTOS:
+            raise HTTPException(422, "Слишком много вложений")
+        for photo_id in ids:
+            try:
+                image = prepare_screenshot(media_path(photo_id, preview=True).read_bytes())
+            except FileNotFoundError as exc:
+                raise HTTPException(404, f"Превью фото №{photo_id} недоступно") from exc
+            screenshots.append({**image, "name": f"photo-{photo_id}.jpg"})
     operator_id = None
     if channel == "executor":
         from app.appeal_workflow import latest_task

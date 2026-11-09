@@ -17,6 +17,7 @@ const appeal: WorkflowAppeal = {id: 42, version: 3, status: 'COMPLETED', is_publ
     photos: [{id: 'photo', url: '/result', preview_url: '/preview'}]}};
 beforeEach(() => {
   vi.clearAllMocks(); vi.mocked(api).mockResolvedValue([]);
+  HTMLDialogElement.prototype.showModal = function () {this.setAttribute('open', '');};
   vi.mocked(galleryPhoto).mockResolvedValue({id: 'prepared', blob: new Blob(['prepared'], {type: 'image/jpeg'}), preview: new Blob()});
   (globalThis as {IS_REACT_ACT_ENVIRONMENT?: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
   element = document.createElement('div'); document.body.append(element); root = createRoot(element);
@@ -28,37 +29,27 @@ const click = async (button: HTMLButtonElement) => {await act(async () => {butto
 
 it('requires a separate confirmation, allows editing again, and sends selected evidence only after confirming', async () => {
   await mount();
+  expect(element.querySelector('dialog')).toBeNull();
+  await click(byText('Закрыть обращение'));
+  await click(element.querySelector<HTMLButtonElement>('dialog [aria-label="Прикрепить фото"]')!);
+  await click(byText('Фото исполнителя'));
   const answer = [...element.querySelectorAll('textarea')].at(-1)!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(answer, 'Урна очищена');
     answer.dispatchEvent(new Event('input', {bubbles: true}));
     element.querySelector<HTMLInputElement>('input[type=checkbox]')!.click(); await tick();
   });
-  await click(byText('Закрыть и опубликовать'));
-  expect(element.querySelector('[role=alertdialog]')).not.toBeNull();
+  expect(element.querySelector('dialog[open]')).not.toBeNull();
   expect(vi.mocked(api).mock.calls.filter(([, method]) => method === 'POST')).toHaveLength(0);
-  await click(byText('Продолжить редактирование'));
-  expect(element.querySelector('[role=alertdialog]')).toBeNull(); expect(answer.value).toBe('Урна очищена');
-  await click(byText('Закрыть и опубликовать')); await click(byText('Подтвердить закрытие'));
+  await click(byText('Отмена'));
+  expect(element.querySelector('dialog')).toBeNull();
+  await click(byText('Закрыть обращение'));
+  expect(element.querySelector('dialog textarea')?.textContent).toBe('Урна очищена');
+  await click(byText('Подтвердить закрытие'));
   const call = vi.mocked(api).mock.calls.find(([, method]) => method === 'POST')!;
   expect(call[0]).toBe('/appeals/42/close');
   expect(JSON.parse((call[2] as FormData).get('metadata') as string)).toMatchObject({comment: 'Урна очищена', operator_photo_ids: ['photo'], expected_version: 3});
   expect(changed).toHaveBeenCalledTimes(1);
-});
-
-it('archives a closed complaint and restores one already archived', async () => {
-  await mount({...appeal, status: 'RESOLVED'}); await click(byText('Перенести в архив'));
-  expect(api).toHaveBeenCalledWith('/appeals/42/archive', 'POST', {archived: true, expected_version: 3});
-  await mount({...appeal, status: 'RESOLVED', archived_at: new Date().toISOString()}); await click(byText('Вернуть из архива'));
-  expect(api).toHaveBeenCalledWith('/appeals/42/archive', 'POST', {archived: false, expected_version: 3});
-});
-
-it('offers archive and restore for spam without publishing it', async () => {
-  await mount({...appeal, status: 'SPAM'}); await click(byText('Перенести в архив'));
-  expect(api).toHaveBeenCalledWith('/appeals/42/archive', 'POST', {archived: true, expected_version: 3});
-  expect(element.textContent).toContain('На стене «Сигнала» он не появится');
-  await mount({...appeal, status: 'SPAM', archived_at: new Date().toISOString()}); await click(byText('Вернуть из архива'));
-  expect(api).toHaveBeenCalledWith('/appeals/42/archive', 'POST', {archived: false, expected_version: 3});
 });
 
 it('lets the operator return an active task to assigned and offers cancellation or completion with evidence', async () => {
@@ -75,6 +66,7 @@ it.each(['operator', 'admin'])('prepares selected phone photos before submitting
   if (role === 'operator') await act(async () => {
     const select = element.querySelector('select')!; select.value = 'COMPLETED'; select.dispatchEvent(new Event('change', {bubbles: true}));
   });
+  if (role === 'admin') await click(byText('Закрыть обращение'));
   const photo = new File(['phone-original'], 'IMG_3557.jpeg', {type: 'image/jpeg'});
   await act(async () => {
     const textarea = [...element.querySelectorAll('textarea')].at(-1)!;
@@ -84,7 +76,7 @@ it.each(['operator', 'admin'])('prepares selected phone photos before submitting
     Object.defineProperty(input, 'files', {value: [photo]}); input.dispatchEvent(new Event('change', {bubbles: true}));
   });
   expect(element.textContent).toContain('по 25 МБ');
-  if (role === 'admin') {await click(byText('Закрыть и опубликовать')); await click(byText('Подтвердить закрытие'));}
+  if (role === 'admin') await click(byText('Подтвердить закрытие'));
   else await click(byText('Передать результат'));
   expect(galleryPhoto).toHaveBeenCalledWith(photo);
   const call = vi.mocked(api).mock.calls.find(([, method]) => method === 'POST')!;
@@ -126,64 +118,72 @@ it('allows a checking inspector to mark completed or cancelled without exposing 
 
 it.each(['RESOLVED', 'DECLINED', 'CANCELLED', 'REJECTED'])('confirms the administrator decision %s with a required answer and optional photos', async status => {
   await mount({...appeal, task: status !== 'RESOLVED' ? {...appeal.task!, status: 'ASSIGNED'} : null});
-  const decision = [...element.querySelectorAll('select')].find(select => [...select.options].some(option => option.value === 'DECLINED'))!;
+  await click(byText('Закрыть обращение'));
+  const decision = element.querySelector<HTMLSelectElement>('dialog select')!;
   await act(async () => {decision.value = status; decision.dispatchEvent(new Event('change', {bubbles: true}));});
-  const text = {
-    RESOLVED: ['Закрыть и опубликовать', 'Подтвердить закрытие'], DECLINED: ['Отказать и опубликовать', 'Подтвердить отказ'],
-    CANCELLED: ['Отменить и опубликовать', 'Подтвердить отмену'], REJECTED: ['Отклонить и опубликовать', 'Подтвердить отклонение'],
+  const confirm = {
+    RESOLVED: 'Подтвердить закрытие', DECLINED: 'Подтвердить отказ',
+    CANCELLED: 'Подтвердить отмену', REJECTED: 'Подтвердить отклонение',
   }[status]!;
-  const action = () => byText(text[0]);
-  expect(action().disabled).toBe(true);
+  expect(byText(confirm).disabled).toBe(true);
   await act(async () => {
-    const textarea = [...element.querySelectorAll('textarea')].at(-1)!;
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Ответ организации'); textarea.dispatchEvent(new Event('input', {bubbles: true}));
+    const textarea = element.querySelector<HTMLTextAreaElement>('dialog textarea')!;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Ответ организации');
+    textarea.dispatchEvent(new Event('input', {bubbles: true}));
   });
-  expect(action().disabled).toBe(false); await click(action());
-  expect(element.querySelector('[role=alertdialog]')?.textContent).toContain('Фотографий результата: 0');
-  expect(vi.mocked(api).mock.calls.filter(([, method]) => method === 'POST')).toHaveLength(0);
-  await click(byText(text[1]));
+  expect(byText(confirm).disabled).toBe(false);
+  await click(byText(confirm));
   const call = vi.mocked(api).mock.calls.find(([, method]) => method === 'POST')!;
   expect(call[0]).toBe('/appeals/42/close');
   expect(JSON.parse((call[2] as FormData).get('metadata') as string)).toMatchObject({status, comment: 'Ответ организации', operator_photo_ids: []});
   expect((call[2] as FormData).getAll('photos')).toHaveLength(0);
 });
 
-it.each(['CANCELLED', 'REJECTED'])('keeps final decision %s visible and offers archive instead of assignment', async status => {
+it.each(['CANCELLED', 'REJECTED'])('keeps final decision %s visible after closing', async status => {
   await mount({...appeal, status, is_final: true, resolved_at: new Date().toISOString(), public_response: 'Причина завершения', response_photos: []});
   expect(element.textContent).toContain('Причина завершения');
   expect(element.textContent).not.toContain('Решение по обращению');
   expect(element.textContent).not.toContain('Перенаправить задачу');
   expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith('/operators'))).toBe(false);
-  await click(byText('Перенести в архив'));
-  expect(api).toHaveBeenCalledWith('/appeals/42/archive', 'POST', {archived: true, expected_version: 3});
-  await mount({...appeal, status, is_final: true, archived_at: new Date().toISOString()});
-  await click(byText('Вернуть из архива'));
-  expect(api).toHaveBeenCalledWith('/appeals/42/archive', 'POST', {archived: false, expected_version: 3});
+
 });
 
 it.each(['CANCELLED', 'REJECTED'])('allows the administrator to finalize task result %s without changing its name', async status => {
   await mount({...appeal, status, is_final: false, resolved_at: null, task: {...appeal.task!, status}});
-  expect(element.textContent).toContain('Решение по обращению');
-  expect(element.textContent).not.toContain('Перенести в архив');
+  await click(byText('Закрыть обращение'));
   const decision = [...element.querySelectorAll('select')].find(select => [...select.options].some(option => option.value === 'DECLINED'))!;
   expect([...decision.options].map(option => option.text)).toEqual(['Закрыть обращение', 'Отказ', 'Задача отменена', 'Исполнитель отклонил']);
 });
 
-it('offers a deadline only after assigning an active task, saves and clears it with version checks', async () => {
-  await mount({...appeal,status:'NEW',task:null});
-  expect(element.querySelector('input[type=date]')).toBeNull();
-  await mount({...appeal,status:'ASSIGNED',task:{...appeal.task!,status:'ASSIGNED',due_date:null}});
-  const field = element.querySelector<HTMLInputElement>('input[type=date]')!;
-  await act(async()=>{
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(field,'2030-12-15');
-    field.dispatchEvent(new Event('input',{bubbles:true}));
+it('offers redirection in the executor tab only when both conversations exist', async () => {
+  await act(async () => {
+    root.render(<AppealActions appeal={appeal} endpoint="/appeals" readOnly={false} changed={changed}
+      inspectorDiscussion={<div>Переписка проверяющего</div>} discussion={<div>Переписка исполнителя</div>}/>);
+    await tick();
   });
-  await act(async()=>{element.querySelector('.appeal-deadline-form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();});
-  expect(api).toHaveBeenCalledWith('/appeals/42/deadline','POST',{due_date:'2030-12-15',expected_version:3});
-  await mount({...appeal,status:'ASSIGNED',version:4,task:{...appeal.task!,status:'ASSIGNED',due_date:'2030-12-15'}});
-  await click(byText('Убрать дату'));
-  await act(async()=>{element.querySelector('.appeal-deadline-form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();});
-  expect(api).toHaveBeenCalledWith('/appeals/42/deadline','POST',{due_date:null,expected_version:4});
+  const visible = element.querySelector('.appeal-workflow > div:not([hidden])')!;
+  const executor = element.querySelector('.appeal-workflow > div[hidden]')!;
+  expect(visible.textContent).toContain('Закрыть обращение');
+  expect(visible.textContent).not.toContain('Перенаправить задачу');
+  expect(executor.textContent).toContain('Перенаправить задачу');
+});
+
+it('saves the deadline through reassignment and collapses the form after success', async () => {
+  vi.mocked(api).mockResolvedValue([{id: 7, name: 'Исполнитель'}]);
+  await mount({...appeal, status: 'ASSIGNED', task: {...appeal.task!, status: 'ASSIGNED', due_date: null}});
+  expect(element.textContent).not.toContain('Изменить срок');
+  const redirect = byText('Перенаправить задачу');
+  expect(redirect.parentElement).toBe(byText('Закрыть обращение').parentElement);
+  await click(redirect);
+  const editor = element.querySelector<HTMLDialogElement>('dialog')!;
+  const field = editor.querySelector<HTMLInputElement>('input[type=date]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, '2030-12-15');
+    field.dispatchEvent(new Event('input', {bubbles: true}));
+  });
+  await click(byText('Назначить'));
+  expect(api).toHaveBeenCalledWith('/appeals/42/assign', 'POST', {operator_id: 7, instruction: '', due_date: '2030-12-15', expected_version: 3});
+  expect(element.querySelector('dialog')).toBeNull();
 });
 it.each(['operator','inspector'])('shows deadlines to %s without granting deadline editing',async role=>{
   await mount({...appeal,status:'ASSIGNED',can_manage:false,can_execute:role==='operator',task:{...appeal.task!,status:'ASSIGNED',due_date:'2030-12-15'}},role==='inspector');
@@ -206,4 +206,42 @@ it('submits the chosen subtask deadline with its operator and retains the parent
   });
   await click(byText('Создать подзадачу и назначить'));
   expect(vi.mocked(api).mock.calls.find(([path]) => path.endsWith('/subtasks'))?.[2]).toMatchObject({subject:'Уборка участка', description:'Убрать мусор у входа', operator_id:7, due_date:'2026-11-06', expected_version:3});
+});
+
+it('preserves the closing draft when opening the gallery and adds the returned selection to the response', async () => {
+  vi.mocked(api).mockImplementation(async path => {
+    if (path.includes('/close-chat-photos?')) return {items: [{id: 'chat-file', url: '/chat-image'}], has_more: false};
+    return [];
+  });
+  const chooseGeneral = vi.fn();
+  await act(async () => {
+    root.render(<AppealActions appeal={appeal} endpoint="/appeals" readOnly={false} chooseGeneral={chooseGeneral} changed={changed}/>);
+    await tick();
+  });
+  await click(byText('Закрыть обращение'));
+  const openPicker = () => click(element.querySelector<HTMLButtonElement>('dialog [aria-label="Прикрепить фото"]')!);
+  await openPicker();
+  await click(byText('Фото из переписки'));
+  await act(async () => element.querySelector<HTMLInputElement>('input[aria-label*="из переписки"]')!.click());
+  await act(async () => {
+    const answer = element.querySelector<HTMLTextAreaElement>('dialog textarea')!;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(answer, 'Выполнено');
+    answer.dispatchEvent(new Event('input', {bubbles: true}));
+  });
+  await openPicker();
+  await click(byText('Общие фотографии'));
+  const draft = chooseGeneral.mock.calls[0][0];
+  expect(draft).toMatchObject({appealId: 42, version: 3, answer: 'Выполнено', sourcePhotos: [{id: 'chat-file', source: 'chat'}]});
+  const consumeDraft = vi.fn();
+  await act(async () => {
+    root.render(<AppealActions key="return" appeal={appeal} endpoint="/appeals" readOnly={false} changed={changed}
+      resumedDraft={{...draft, sourcePhotos: [...draft.sourcePhotos, {id: 10, source: 'general', url: '/preview/10'}]}}
+      consumeDraft={consumeDraft}/>);
+    await tick();
+  });
+  expect(element.querySelector<HTMLTextAreaElement>('dialog textarea')?.value).toBe('Выполнено');
+  expect(consumeDraft).toHaveBeenCalledOnce();
+  await click(byText('Подтвердить закрытие'));
+  const [, , body] = vi.mocked(api).mock.calls.find(([path, method]) => path === '/appeals/42/close' && method === 'POST')!;
+  expect(JSON.parse((body as FormData).get('metadata') as string)).toMatchObject({chat_photo_ids: ['chat-file'], photo_ids: [10], comment: 'Выполнено'});
 });

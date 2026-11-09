@@ -24,8 +24,16 @@ export function dayPhotoLink(id: number, day: string, filters: Filters): string 
   return photoLink(id, {...filters, from_day: day});
 }
 
-export function dayNeedsReviewLink(day: string): string {
+export function dayNeedsReviewLink(day: string, chat = ''): string {
   // Independent of the AI gallery's work category and receipt date.
   return '/review?' + query({review_day: day, date_from: day, date_to: day,
-    date_basis: 'photo', work_only: 'true', status: 'NEEDS_REVIEW', sort_order: 'desc'});
+    date_basis: 'photo', ...(chat ? {chat_id: chat} : {}), work_only: 'true', status: 'NEEDS_REVIEW', sort_order: 'desc'});
+}
+
+export function dayCountLink(day: string, chat: string, view: 'all' | 'confirmed' | 'pending' | 'ai'): string {
+  return '/photos?' + query({
+    review_day: day, date_from: day, date_to: day, chat_id: chat, work_only: 'true',
+    day_review: view === 'all' ? '' : view === 'ai' ? 'pending' : view,
+    day_ai_only: view === 'ai' ? 'true' : '',
+  });
 }

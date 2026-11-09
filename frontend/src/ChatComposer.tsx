@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Paperclip, Send, X } from 'lucide-react';
+import { Send, X } from 'lucide-react';
 import { MAX_PHOTOS, pastedImages } from './appeals/TaskImageInput';
+import AttachmentButton from './AttachmentButton';
 import type { ChatExtras } from './chatContent';
 
-export default function ChatComposer({label, draft, changeDraft, extras, changeExtras, send, disabled, sending, error, pending}: {
+export default function ChatComposer({label, draft, changeDraft, extras, changeExtras, send, disabled, sending, error, pending, attachFromArchive}: {
   label: string; draft: string; changeDraft: (text: string) => void; extras: ChatExtras;
   changeExtras: (extras: Partial<ChatExtras>) => void; send: (event?: FormEvent) => void;
+  attachFromArchive?: () => void;
   disabled?: boolean; sending?: boolean; error?: string; pending?: boolean;
 }) {
   const {files, reply} = extras;
@@ -40,8 +42,13 @@ export default function ChatComposer({label, draft, changeDraft, extras, changeE
       <input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple hidden onChange={event => {
         add(Array.from(event.target.files || [])); event.target.value = '';
       }}/>
-      <button type="button" title="Прикрепить скриншот" aria-label="Прикрепить скриншот" disabled={disabled || sending || pending || files.length >= MAX_PHOTOS}
-        onClick={() => input.current?.click()}><Paperclip size={19}/></button>
+      <AttachmentButton label={attachFromArchive ? 'Прикрепить фото' : 'Прикрепить скриншот'}
+        disabled={disabled || sending || pending || (!attachFromArchive && files.length >= MAX_PHOTOS)}
+        action={() => input.current?.click()}
+        options={attachFromArchive ? [
+          {label: 'С устройства', action: () => input.current?.click(), disabled: files.length >= MAX_PHOTOS},
+          {label: 'Фото из базы', action: attachFromArchive},
+        ] : undefined}/>
       <textarea ref={field} aria-label={label} placeholder="Напишите сообщение…" maxLength={4000} rows={2} value={draft}
         disabled={disabled || sending || pending} onChange={event => changeDraft(event.target.value)} onPaste={event => add(pastedImages(event))}
         onKeyDown={event => {

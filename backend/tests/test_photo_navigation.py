@@ -51,13 +51,13 @@ def archive():
 
         def next_id(id, user=None, **filters):
             return next_photo(
-                id, db, user or SimpleNamespace(role="ADMIN_OPERATOR"), PhotoFilters(**filters),
+                id, db, user or SimpleNamespace(role="ADMIN_OPERATOR"), PhotoFilters(**({"sort_order": "received_desc"} | filters)),
             )["id"]
 
         def position(id=None, **filters):
             from app.reports import filtered
 
-            selection = PhotoListFilters(**filters)
+            selection = PhotoListFilters(**({"sort_order": "received_desc"} | filters))
             total = len(session.scalars(filtered(selection).with_only_columns(Photo.id)).all())
             return photo_list_position(db, selection, total, records.get(id))
 

@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '../api';
+import AppealModal from './AppealModal';
+import ClosePhotoPicker from './ClosePhotoPicker';
+import type { ClosePhoto, ResponsePhotoDraft } from './ResponsePhotoDraft';
 import { appealDecisions, appealStatuses, hasAppealDecision, isFinalAppeal } from './statuses';
 import { galleryPhoto } from './gallery';
 import TaskImageInput, { MAX_PHOTOS, pastedImages } from './TaskImageInput';
@@ -10,30 +13,38 @@ export type AppealTask = {id: number; operator_id: number; operator_name: string
   status: string; result_comment: string; photos: ResultPhoto[]; created_at: string; due_date?: string | null; finished_at?: string | null};
 export type TaskRelation = {id: number; number: string; subject: string; status: string; is_final: boolean; operator_name: string; due_date: string | null; result: string; operator_result: string};
 export type WorkflowAppeal = {id: number; status: string; version: number; can_manage?: boolean; can_execute?: boolean;
-  is_public?: boolean; is_final?: boolean; resolved_at?: string | null; archived_at?: string | null; can_set_task_status?: boolean;
+  can_archive?: boolean; personal_archived?: boolean; is_public?: boolean; is_final?: boolean; resolved_at?: string | null; archived_at?: string | null; can_set_task_status?: boolean;
   submitted_by_inspector_name?: string; inspector_due_date?: string | null; parent_id?: number | null;
   can_set_inspector_deadline?: boolean; files?: {id: string; name: string; url: string}[];
   parent?: TaskRelation | null; children?: TaskRelation[];
   task?: AppealTask | null; task_history?: AppealTask[]; public_response?: string; response_photos?: ResultPhoto[]};
 
-export default function AppealActions({appeal, endpoint, readOnly, changed, discussion, inspectorDiscussion, openTask, workspace = 'inspector'}: {
-  appeal: WorkflowAppeal; endpoint: string; readOnly: boolean; changed: () => void; discussion?: ReactNode; inspectorDiscussion?: ReactNode; openTask?: (id: number) => void; workspace?: 'inspector' | 'executor';
+export default function AppealActions({appeal, endpoint, readOnly, changed, discussion, inspectorDiscussion, openTask, workspace = 'inspector', taskContext, chooseGeneral, resumedDraft, consumeDraft}: {
+  appeal: WorkflowAppeal; endpoint: string; readOnly: boolean; changed: () => void; discussion?: ReactNode; inspectorDiscussion?: ReactNode; openTask?: (id: number) => void; workspace?: 'inspector' | 'executor'; taskContext?: ReactNode; chooseGeneral?: (draft: ResponsePhotoDraft) => void;
+  resumedDraft?: ResponsePhotoDraft; consumeDraft?: () => void;
 }) {
+  const answerId = useId();
   const [operators, setOperators] = useState<{id: number; name: string}[]>([]), [operator, setOperator] = useState('');
   const [instruction, setInstruction] = useState(''), [result, setResult] = useState(appeal.status), [comment, setComment] = useState('');
-  const [dueDate, setDueDate] = useState(appeal.task?.due_date || '');
+  const [dueDate, setDueDate] = useState(appeal.task?.due_date || appeal.inspector_due_date || '');
   const [inspectorDueDate, setInspectorDueDate] = useState(appeal.inspector_due_date || '');
   const [subtaskTitle, setSubtaskTitle] = useState(''), [subtaskDescription, setSubtaskDescription] = useState('');
   const [subtaskDue, setSubtaskDue] = useState('');
   const subtaskClient = useRef(crypto.randomUUID());
-  const [files, setFiles] = useState<File[]>([]), [answer, setAnswer] = useState(''), [selectedPhotos, setSelectedPhotos] = useState<string[]>([]);
+  const [files, setFiles] = useState<File[]>(resumedDraft?.files || []);
+  const [answer, setAnswer] = useState(resumedDraft?.answer || '');
+  const [selectedPhotos, setSelectedPhotos] = useState<string[]>(resumedDraft?.operatorPhotos || []);
+  const taskId = useRef(appeal.task?.id);
+  const [responseVersion, setResponseVersion] = useState(resumedDraft?.version ?? appeal.version);
+  const [sourcePhotos, setSourcePhotos] = useState<ClosePhoto[]>(resumedDraft?.sourcePhotos || []);
+  const photoCount = selectedPhotos.length + files.length + sourcePhotos.length;
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [preparing, setPreparing] = useState(false), sending = useRef(false);
-  const [confirmClose, setConfirmClose] = useState(false);
-  const [decision, setDecision] = useState('RESOLVED');
+  const [confirmClose, setConfirmClose] = useState(!!resumedDraft);
+  const [assignmentOpen, setAssignmentOpen] = useState(false);
+  const inspectorDeadlineEditor = useRef<HTMLDetailsElement>(null);
+  const [decision, setDecision] = useState(resumedDraft?.decision || 'RESOLVED');
   const decisionText = appealDecisions[decision];
-  const decisionAction = decisionText.verb + (decision === 'RESOLVED' && appeal.is_public === false ? ' обращение' : '')
-    + (appeal.is_public === false ? ' и сохранить ответ' : ' и опубликовать ответ');
   const manage = !readOnly && appeal.can_manage !== false && !appeal.can_execute;
   const execute = !readOnly && appeal.can_execute;
   useEffect(() => {
@@ -44,9 +55,14 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
     return () => abort.abort();
   }, [appeal.id, appeal.status, endpoint, manage]);
   useEffect(() => setResult(appeal.status), [appeal.status]);
-  useEffect(() => setDueDate(appeal.task?.due_date || ''), [appeal.task?.id, appeal.task?.due_date]);
+  useEffect(() => setDueDate(appeal.task?.due_date || appeal.inspector_due_date || ''), [appeal.task?.id, appeal.task?.due_date, appeal.inspector_due_date]);
   useEffect(() => setInspectorDueDate(appeal.inspector_due_date || ''), [appeal.inspector_due_date]);
-  useEffect(() => setSelectedPhotos([]), [appeal.task?.id]);
+  useEffect(() => {
+    if (taskId.current === appeal.task?.id) return;
+    taskId.current = appeal.task?.id;
+    setSelectedPhotos([]);
+  }, [appeal.task?.id]);
+  useEffect(() => {if (resumedDraft) consumeDraft?.();}, [resumedDraft, consumeDraft]);
 
   async function send(path: string, body?: unknown) {
     if (sending.current) return;
@@ -63,13 +79,14 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
         setPreparing(false);
       }
       await api(endpoint + '/' + appeal.id + path, 'POST', body);
-      if (path === '/assign') {setOperator(''); setInstruction('');}
+      if (path === '/deadline') {inspectorDeadlineEditor.current?.removeAttribute('open');}
+      if (path === '/assign') {setAssignmentOpen(false); setOperator(''); setInstruction('');}
       if (path === '/subtasks') {
         setOperator(''); setSubtaskTitle(''); setSubtaskDescription(''); setSubtaskDue('');
         subtaskClient.current = crypto.randomUUID();
       }
       if (path === '/result') {setComment(''); setFiles([]);}
-      if (path === '/close') {setConfirmClose(false); setAnswer(''); setSelectedPhotos([]); setFiles([]);}
+      if (path === '/close') {setConfirmClose(false); setSourcePhotos([]); setAnswer(''); setSelectedPhotos([]); setFiles([]);}
       window.dispatchEvent(new Event('appeals-changed'));
       changed();
     }
@@ -77,7 +94,7 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
     finally {sending.current = false; setPreparing(false); setBusy(false);}
   }
   function updateFiles(next: File[]) {
-    if (next.length > MAX_PHOTOS) {
+    if (next.length + sourcePhotos.length + selectedPhotos.length > MAX_PHOTOS && next.length >= files.length) {
       setError(`Можно приложить до ${MAX_PHOTOS} фото или скриншотов`);
       return;
     }
@@ -86,16 +103,29 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
   }
 
   function upload(metadata: object) {
-    const form = new FormData(); form.append('metadata', JSON.stringify({...metadata, expected_version: appeal.version}));
+    const form = new FormData(); form.append('metadata', JSON.stringify({expected_version: appeal.version, ...metadata}));
     files.forEach(file => form.append('photos', file)); return form;
   }
+  const assignmentOperator = operator || operators.find(item => item.id === appeal.task?.operator_id)?.id || '';
   const reportable = ['ASSIGNED', 'IN_PROGRESS'].includes(appeal.status);
+  const canDecide = manage && !appeal.archived_at && !isFinalAppeal(appeal);
+  const canAssign = canDecide && !appeal.children?.length;
+  const assignmentTitle = appeal.task ? 'Перенаправить задачу' : 'Назначить исполнителя';
+  const workflowActions = (allowRedirect = true) => canDecide && <div className="appeal-work-actions">
+    <button className="primary" disabled={busy} onClick={() => {
+      setError(''); setResponseVersion(appeal.version); setConfirmClose(true);
+    }}>Закрыть обращение</button>
+    {canAssign && (allowRedirect || !appeal.task) && <button className="primary" disabled={busy} onClick={() => {
+      setError(''); setAssignmentOpen(true);
+    }}>{assignmentTitle}</button>}
+  </div>;
   const tasks = <>
+    {taskContext}
     {!!appeal.children?.length && <section className="appeal-task"><h3>Подзадачи · {appeal.children.length}</h3>{appeal.children.map(child => <article className="appeal-subtask-row" key={child.id}><button onClick={() => openTask?.(child.id)}>{child.number} · {child.subject}</button><p>{appealStatuses[child.status]}{!readOnly && ' · ' + child.operator_name}</p>{!readOnly && child.due_date && <small className="hint">Срок: {new Date(child.due_date + 'T00:00:00').toLocaleDateString('ru-RU')}</small>}{(child.result || child.operator_result) && <p className="owner-appeal-text">{child.result || child.operator_result}</p>}</article>)}</section>}
     {appeal.parent_id && !appeal.parent && <p className="hint">Подзадача обращения ОБ-{String(appeal.parent_id).padStart(6, '0')}</p>}
-    {!!appeal.submitted_by_inspector_name && <section className="appeal-task"><h3>{readOnly ? 'Срок задачи' : 'Срок от проверяющего'}</h3>
+    {!execute && !!appeal.submitted_by_inspector_name && <section className="appeal-task"><h3>{readOnly ? 'Срок задачи' : 'Срок от проверяющего'}</h3>
       <p>{appeal.inspector_due_date ? new Date(appeal.inspector_due_date + 'T00:00:00').toLocaleDateString('ru-RU') : 'Без срока'}</p>
-      {appeal.can_set_inspector_deadline && !appeal.archived_at && !isFinalAppeal(appeal) && <details>
+      {appeal.can_set_inspector_deadline && !appeal.archived_at && !isFinalAppeal(appeal) && <details ref={inspectorDeadlineEditor}>
         <summary>Изменить срок</summary>
         <form onSubmit={event => {event.preventDefault(); void send('/deadline', {due_date: inspectorDueDate || null, expected_version: appeal.version});}}>
           <label>Выполнить до<input type="date" value={inspectorDueDate} onChange={event => setInspectorDueDate(event.target.value)} disabled={busy}/></label>
@@ -110,18 +140,13 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
       <label>Срок подзадачи<input type="date" max={appeal.inspector_due_date || undefined} value={subtaskDue} disabled={busy} onChange={event => setSubtaskDue(event.target.value)}/></label>
       <button className="primary" disabled={busy || !operator || !subtaskTitle.trim() || !subtaskDescription.trim()} onClick={() => void send('/subtasks', {subject: subtaskTitle, description: subtaskDescription, operator_id: Number(operator), due_date: subtaskDue || null, client_id: subtaskClient.current, expected_version: appeal.version})}>Создать подзадачу и назначить</button>
     </details>}
-    {appeal.task && <section className="appeal-task"><h3>Исполнитель: {appeal.task.operator_name}</h3><p className="hint">{appealStatuses[appeal.task.status]}</p>
+    {appeal.task && <section className="panel appeal-work-card">{!execute && <><h3>Исполнитель: {appeal.task.operator_name}</h3><p className="hint">{appealStatuses[appeal.task.status]}</p></>}
       <p className="appeal-task-deadline">Срок исполнения: <strong>{appeal.task.due_date ? new Date(appeal.task.due_date + 'T00:00:00').toLocaleDateString('ru-RU') : 'Не установлен'}</strong></p>
-      {manage && !appeal.archived_at && !isFinalAppeal(appeal) && reportable && ['ASSIGNED', 'IN_PROGRESS'].includes(appeal.task.status) && <form className="appeal-deadline-form" onSubmit={event => {event.preventDefault(); void send('/deadline', {due_date: dueDate || null, expected_version: appeal.version});}}>
-        <label>Срок исполнения<input type="date" max={appeal.inspector_due_date || undefined} value={dueDate} disabled={busy} onChange={event => setDueDate(event.target.value)}/></label>
-        <p className="hint">До конца выбранного дня по времени организации. В «Сигнале» срок не показывается.</p>
-        <button className="primary" disabled={busy || dueDate === (appeal.task.due_date || '')}>Сохранить срок</button>
-        {dueDate && <button type="button" disabled={busy} onClick={() => setDueDate('')}>Убрать дату</button>}
-      </form>}
-      {appeal.task.instruction && <><strong>Комментарий к задаче</strong><p className="owner-appeal-text">{appeal.task.instruction}</p><small className="hint">Виден администратору и исполнителю.</small></>}
+      {appeal.task.instruction && <><strong>Комментарий к задаче</strong><p className="owner-appeal-text">{appeal.task.instruction}</p>{!execute && <small className="hint">Виден администратору и исполнителю.</small>}</>}
       {appeal.task.result_comment && <><h4>Результат исполнителя</h4><p className="owner-appeal-text">{appeal.task.result_comment}</p></>}
-      <div className="appeal-evidence">{appeal.task.photos.map(photo => <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Фото результата исполнителя"/></a>)}</div>
+      {!!appeal.task.photos.length && <div className="appeal-evidence">{appeal.task.photos.map(photo => <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Фото результата исполнителя"/></a>)}</div>}
     </section>}
+    {workflowActions()}
     {appeal.can_set_task_status && !appeal.archived_at && !isFinalAppeal(appeal) && <details className="appeal-task"><summary>Изменить статус</summary>
       <label>Статус<select disabled={busy} value={result} onChange={event => setResult(event.target.value)}>
         {!['COMPLETED', 'CANCELLED'].includes(appeal.status) && <option value={appeal.status} disabled>{appealStatuses[appeal.status]}</option>}
@@ -136,47 +161,77 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
         <button className="primary" disabled={busy || !comment.trim() || !files.length || files.length > MAX_PHOTOS} onClick={() => void send('/result', upload({status: result, comment}))}>{preparing ? 'Подготавливаем фото…' : busy ? 'Отправляем…' : 'Передать результат администратору'}</button>
       </>}
     </section>}
-    {manage && !appeal.archived_at && !appeal.children?.length && !isFinalAppeal(appeal) && <>
-      <section className="appeal-task"><h3>{appeal.task ? 'Перенаправить задачу' : 'Назначить исполнителя'}</h3>
-        <label>Оператор<select value={operator} disabled={busy} onChange={event => setOperator(event.target.value)}><option value="">Выберите исполнителя</option>{operators.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-        {!operators.length && <p className="hint">Добавьте действующего оператора в этой организации.</p>}
-        <label>Комментарий к задаче<textarea disabled={busy} value={instruction} maxLength={4000} onChange={event => setInstruction(event.target.value)} placeholder="Что нужно сделать исполнителю"/></label>
-        <p className="hint">Этот комментарий виден только администратору и оператору.</p>
-        <button disabled={busy || !operator} onClick={() => void send('/assign', {operator_id: Number(operator), instruction, expected_version: appeal.version})}>Назначить</button>
-      </section>
-    </>}
     {manage && !!appeal.task_history?.length && <details><summary>История назначений ({appeal.task_history.length})</summary>{appeal.task_history.map(task => <section className="appeal-task" key={task.id}><strong>{task.operator_name} · {appealStatuses[task.status]}</strong>{task.due_date && <p>Срок: {new Date(task.due_date + 'T00:00:00').toLocaleDateString('ru-RU')}</p>}<p className="owner-appeal-text">{task.instruction}</p><p className="owner-appeal-text">{task.result_comment}</p></section>)}</details>}
   </>;
   const decisions = <>
-    {manage && !appeal.archived_at && !isFinalAppeal(appeal) && <>
-      <section className="appeal-task"><h3>Решение по обращению</h3>
-        <label>Решение<select value={decision} disabled={busy} onChange={event => setDecision(event.target.value)}>{Object.entries(appealDecisions).map(([value, text]) => <option value={value} key={value}>{text.label}</option>)}</select></label>
-        <><p className="hint">{appeal.is_public === false ? 'Ответ останется внутри «Метки». Фотографии необязательны.' : 'Ответ появится на стене города. Фотографии необязательны.'}</p>
-        <label>{appeal.is_public === false ? 'Ответ организации' : 'Публичный ответ организации'}<textarea value={answer} disabled={busy} maxLength={4000} onPaste={event => {const images = pastedImages(event); if (images.length) updateFiles([...files, ...images]);}} onChange={event => setAnswer(event.target.value)} placeholder="Результат рассмотрения обращения"/></label>
-        {appeal.task && ['COMPLETED', 'REJECTED', 'CANCELLED'].includes(appeal.task.status) && appeal.task.photos.length > 0 && <div className="appeal-result-selection"><strong>Приложить фото исполнителя</strong>{appeal.task.photos.map(photo => <label key={photo.id}>
-          <input type="checkbox" checked={selectedPhotos.includes(photo.id)} disabled={busy} onChange={event => setSelectedPhotos(current => event.target.checked ? [...current, photo.id] : current.filter(id => id !== photo.id))}/><img src={photo.preview_url} alt="Выбрать фотографию результата"/></label>)}</div>}
-        <TaskImageInput disabled={busy} files={files} onChange={updateFiles}/>
-        {!!appeal.children?.some(child => !child.is_final) && <p className="hint">При закрытии незавершённые подзадачи будут закрыты вместе с родительской задачей.</p>}
-        {selectedPhotos.length > 0 && <p className="hint">Всего в ответе: {selectedPhotos.length + files.length} из {MAX_PHOTOS}. Фото исполнителя и новые файлы считаются вместе.</p>}
-        <button className="primary" disabled={busy || !answer.trim() || selectedPhotos.length + files.length > MAX_PHOTOS}
-          onClick={() => setConfirmClose(true)}>{decisionAction}</button>
-        </>
-      </section>
-    </>}
     {appeal.public_response && hasAppealDecision(appeal) && <section className="appeal-task"><h3>{appeal.is_public === false ? 'Ответ организации в «Метке»' : 'Ответ организации на стене'}</h3><p className="owner-appeal-text">{appeal.public_response}</p><div className="appeal-evidence">{appeal.response_photos?.map(photo => <a href={photo.url} key={photo.id} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Результат рассмотрения"/></a>)}</div></section>}
-    {manage && isFinalAppeal(appeal) && <section className="appeal-task"><button disabled={busy} onClick={() => void send('/archive', {archived: !appeal.archived_at, expected_version: appeal.version})}>{appeal.archived_at ? 'Вернуть из архива' : 'Перенести в архив'}</button><p className="hint">{appeal.status === 'SPAM' ? 'Спам будет убран из рабочего списка. На стене «Сигнала» он не появится.' : appeal.is_public === false ? 'Архив убирает обращение из рабочего списка. Ответ и фотографии сохраняются в «Метке».' : 'Архив убирает обращение из рабочего списка. Ответ жителю сохраняется на стене.'}</p></section>}
   </>;
   return <div className="appeal-workflow">
     {manage && inspectorDiscussion ? <>
-      <div hidden={workspace !== 'inspector'}><div className="appeal-task-workspace"><div><section className="appeal-task"><h3>Срок проверяющего</h3><p>{appeal.inspector_due_date ? new Date(appeal.inspector_due_date + 'T00:00:00').toLocaleDateString('ru-RU') : 'Не установлен'}</p></section>{decisions}</div>{inspectorDiscussion}</div></div>
+      <div hidden={workspace !== 'inspector'}><div className="appeal-task-workspace"><div>{taskContext}<section className="appeal-task"><h3>Срок проверяющего</h3><p>{appeal.inspector_due_date ? new Date(appeal.inspector_due_date + 'T00:00:00').toLocaleDateString('ru-RU') : 'Не установлен'}</p></section>{workflowActions(false)}{decisions}</div>{inspectorDiscussion}</div></div>
       <div hidden={workspace !== 'executor'}><div className="appeal-task-workspace"><div>{tasks}</div><div>{discussion}</div></div></div>
     </> : <div className="appeal-task-workspace"><div>{tasks}{decisions}</div><div>{inspectorDiscussion || discussion}</div></div>}
     {error && <p className="error" role="alert">{error}</p>}
-    {confirmClose && <div className="modal-backdrop"><section className="modal appeal-confirm" role="alertdialog" aria-modal="true" aria-labelledby="appeal-close-title" onKeyDown={event => {if (event.key === 'Escape' && !busy) setConfirmClose(false);}}>
-      <h2 id="appeal-close-title">{decisionText.question}</h2><p>{appeal.is_public === false ? 'Ответ и фотографии будут сохранены в «Метке».' : 'Ответ и выбранные фотографии будут опубликованы на стене «Сигнала».'}</p>
-      <p className="hint">Можно закрыть без отчёта исполнителя. Незавершённые назначения будут остановлены; открытые подзадачи будут закрыты вместе с этой задачей.</p>
-      <blockquote className="owner-appeal-text">{answer}</blockquote><p>Фотографий результата: {selectedPhotos.length + files.length}</p>
-      <div className="owner-appeal-header-actions"><button autoFocus disabled={busy} onClick={() => setConfirmClose(false)}>Продолжить редактирование</button><button className="primary" disabled={busy} onClick={() => void send('/close', upload({status: decision, comment: answer, operator_photo_ids: selectedPhotos}))}>{preparing ? 'Подготавливаем фото…' : busy ? 'Сохраняем…' : decisionText.confirm}</button></div>
-    </section></div>}
+    {assignmentOpen && canAssign && <AppealModal title={assignmentTitle} close={() => setAssignmentOpen(false)} busy={busy}>
+      {error && <p className="error" role="alert">{error}</p>}
+      <section className="appeal-work-card">
+        <label>Оператор<select value={assignmentOperator}
+          disabled={busy} onChange={event => setOperator(event.target.value)}>
+          <option value="">Выберите исполнителя</option>{operators.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select></label>
+        {!operators.length && <p className="hint">Добавьте действующего оператора в этой организации.</p>}
+        <label>Срок исполнения<input type="date" max={appeal.inspector_due_date || undefined} value={dueDate}
+          disabled={busy} onChange={event => setDueDate(event.target.value)}/></label>
+        <label>Комментарий к задаче<textarea disabled={busy} value={instruction} maxLength={4000} onChange={event => setInstruction(event.target.value)} placeholder="Что нужно сделать исполнителю"/></label>
+        <p className="hint">Этот комментарий виден только администратору и оператору.</p>
+        <button disabled={busy || !assignmentOperator}
+          onClick={() => void send('/assign', {operator_id: Number(assignmentOperator), instruction,
+            due_date: dueDate || null, expected_version: appeal.version})}>Назначить</button>
+      </section>
+    </AppealModal>}
+    {confirmClose && <AppealModal title="Закрытие обращения" close={() => setConfirmClose(false)} busy={busy}>
+      {error && <p className="error" role="alert">{error}</p>}
+      <form className="appeal-close-form" onSubmit={event => {
+        event.preventDefault();
+        if (answer.trim() && photoCount <= MAX_PHOTOS) {
+          void send('/close', upload({expected_version: responseVersion, status: decision, comment: answer, operator_photo_ids: selectedPhotos,
+            chat_photo_ids: sourcePhotos.filter(photo => photo.source === 'chat').map(photo => photo.id),
+            photo_ids: sourcePhotos.filter(photo => photo.source === 'general').map(photo => photo.id)}));
+        }
+      }}>
+        <label>Решение<select value={decision} disabled={busy} onChange={event => setDecision(event.target.value)}>{Object.entries(appealDecisions).map(([value, text]) => <option value={value} key={value}>{text.label}</option>)}</select></label>
+        <p className="hint">{appeal.is_public === false ? 'Ответ останется внутри «Метки». Фотографии необязательны.' : 'Ответ появится на стене города. Фотографии необязательны.'}</p>
+        <label htmlFor={answerId}>{appeal.is_public === false ? 'Ответ организации' : 'Публичный ответ организации'}</label>
+        <TaskImageInput disabled={busy} files={files} onChange={updateFiles} picker={openFiles =>
+          <ClosePhotoPicker endpoint={endpoint + '/' + appeal.id} selected={sourcePhotos}
+            chooseGeneral={chooseGeneral ? () => chooseGeneral({appealId: appeal.id, version: responseVersion,
+              decision, answer, files, operatorPhotos: selectedPhotos, sourcePhotos}) : undefined}
+            change={setSourcePhotos} remaining={MAX_PHOTOS - photoCount} disabled={busy} openFiles={openFiles}
+            answerField={<textarea id={answerId} value={answer} disabled={busy} maxLength={4000}
+              onPaste={event => {const images = pastedImages(event); if (images.length) updateFiles([...files, ...images]);}}
+              onChange={event => setAnswer(event.target.value)} placeholder="Результат рассмотрения обращения"/>}
+            resultPhotos={appeal.task && ['COMPLETED', 'REJECTED', 'CANCELLED'].includes(appeal.task.status) && !!appeal.task.photos.length
+              ? <div className="appeal-result-selection">{appeal.task.photos.map(photo => <label key={photo.id}>
+                <input type="checkbox" aria-label="Выбрать фотографию результата" checked={selectedPhotos.includes(photo.id)}
+                  disabled={busy || (!selectedPhotos.includes(photo.id) && photoCount >= MAX_PHOTOS)}
+                  onChange={event => setSelectedPhotos(current => event.target.checked ? [...current, photo.id] : current.filter(id => id !== photo.id))}/>
+                <img src={photo.preview_url} alt=""/>
+              </label>)}</div> : undefined}/>}/>
+        {!!selectedPhotos.length && <div className="appeal-close-picked" aria-label="Выбранные фото исполнителя">
+          {appeal.task?.photos.filter(photo => selectedPhotos.includes(photo.id)).map(photo => <button type="button" key={photo.id}
+            disabled={busy} aria-label="Убрать фото исполнителя" onClick={() => setSelectedPhotos(current => current.filter(id => id !== photo.id))}>
+            <img src={photo.preview_url} alt=""/> ×
+          </button>)}
+        </div>}
+        {!!appeal.children?.some(child => !child.is_final) && <p className="hint">При закрытии незавершённые подзадачи будут закрыты вместе с родительской задачей.</p>}
+        {photoCount > 0 && <p className="hint">Всего фото в ответе {photoCount} из {MAX_PHOTOS}.</p>}
+        <div className="owner-appeal-header-actions">
+          <button type="button" disabled={busy} onClick={() => setConfirmClose(false)}>Отмена</button>
+          <button type="submit" className="primary" disabled={busy || !answer.trim() || photoCount > MAX_PHOTOS}>
+            {preparing ? 'Подготавливаем фото…' : busy ? 'Сохраняем…' : decisionText.confirm}
+          </button>
+        </div>
+      </form>
+    </AppealModal>}
   </div>;
 }

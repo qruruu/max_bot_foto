@@ -164,6 +164,13 @@ class CitizenAppeal(Timestamps, Base):
     )
 
 
+class PersonalAppealArchive(Base):
+    __tablename__ = "personal_appeal_archives"
+    appeal_id: Mapped[int] = mapped_column(ForeignKey("citizen_appeals.id", ondelete="CASCADE"), primary_key=True)
+    actor_type: Mapped[str] = mapped_column(String(30), primary_key=True)
+    actor_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+
+
 class AppealAddress(Timestamps, Base):
     __tablename__ = "appeal_addresses"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)

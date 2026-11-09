@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 from hashlib import sha256
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
@@ -12,10 +12,11 @@ from geoalchemy2.shape import from_shape
 from pydantic import Field, ValidationError, field_validator
 from shapely.geometry import Point
 from sqlalchemy import func, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 from starlette.datastructures import UploadFile
 
-from app.appeal_catalog import organization_catalog, territory_choice_id, validate_recipient
+from app.appeal_archive import ArchiveInput, set_archived
+from app.appeal_catalog import organization_appeal_catalog, organization_catalog, territory_choice_id, validate_recipient
 from app.appeal_events import (
     CommentInput,
     CommentReadInput,
@@ -41,6 +42,7 @@ from app.appeals import (
     rate_limit,
     receipt,
 )
+from app.auth import Db
 from app.config import base_settings
 from app.db import database_engine
 from app.domain import audit, now
@@ -113,6 +115,7 @@ class AddressInput(StrictModel):
 
 class AssignmentInput(StrictModel):
     operator_id: int = Field(gt=0)
+    due_date: date | None = None
     instruction: str = Field(default="", max_length=4000)
     expected_version: int = Field(ge=1)
 
@@ -132,16 +135,13 @@ class CloseInput(StrictModel):
     status: CloseStatus = "RESOLVED"
     comment: str = Field(min_length=1, max_length=4000)
     operator_photo_ids: list[UUID] = Field(default_factory=list, max_length=MAX_PHOTOS)
+    chat_photo_ids: list[UUID] = Field(default_factory=list, max_length=MAX_PHOTOS)
+    photo_ids: list[Annotated[int, Field(gt=0, lt=2**31)]] = Field(default_factory=list, max_length=MAX_PHOTOS)
     expected_version: int = Field(ge=1)
 
 
 class TaskStatusInput(StrictModel):
     status: Literal["ASSIGNED", "IN_PROGRESS"]
-    expected_version: int = Field(ge=1)
-
-
-class ArchiveInput(StrictModel):
-    archived: bool
     expected_version: int = Field(ge=1)
 
 
@@ -277,35 +277,38 @@ def submission_session(request: Request):
     return result
 
 
-def create_appeal(db, body, photos, *, is_public, inspector=None):
-    organization, work = validate_recipient(db, body, require_work_type=False)
-    scope = scope_for(organization)
-    district_id, label = None, "Без территории"
-    if inspector and body.address_id is None:
+def appeal_location(db, organization, body, *, optional):
+    if optional and body.address_id is None:
         if body.latitude is not None or body.longitude is not None:
             raise HTTPException(422, "Для точки на карте выберите территорию")
-    else:
-        if body.latitude is None or body.longitude is None:
-            raise HTTPException(422, "Отметьте место на карте")
-        with Session(database_engine(scope.database_url)) as tenant:
-            selected = next(((id, name) for id, name in tenant.execute(select(District.id, District.name)
-                             .where(District.active)) if territory_choice_id(organization.id, id) == str(body.address_id)), None)
-            if selected:
-                district_id, label = selected
-            else:
-                # Already saved drafts from the earlier address-book form can still finish.
-                # New forms require no duplicate address records or configuration.
-                legacy = db.get(AppealAddress, str(body.address_id), with_for_update=True)
-                if not legacy or not legacy.active or legacy.organization_id != organization.id:
-                    raise HTTPException(422, "Выберите территорию этой организации из списка")
-                district_id, label = legacy.district_id, legacy.label
-            if body.address != label:
-                raise HTTPException(422, "Список территорий изменился. Выберите территорию ещё раз")
-            point = from_shape(Point(body.longitude, body.latitude), srid=4326)
-            covered = tenant.scalar(select(District.id).where(District.id == district_id, District.active,
-                                                              func.ST_Covers(District.geometry, point)))
-            if not covered:
-                raise HTTPException(422, "Отметьте проблему внутри выбранной территории организации")
+        return "Без территории"
+    if body.latitude is None or body.longitude is None:
+        raise HTTPException(422, "Отметьте место на карте")
+    with Session(database_engine(scope_for(organization).database_url)) as tenant:
+        selected = next(((id, name) for id, name in tenant.execute(select(District.id, District.name)
+                         .where(District.active)) if territory_choice_id(organization.id, id) == str(body.address_id)), None)
+        if selected:
+            district_id, label = selected
+        else:
+            # Already saved drafts from the earlier address-book form can still finish.
+            # New forms require no duplicate address records or configuration.
+            legacy = db.get(AppealAddress, str(body.address_id), with_for_update=True)
+            if not legacy or not legacy.active or legacy.organization_id != organization.id:
+                raise HTTPException(422, "Выберите территорию этой организации из списка")
+            district_id, label = legacy.district_id, legacy.label
+        if body.address != label:
+            raise HTTPException(422, "Список территорий изменился. Выберите территорию ещё раз")
+        point = from_shape(Point(body.longitude, body.latitude), srid=4326)
+        covered = tenant.scalar(select(District.id).where(District.id == district_id, District.active,
+                                                          func.ST_Covers(District.geometry, point)))
+        if not covered:
+            raise HTTPException(422, "Отметьте проблему внутри выбранной территории организации")
+    return label
+
+
+def create_appeal(db, body, photos, *, is_public, inspector=None):
+    organization, work = validate_recipient(db, body, require_work_type=False)
+    label = appeal_location(db, organization, body, optional=bool(inspector))
     appeal = CitizenAppeal(organization_id=organization.id, organization_name=organization.name,
         work_type_name=work["name"] if work else "", city=organization.city, address_id=str(body.address_id) if body.address_id else None, address=label,
         place=body.place, category=body.category, subject=body.subject, description=body.description, contact=body.contact,
@@ -504,7 +507,18 @@ def assign(appeal_id: int, body: AssignmentInput, user: AppealReader):
             raise HTTPException(409, "Задача в архиве")
         if db.scalar(select(CitizenAppeal.id).where(CitizenAppeal.parent_id == appeal.id).limit(1)):
             raise HTTPException(409, "Назначайте исполнителей в подзадачах")
-        assign_operator(db, appeal, user, body.operator_id, body.instruction, effective_due_date(db, appeal))
+        ceiling = effective_due_date(db, appeal)
+        due_date = ceiling
+        current = latest_task(db, appeal.id)
+        if "due_date" in body.model_fields_set:
+            due_date = body.due_date
+            validate_executor_due_date(due_date, ceiling)
+            if (current and current.status in {"ASSIGNED", "IN_PROGRESS"}
+                    and current.operator_id == body.operator_id and not body.instruction.strip()):
+                update_executor_due_date(db, appeal, current, user, due_date)
+                db.commit()
+                return {"ok": True, "version": appeal.version}
+        assign_operator(db, appeal, user, body.operator_id, body.instruction, due_date)
         db.commit()
         return {"ok": True, "version": appeal.version}
 
@@ -535,6 +549,13 @@ class AdminTaskInput(StrictModel):
     operator_id: int = Field(gt=0)
     due_date: date | None = None
 
+    address_id: UUID | None = None
+    address: str = Field(default="", max_length=300)
+    latitude: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
+    longitude: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False)
+    place: str = Field(default="", max_length=300)
+    category: str = Field(default="", max_length=60)
+
     @field_validator("subject", "description")
     @classmethod
     def nonempty(cls, value):
@@ -558,14 +579,26 @@ def internal_task_operators(user: AppealReader):
         return active_operators(db, organization_id)
 
 
+@organization_router.get("/internal-tasks/location")
+def internal_task_location(user: AppealReader):
+    organization_id = admin_task_organization_id(user)
+    with control_session() as db:
+        organization = db.get(Organization, organization_id)
+        if not organization or organization.status != "ACTIVE":
+            raise HTTPException(409, "Организация недоступна")
+        return {"organization": {**organization_appeal_catalog(db, organization, public=False), "color": "#2563eb"},
+                "yandex_maps_api_key": base_settings().yandex_maps_api_key}
+
+
 @organization_router.post("/internal-tasks", status_code=201)
 async def create_admin_task(request: Request, user: AppealReader):
     organization_id = admin_task_organization_id(user)
-    body, photos = await multipart(request, AdminTaskInput, require_photos=False)
-    return await run_in_threadpool(save_admin_task, organization_id, body, photos, user)
+    documents = []
+    body, photos = await multipart(request, AdminTaskInput, require_photos=False, documents=documents)
+    return await run_in_threadpool(save_admin_task, organization_id, body, photos, user, documents)
 
 
-def save_admin_task(organization_id, body, photos, user):
+def save_admin_task(organization_id, body, photos, user, documents):
     with control_session() as db:
         # Serialize retries before checking the submission ID.
         organization = db.get(Organization, organization_id, with_for_update=True)
@@ -577,9 +610,15 @@ def save_admin_task(organization_id, body, photos, user):
         if existing:
             return {"id": existing.id}
         validate_due_date(body.due_date)
+        label = appeal_location(db, organization, body, optional=True)
+        work = next((item for item in organization_catalog(organization, public=False)["work_types"] if item["code"] == body.category), None) if body.category else None
+        if body.category and not work:
+            raise HTTPException(422, "Выберите вид работ из справочника организации")
         appeal = CitizenAppeal(
             organization_id=organization.id, organization_name=organization.name,
-            city=organization.city or "", address="Без территории", place="", category="",
+            city=organization.city or "", address_id=str(body.address_id) if body.address_id else None,
+            address=label, latitude=body.latitude, longitude=body.longitude, place=body.place,
+            category=body.category, work_type_name=work["name"] if work else "",
             subject=body.subject, description=body.description, photo_count=len(photos),
             is_public=False, admin_submission_id=str(body.client_id),
         )
@@ -588,6 +627,8 @@ def save_admin_task(organization_id, body, photos, user):
         record_event(db, appeal, "CREATED", user)
         assign_operator(db, appeal, user, body.operator_id, "", body.due_date)
         store_intake_photos(db, appeal, photos)
+        from app.appeal_files import store_files
+        store_files(db, appeal, documents)
         db.commit()
         return {"id": appeal.id}
 
@@ -599,21 +640,34 @@ def set_deadline(appeal_id: int, body: DeadlineInput, user: AppealReader):
     with control_session() as db:
         appeal = find_appeal(db, appeal_id, lock=True, user=user)
         versioned(appeal, body.expected_version)
-        task = latest_task(db, appeal.id)
-        if (appeal.archived_at or is_final(appeal) or not task or task.status not in {"ASSIGNED", "IN_PROGRESS"}
-                or appeal.status not in {"ASSIGNED", "IN_PROGRESS"}):
-            raise HTTPException(409, "Срок можно назначить только действующей задаче после назначения исполнителя")
-        validate_due_date(body.due_date)
-        ceiling = effective_due_date(db, appeal)
-        if ceiling and (body.due_date is None or body.due_date > ceiling):
-            raise HTTPException(422, "Срок исполнителя не может быть позже срока проверяющего")
-        if task.due_date != body.due_date:
-            task.due_date = body.due_date
-            record_event(db, appeal, "DEADLINE", user,
-                         comment="Срок исполнения: " + (body.due_date.strftime("%d.%m.%Y") if body.due_date else "не установлен"))
-            changed(db, appeal, user, "APPEAL_DEADLINE_CHANGED")
+        task = active_executor_task(db, appeal)
+        validate_executor_due_date(body.due_date, effective_due_date(db, appeal))
+        update_executor_due_date(db, appeal, task, user, body.due_date)
         db.commit()
         return {"ok": True, "version": appeal.version}
+
+
+def active_executor_task(db, appeal):
+    task = latest_task(db, appeal.id)
+    active = {"ASSIGNED", "IN_PROGRESS"}
+    if appeal.archived_at or is_final(appeal) or not task or task.status not in active or appeal.status not in active:
+        raise HTTPException(409, "Срок можно назначить только действующей задаче после назначения исполнителя")
+    return task
+
+
+def validate_executor_due_date(due_date, ceiling):
+    validate_due_date(due_date)
+    if ceiling and (due_date is None or due_date > ceiling):
+        raise HTTPException(422, "Укажите срок исполнителя не позже срока проверяющего")
+
+
+def update_executor_due_date(db, appeal, task, user, due_date, *, standalone=True):
+    if task.due_date != due_date:
+        task.due_date = due_date
+        record_event(db, appeal, "DEADLINE", user,
+                     comment="Срок исполнения: " + (due_date.strftime("%d.%m.%Y") if due_date else "не установлен"))
+        if standalone:
+            changed(db, appeal, user, "APPEAL_DEADLINE_CHANGED")
 
 
 @organization_router.post("/{appeal_id}/start")
@@ -678,6 +732,60 @@ async def report_result(appeal_id: int, request: Request, user: AppealReader):
     return await run_in_threadpool(save_result, appeal_id, body, photos, user)
 
 
+def close_chat_photos(appeal_id):
+    from app.models import AppealFile
+
+    return select(AppealFile).join(AppealEvent, AppealEvent.id == AppealFile.event_id).where(
+        AppealFile.appeal_id == appeal_id, AppealEvent.appeal_id == appeal_id,
+        AppealEvent.kind == "COMMENT", AppealEvent.visibility.in_(("STAFF", "TASK", "INSPECTOR")),
+        AppealFile.media_type == "image/jpeg",
+    )
+
+
+@owner_router.get("/{appeal_id}/close-chat-photos")
+@organization_router.get("/{appeal_id}/close-chat-photos")
+def list_close_chat_photos(appeal_id: int, user: AppealReader, page: int = Query(default=1, ge=1)):
+    from app.appeal_files import file_dict
+    from app.appeals import private_url
+    from app.models import AppealFile
+
+    manager(user)
+    with control_session() as db:
+        find_appeal(db, appeal_id, user=user)
+        rows = list(db.scalars(close_chat_photos(appeal_id).options(
+            load_only(AppealFile.id, AppealFile.appeal_id, AppealFile.name, AppealFile.media_type))
+            .order_by(AppealEvent.id.desc(), AppealFile.id).offset((page - 1) * 20).limit(21)))
+        return {"items": [file_dict(file, private_url) for file in rows[:20]], "has_more": len(rows) > 20}
+
+
+def close_photo_copies(db, appeal, body, user):
+    from app.db import engine
+    from app.media import media_path
+    from app.models import AppealFile
+    from app.operator_chats import visible_photos
+
+    chat_ids = set(map(str, body.chat_photo_ids))
+    files = list(db.scalars(close_chat_photos(appeal.id).where(AppealFile.id.in_(chat_ids)))) if chat_ids else []
+    if len(files) != len(chat_ids):
+        raise HTTPException(404, "Одна из фотографий переписки недоступна")
+    copies = [prepare_upload(file.content, min_side=1) for file in files]
+    photo_ids = list(dict.fromkeys(body.photo_ids))
+    if not photo_ids:
+        return copies
+    scope = current_organization()
+    if scope is None or scope.id != appeal.organization_id:
+        raise HTTPException(403, "Откройте кабинет организации для выбора общих фотографий")
+    with Session(engine()) as tenant:
+        if len(visible_photos(tenant, user, photo_ids)) != len(photo_ids):
+            raise HTTPException(404, "Одна из общих фотографий недоступна")
+        for id in photo_ids:
+            try:
+                copies.append(prepare_upload(media_path(id, preview=True).read_bytes(), min_side=1))
+            except FileNotFoundError as exc:
+                raise HTTPException(404, f"Превью фото №{id} недоступно") from exc
+    return copies
+
+
 def save_close(appeal_id, body, photos, user):
     manager(user)
     with control_session() as db:
@@ -694,12 +802,13 @@ def save_close(appeal_id, body, photos, user):
         selected = set(map(str, body.operator_photo_ids))
         allowed = set(db.scalars(select(AppealAttachment.id).where(AppealAttachment.appeal_id == appeal.id,
                          AppealAttachment.task_id == task.id))) if task and task.status in {"COMPLETED", "REJECTED", "CANCELLED"} else set()
-        if not selected <= allowed or len(selected) + len(photos) > MAX_PHOTOS:
+        total = len(selected) + len(photos) + len(set(body.chat_photo_ids)) + len(set(body.photo_ids))
+        if not selected <= allowed or total > MAX_PHOTOS:
             raise HTTPException(422, f"Выберите до {MAX_PHOTOS} фотографий текущего результата исполнителя или своих")
         db.execute(update(AppealAttachment).where(AppealAttachment.appeal_id == appeal.id).values(published=False))
         if selected:
             db.execute(update(AppealAttachment).where(AppealAttachment.id.in_(selected)).values(published=True))
-        for photo in photos:
+        for photo in [*photos, *close_photo_copies(db, appeal, body, user)]:
             db.add(AppealAttachment(id=str(uuid4()), appeal_id=appeal.id, content=photo["original"],
                 preview=photo["preview"], width=photo["width"], height=photo["height"], published=True))
         if task and task.status in {"ASSIGNED", "IN_PROGRESS"}:
@@ -742,21 +851,22 @@ def cancelled_by_inspector(db, appeal):
     return last_transition == ("STATUS", "INSPECTOR", "CANCELLED")
 
 
+def can_archive_appeal(db, appeal):
+    return is_final(appeal) or cancelled_by_inspector(db, appeal)
+
+
+def validate_archive(db, appeal, archived):
+    if archived and not can_archive_appeal(db, appeal):
+        raise HTTPException(409, "В архив можно перенести закрытое обращение, задачу, отменённую проверяющим, или спам")
+
+
 @owner_router.post("/{appeal_id}/archive")
 @organization_router.post("/{appeal_id}/archive")
 def archive_appeal(appeal_id: int, body: ArchiveInput, user: AppealReader):
-    manager(user)
     with control_session() as db:
         appeal = find_appeal(db, appeal_id, lock=True, user=user)
-        versioned(appeal, body.expected_version)
-        if not is_final(appeal) and not cancelled_by_inspector(db, appeal):
-            raise HTTPException(409, "В архив можно перенести закрытое обращение, задачу, отменённую проверяющим, или спам")
-        if bool(appeal.archived_at) != body.archived:
-            appeal.archived_at = now() if body.archived else None
-            record_event(db, appeal, "ARCHIVED" if body.archived else "RESTORED", user)
-            changed(db, appeal, user, "APPEAL_ARCHIVE_CHANGED")
-        db.commit()
-    return {"ok": True}
+        validate_archive(db, appeal, body.archived)
+        return set_archived(db, appeal, user, body.archived)
 
 
 @owner_router.get("/{appeal_id}/events")
@@ -780,6 +890,16 @@ def appeal_forward_targets(appeal_id: int, user: AppealReader, message_id: int =
                            channel: Literal["inspector", "executor"] | None = None, q: str = Query("", max_length=200)):
     with control_session() as db:
         return forward_targets(db, find_appeal(db, appeal_id, user=user), message_id, user, channel, q)
+
+
+@organization_router.post("/{appeal_id}/photo-comments", status_code=201)
+def photo_comment(appeal_id: int, body: CommentInput, user: AppealReader, photos_db: Db):
+    if current_organization() is None:
+        raise HTTPException(404, "Выберите организацию")
+    if not body.photo_ids:
+        raise HTTPException(422, "Выберите фотографии")
+    with control_session() as db:
+        return add_comment(db, find_appeal(db, appeal_id, lock=True, user=user), body, user, photos_db=photos_db)
 
 
 @owner_router.post("/{appeal_id}/comments", status_code=201)

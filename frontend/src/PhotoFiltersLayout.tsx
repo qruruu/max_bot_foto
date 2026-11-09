@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { dateLabel, shiftDate } from './api';
 
 export function PhotoPeriod({today, from = '', to = '', change, children}: {
@@ -27,11 +27,4 @@ export function PhotoPeriod({today, from = '', to = '', change, children}: {
         onClick={() => change({date_from: start, date_to: end})}>{label}</button>)}</div>
     {children}
   </div>;
-}
-
-export function PhotoFilterOptions({count, children}: {count: number; children: ReactNode}) {
-  return <details className="photo-filter-options">
-    <summary><SlidersHorizontal size={17}/>Фильтры и даты{count > 0 && <span className="count-pill">{count}</span>}<ChevronDown className="disclosure-chevron" size={16}/></summary>
-    {children}
-  </details>;
 }

@@ -334,7 +334,7 @@
 }
 .appeal-discussion-heading h3 { margin: 0; font-size: var(--ui-title, 1rem); }
 .appeal-discussion-heading span { color: var(--muted); }
-.appeal-event-list { height: clamp(230px, 43vh, 470px); }
+.appeal-event-list { height: clamp(280px, 49vh, 520px); }
 .appeal-discussion-toolbar button, .appeal-event time { font-size: var(--ui-meta, .75rem); }
 .appeal-event header, .appeal-event .owner-appeal-text { font-size: var(--ui-body, .875rem); }
 .appeal-event time { margin-left: auto; }
@@ -344,10 +344,10 @@
 .appeal-task > summary, .appeal-task details > summary { cursor: pointer; color: var(--appeal-link); font-size: var(--ui-body, .875rem); }
 .appeal-list-field > small { font-size: var(--ui-meta, .75rem); }
 @media (max-width: 900px) { .appeal-task-workspace { grid-template-columns: minmax(0, 1fr); } }
-.appeal-event-list.is-empty { height: 145px; }
+.appeal-event-list.is-empty { height: 220px; }
 @media (max-width: 900px) {
   .inspector-task-view .appeal-task-workspace > :has(> .appeal-discussion) { grid-row: 1; }
-  .appeal-event-list:not(.is-empty) { height: clamp(200px, 37vh, 360px); }
+  .appeal-event-list:not(.is-empty) { height: clamp(230px, 42vh, 400px); }
 }
 
 .appeal-copy-link { flex: none; width: 36px; height: 36px; padding: 0; }
@@ -357,3 +357,105 @@
 .appeal-message-meta { color:var(--muted); }
 .appeal-message-meta .message-read { color:var(--appeal-link); }
 .appeal-event.chat-message-selectable { align-items:center; padding-inline:8px; }
+
+.appeal-modal {
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  margin: auto;
+  padding: 24px;
+  color: var(--text, #273730);
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.appeal-modal::backdrop { background: #0007; }
+.appeal-modal > header { margin-bottom: 18px; }
+.appeal-modal :is(.appeal-close-form, .owner-appeal-edit) > label { display: grid; gap: 6px; margin: 12px 0; }
+.appeal-modal textarea { width: 100%; }
+.appeal-modal .owner-appeal-header-actions { justify-content: flex-end; margin-top: 18px; }
+.admin-task-fields { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 24px; margin: 16px 0; }
+.admin-task-fields fieldset > label { display: grid; gap: 6px; margin: 0 0 16px; }
+.admin-task-fields input { width: 100%; min-width: 0; }
+@media (max-width: 900px) { .admin-task-fields { grid-template-columns: minmax(0, 1fr); gap: 12px; } }
+
+.appeal-task-context .appeal-request-facts { margin: 12px 0 0; }
+.appeal-close-picked { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.appeal-close-picked button { padding: 4px 8px 4px 4px; }
+.appeal-close-picked img { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; }
+
+.appeal-description-panel h3 { font-weight: 750; }
+.appeal-task-context { margin: 0 0 16px; }
+.appeal-processing-summary :is(dt, dd) { margin: 0; }
+.appeal-processing-summary dt { color: var(--muted); }
+.appeal-processing-summary dd { margin-top: 5px; font-weight: 600; }
+.appeal-processing-summary dl > div:last-child { grid-column: 1 / -1; }
+.appeal-close-source { margin: 12px 0; }
+.appeal-close-form input[type=file][hidden] { display: none; }
+.appeal-file-preview { width: 48px; height: 48px; object-fit: cover; border-radius: 5px; flex: none; }
+
+.appeal-work-card { margin: 0 0 16px; }
+.appeal-work-card h3, .appeal-assignment > summary { font-weight: 750; }
+.appeal-work-card label { display: grid; gap: 6px; margin: 12px 0; }
+.appeal-work-card :is(select, textarea, input[type=date]) { width: 100%; }
+.appeal-assignment > summary { cursor: pointer; }
+.appeal-close-photo-picker .chat-compose-row { margin-bottom: 8px; }
+
+.appeal-work-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 16px; }
+.appeal-task-context .appeal-request-facts { grid-template-columns: minmax(0, 1fr); }
+.appeal-close-source .appeal-result-selection > label { position: relative; margin: 4px 0; }
+.appeal-close-source .appeal-result-selection > label input { position: absolute; top: 5px; left: 5px; margin: 0; }
+@media (min-width: 901px) {
+  .appeal-list-columns.appeal-operator-row, .owner-appeals .owner-appeal-card.appeal-operator-row {
+    grid-template-columns: minmax(230px, 2.5fr) minmax(85px, .8fr) minmax(110px, .9fr) minmax(110px, 145px) 18px;
+  }
+}
+
+.appeal-mobile-icon, .appeal-header-short { display: none; }
+@media (max-width: 600px) {
+  .owner-appeals > .page-header { flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+  .owner-appeals > .page-header .appeal-header-actions { flex: 0 0 100%; flex-wrap: nowrap; gap: 6px; }
+  .owner-appeals .appeal-header-actions > button { min-height: 40px; padding: 7px 9px; gap: 5px; font-size: 12px; white-space: nowrap; }
+  .owner-appeals .appeal-header-actions > button svg { flex: none; width: 15px; height: 15px; }
+  .owner-appeals .appeal-folder-tabs { gap: 4px; }
+  .owner-appeals .appeal-folder-tabs [role=tab] { min-width: 0; padding-inline: 7px; font-size: 12px; }
+  .owner-appeals .owner-appeal-toolbar { flex-wrap: nowrap; gap: 6px; }
+  .owner-appeals .owner-appeal-search { order: 0; flex: 1 1 0; min-width: 0; padding-inline: 7px; gap: 4px; }
+  .owner-appeals .owner-appeal-search > svg { width: 15px; }
+  .owner-appeals .owner-appeal-search input { min-width: 0; min-height: 38px; }
+  .owner-appeals .owner-appeal-search button { width: 20px; }
+  .appeal-list-tools { flex: none; flex-wrap: nowrap; gap: 5px; }
+  .appeal-list-tools > .appeal-list-refresh { width: 34px; }
+  .appeal-list-tools .appeal-total { white-space: nowrap; font-size: 10px; }
+
+  .appeal-detail-header { gap: 6px; }
+  .appeal-detail-header h1 { flex: 0 0 100%; margin-bottom: 4px; }
+  .appeal-detail-header > .appeal-badges { order: 2; margin-left: auto; }
+  .appeal-detail-header > .owner-appeal-header-actions { display: contents; }
+  .appeal-detail-header :is(.owner-appeal-back, .appeal-copy-link, .owner-appeal-header-actions button) {
+    flex: 0 0 36px; width: 36px; height: 40px; padding: 0;
+  }
+  .appeal-detail-header .appeal-action-text { display: none; }
+  .appeal-detail-header .appeal-mobile-icon { display: block; }
+  .owner-appeals .appeal-detail-header .appeal-badges .badge { max-width: 120px; padding: 4px 7px !important; font-size: 10px; }
+
+  .owner-appeals .owner-appeal-card { position: relative; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .owner-appeals .owner-appeal-card.appeal-operator-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .owner-appeals .owner-appeal-card > .appeal-badges { position: absolute; grid-area: auto; top: 9px; right: 10px; }
+  .owner-appeals .owner-appeal-card > .appeal-badges .badge { min-width: 0; max-width: 105px; padding: 4px 7px; font-size: 10px; }
+  .owner-appeals .appeal-list-main { grid-template-columns: 48px minmax(0, 1fr); gap: 8px; align-items: start; }
+  .owner-appeals .appeal-list-main > .appeal-list-photo { height: 58px; min-height: 0; }
+  .owner-appeals .owner-appeal-card-top { display: grid; gap: 3px; }
+  .owner-appeals .owner-appeal-card-top > strong { min-height: 30px; padding-right: 105px; }
+  .owner-appeals .appeal-list-meta { flex-wrap: nowrap; }
+  .owner-appeals .appeal-list-meta > span { min-width: 0; }
+  .owner-appeals .appeal-list-meta > span:nth-child(2) { flex: none; }
+  .owner-appeals .appeal-list-meta > span > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .owner-appeals .appeal-list-field { align-self: start; gap: 2px; font-size: 11px; }
+  .owner-appeals .appeal-list-field > small { font-size: 10px; }
+}
+
+@media (max-width: 370px) {
+  .appeal-header-actions .appeal-header-label { display: none; }
+  .appeal-header-actions .appeal-header-short { display: inline; }
+}

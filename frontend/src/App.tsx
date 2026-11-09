@@ -1,6 +1,11 @@
+import { ResponsePhotoDraftProvider, useResponsePhotoDraft } from './appeals/ResponsePhotoDraft';
+import { MAX_PHOTOS } from './appeals/TaskImageInput';
+import PhotoContextMenu, { type PhotoMenuTarget } from './PhotoContextMenu';
+import ForwardPhotos from './inspection/Forward';
+import TaskPhotoSend, { sendTaskPhotos } from './appeals/TaskPhotoSend';
 import { createContext, lazy, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, CheckCheck, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MapPin, MessageSquare, Newspaper, RefreshCw, ShieldCheck, Users } from 'lucide-react';
 import { api, dateLabel, photoLink, query, reportPhotoLink, shiftDate, statusNames } from './api';
 import type { Filters, Meta, PhotoPage, Report, User } from './types';
@@ -102,6 +107,7 @@ export default function App() {
     <NewsNotificationsProvider key={user.id} enabled={hasPermission(user,'news_view')}>
     <OperatorChatsProvider key={user.id} additionalEndpoint={admin && meta.organization ? '/inspection-admin/unread' : undefined} ownerEndpoint={meta.organization ? '/inspection-admin/owners/unread' : undefined}>
     <PhotoNotificationsProvider key={user.id + ":" + meta.intake_cohort} userId={user.id} canViewPhotos={hasPermission(user,'photos_view')}>
+    <ResponsePhotoDraftProvider key={user.id + '@' + meta.organization?.id}>
     <div className={'app ' + (sidebar.collapsed ? 'sidebar-collapsed' : 'sidebar-expanded')}>
       {!sidebar.collapsed&&<button type="button" className="sidebar-backdrop" aria-label="Закрыть боковую панель" onClick={sidebar.toggle}/>}
       <aside id="workspace-sidebar" ref={sidebar.sidebar} className="sidebar">
@@ -134,7 +140,7 @@ export default function App() {
           <Route path="/spam" element={protectedPage('spam_view',<PhotoList spam/>)}/>
           <Route path="/photos/:id" element={protectedPage('photos_view',<PhotoDetail/>)}/>
           <Route path="/districts" element={protectedPage('districts_view',<DistrictMap/>)}/>
-          <Route path="/appeals" element={meta.organization ? <Suspense fallback={<p className="loading">Открываем обращения…</p>}><OwnerAppeals organization/></Suspense> : denied}/>
+          <Route path="/appeals" element={meta.organization ? <Suspense fallback={<p className="loading">Открываем обращения…</p>}><OwnerAppeals organization canAttachPhotos={hasPermission(user,'photos_view')}/></Suspense> : denied}/>
           <Route path="/inspectors" element={admin && meta.organization ? <LegacyInspectorLink/> : denied}/>
           <Route path="/messages" element={<OperatorChats includeInspectors={admin && !!meta.organization}/>}/>
           <Route path="/chats" element={protectedPage('chats_manage',<Administration key="chats" page="chats"/>)}/>
@@ -154,6 +160,7 @@ export default function App() {
     </div>
     {pathname !== '/messages' && pathname !== '/appeals' && <AppealNotice count={appeals.notice} dismiss={appeals.dismiss}/>}
     {toast&&<div className="toast" role="status"><CircleCheck size={20}/>{toast}<button onClick={()=>setToast('')}>×</button></div>}
+    </ResponsePhotoDraftProvider>
     </PhotoNotificationsProvider>
     </OperatorChatsProvider>
     </NewsNotificationsProvider>
@@ -172,8 +179,8 @@ export function useFilters(review=false,spam=false,today=false,workOnly=false) {
   const filters:Filters={...(workOnly?{work_only:'true'}:{}),...(!review&&!spam&&!params.has('date_from')&&!params.has('date_to')&&!params.has('all_dates')?{date_from:defaultDate,date_to:defaultDate}:{}),...Object.fromEntries(params),...(review?{status:'NEEDS_REVIEW'}:spam?{status:'SPAM'}:{})};
   Object.assign(filters,photoSortForUser(filters,user));
   delete filters.all_dates; delete filters.review; delete filters.spam; delete filters.from_map;
-  delete filters.page; delete filters.anchor_id;
-  const change=(values:Filters)=>{const updated={...filters,...values};if('date_from' in values||'date_to' in values)delete updated.review_day;Object.assign(updated,photoSortForUser(updated,user)); if(!updated.date_from&&!updated.date_to)updated.all_dates='1';setParams(Object.fromEntries(Object.entries(updated).filter(([,v])=>v!=='')));};
+  delete filters.page; delete filters.anchor_id; delete filters.attach_task; delete filters.task_channel; delete filters.attach_reply;
+  const change=(values:Filters)=>{const updated={...filters,...values};if('date_from' in values||'date_to' in values)delete updated.review_day;if('day_review' in values)delete updated.day_ai_only;Object.assign(updated,photoSortForUser(updated,user)); if(!updated.date_from&&!updated.date_to)updated.all_dates='1';setParams(Object.fromEntries(Object.entries({...updated, attach_task: params.get('attach_task') || '', task_channel: params.get('task_channel') || '', attach_reply: params.get('attach_reply') || ''}).filter(([,v])=>v!=='')));};
   return {filters,change};
 }
 
@@ -187,12 +194,14 @@ function Overview() {
   return <><header className="page-header"><div><h1>Обзор работ</h1></div><button className="icon-button" aria-label="Обновить отчёт" onClick={()=>setRevision(x=>x+1)}><RefreshCw size={18}/></button></header><FilterBar filters={filters} change={change} refreshKey={revision}/><ErrorBox error={error}/>{!report&&!error?<p className="loading">Собираем отчёт…</p>:report&&<><ClosedDayUpdates updates={report.day_updates}/><div className="stat-grid">{[['Всего в отчёте',report.total,'',Camera],['Принято системой',report.accepted,'',CircleCheck],['Требуют проверки',counts.NEEDS_REVIEW,'NEEDS_REVIEW',ClipboardCheck],['Отклонено',counts.REJECTED,'REJECTED',ShieldCheck]].map(([label,n,status,Icon],i)=>{const I=Icon as typeof Camera;return <button className={'stat-card stat-'+i} key={label as string} disabled={!canBrowse||!Number(n)} onClick={()=>drill(i===0?{}:i===1?{accepted_only:'true'}:{status:status as string})}><div><span>{label as string}</span><I size={19}/></div><strong>{Number(n).toLocaleString('ru-RU')}</strong><small>{i===0?'Без дублей и пересланных':i===1?'Включая ручную проверку':i===2?'Ожидают решения оператора':'За выбранный период'}</small></button>;})}</div><div className="minor-stats">{[['Дубли','DUPLICATE'],['Пересланные','FORWARDED'],['Ошибки обработки','ERROR'],['В обработке','PROCESSING'],['Ожидают обработки','RECEIVED']].map(([label,code])=><button key={code} disabled={!canBrowse||!counts[code]} onClick={()=>drill({status:code})}>{label}<strong>{counts[code]||0}</strong></button>)}</div><OperatorDayStatus day={dayReviewDate(selection.review_day||selection.date_to||selection.date_from,shiftDate(meta.today,-1))} refreshKey={revision} dateEditable={!selection.date_from||selection.date_from!==selection.date_to}/><WorkDistrictMatrix report={report} meta={meta} filters={filters} canBrowse={canBrowse} open={drill}/>{report.total===0?<Empty>В этой выборке нет фотографий для отчёта. Дубли и пересланные фотографии доступны по отдельным счётчикам.</Empty>:<><div className="two-columns"><section className="panel"><div className="section-title"><h2>По микрорайонам</h2><span>{report.districts.length} территорий</span></div><div className="bar-list">{report.districts.map(d=><button key={d.id} disabled={!canBrowse} onClick={()=>drill({district_id:String(d.id)})}><div><span>{d.name}</span><strong>{d.count}</strong></div><div className="bar"><i style={{width:(d.count/Math.max(...report.districts.map(x=>x.count))*100)+'%'}}/></div></button>)}</div></section><section className="panel"><div className="section-title"><h2>По чатам</h2><MessageSquare size={18}/></div>{report.chats.map(c=><button className="list-row" key={c.id} disabled={!canBrowse} onClick={()=>drill({chat_id:String(c.id)})}><span className="chat-icon"><MessageSquare size={18}/></span><span>{c.name}</span><strong>{c.count}</strong><ChevronRight size={16}/></button>)}</section></div><section className="panel"><div className="section-title"><h2>Чат × микрорайон</h2>{canBrowse&&<span>Нажмите на число, чтобы открыть фотографии</span>}</div><div className="table-scroll"><table><thead><tr><th>Чат</th>{report.districts.map(d=><th key={d.id}>{d.name}</th>)}<th>Всего</th></tr></thead><tbody>{report.chats.map(c=><tr key={c.id}><td>{c.name}</td>{report.districts.map(d=><td key={d.id}><button className="number-link" disabled={!canBrowse} onClick={()=>drill({chat_id:String(c.id),district_id:String(d.id)})}>{report.matrix.find(m=>m.chat_id===c.id&&m.district_id===d.id)?.count||0}</button></td>)}<td><strong>{c.count}</strong></td></tr>)}</tbody></table></div></section><section className="panel"><div className="section-title"><h2>Виды выполненных работ</h2><span>Фотографий</span></div>{report.work_types.map(w=><button className="list-row" key={w.id} disabled={!canBrowse} onClick={()=>drill({work_type:String(w.id)})}><span>{w.name}</span><strong>{w.count}</strong><ChevronRight size={16}/></button>)}</section></>}<p className="footnote">Если дата снимка ещё не распознана, в отчёте используется дата получения. Часовой пояс задан в настройках сервиса. Дубли, пересланные фотографии и спам не включены в отчёты о работах. Дубли и пересланные доступны по отдельным счётчикам.</p></>}</>;
 }
 
-function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boolean}) {
-  const {user,notify}=useApp();
+export function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boolean}) {
+  const {user,notify,meta}=useApp();
   const {filters,change}=useFilters(review,spam,false,true);
   const [params,setParams]=useSearchParams();
   const location=useLocation();const navigate=useNavigate();
-  const position=(location.state as {photoListPosition?:PhotoListPosition}|null)?.photoListPosition;
+  type SelectedPhoto = Pick<Photo, 'id' | 'preview_url'>;
+  const listState=location.state as {photoListPosition?:PhotoListPosition; selectedPhotos?:SelectedPhoto[]}|null;
+  const position=listState?.photoListPosition;
   const requestedPage=photoListPage(params.get('page'));
   const anchorId=photoListAnchor(params.get('anchor_id'),position);
   const [data,setData]=useState<PhotoPage|null>(null),[error,setError]=useState(''),[revision,setRevision]=useState(0);
@@ -219,11 +228,12 @@ function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boolean}) {
     setParams(updated);
   }
   function openPhoto(id:number){
-    const state={photoListPosition:capturePhotoListPosition(id)};
+    const state={photoListPosition:capturePhotoListPosition(id), selectedPhotos:selected};
     // Save the position in the list's own history entry as well, for browser Back.
     const listParams=new URLSearchParams(params);listParams.set('page',String(page));listParams.set('anchor_id',String(id));
     navigate(location.pathname+'?'+listParams.toString(),{replace:true,state});
-    navigate(photoLink(id,{...filters,page:String(page)},review,spam),{state});
+    navigate(photoLink(id,{...filters,page:String(page),
+      ...(task ? {attach_task: String(task), task_channel: channel, ...(reply ? {attach_reply: '1'} : {})} : {})},review,spam),{state});
     window.scrollTo({top:0,behavior:'instant'});
   }
   async function markDefect(photo:Photo,checked:boolean){
@@ -237,6 +247,83 @@ function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boolean}) {
     }catch(e){setError((e as Error).message);throw e;}
     finally{setDefectBusy(null);}
   }
+  const canSendToTask = !!meta.organization;
+  const target = Number(params.get('attach_task'));
+  const task = !review && !spam && canSendToTask && Number.isSafeInteger(target) && target > 0 ? target : null;
+  const channel = params.get('task_channel') === 'inspector' ? 'inspector' : 'executor';
+  const draft = useResponsePhotoDraft();
+  const reply = !!task && params.get('attach_reply') === '1';
+  const response = reply && draft?.current?.appealId === task ? draft.current : null;
+  const selectionLimit = reply ? response ? MAX_PHOTOS - response.files.length - response.operatorPhotos.length
+    - response.sourcePhotos.filter(photo => photo.source === 'chat').length : 0 : MAX_PHOTOS;
+  const [selected, setSelected] = useState<SelectedPhoto[]>(() => listState?.selectedPhotos || response?.sourcePhotos
+    .filter(photo => photo.source === 'general').map(photo => ({id: Number(photo.id), preview_url: photo.url})) || []);
+  const [destination, setDestination] = useState<{kind: 'chat' | 'task'; photos: SelectedPhoto[]} | null>(null);
+  const [selecting, setSelecting] = useState(() => !!listState?.selectedPhotos?.length);
+  const [menu, setMenu] = useState<PhotoMenuTarget | null>(null);
+  const [sending, setSending] = useState(false);
+  const attempt = useRef<{key: string; id: string} | null>(null);
+  const selectionScope = JSON.stringify([task, review, spam, reply]);
+  const previousScope = useRef(selectionScope);
+  useEffect(() => {
+    if (previousScope.current === selectionScope) return;
+    previousScope.current = selectionScope;
+    setSelected([]); setSelecting(false); setDestination(null); setMenu(null);
+  }, [selectionScope]);
+  const ids = selected.map(photo => photo.id);
+  const returnToTask = () => navigate('/appeals?' + query({appeal: String(task), tab: channel}), {replace: true});
+  function sent() {
+    setSelected([]); setSelecting(false); setDestination(null); notify('Фотографии отправлены');
+    if (task) returnToTask();
+  }
+  async function attach() {
+    if (!task || sending) return;
+    if (reply) {
+      if (!draft || !response || selected.length > selectionLimit) return;
+      draft.current = {...response, sourcePhotos: [
+        ...response.sourcePhotos.filter(photo => photo.source !== 'general'),
+        ...selected.flatMap(photo => photo.preview_url ? [{id: photo.id, url: photo.preview_url, source: 'general' as const}] : []),
+      ]};
+      returnToTask();
+      return;
+    }
+    if (!ids.length) return;
+    const key = JSON.stringify([task, channel, ids]);
+    if (attempt.current?.key !== key) attempt.current = {key, id: crypto.randomUUID()};
+    setSending(true); setError('');
+    try {await sendTaskPhotos(task, ids, attempt.current.id, channel); sent();}
+    catch (error) {setError((error as Error).message);}
+    finally {setSending(false);}
+  }
+  function toggle(photo: Photo) {
+    if (sending) return;
+    setSelected(current => current.some(item => item.id === photo.id) ? current.filter(item => item.id !== photo.id)
+      : current.length < selectionLimit ? [...current, photo] : current);
+  }
+  const contextEnabled = !review && !spam && !task;
+  const selection = task || (contextEnabled && selecting) ? {ids: new Set(ids), toggle, limit: selectionLimit} : undefined;
+  const sendControls = task && <section className="panel day-dialog-actions">
+    <span>{reply && !response ? 'Черновик ответа недоступен' : `Выбрано фотографий ${ids.length} из ${selectionLimit}`}</span>
+    <button disabled={sending} onClick={returnToTask}>{reply ? 'Вернуться к ответу' : 'Вернуться в задачу'}</button>
+    <button className="primary" disabled={sending || (reply ? !response : !ids.length)} onClick={() => void attach()}>{reply ? 'Добавить в ответ' : sending ? 'Отправляем…' : 'Отправить в задачу'}</button>
+  </section>;
+  const menuPhotos = selected.length ? selected : menu?.photo.preview_url ? [menu.photo] : [];
+  const dayTitle = filters.review_day && (review ? 'Требуют проверки' : filters.day_ai_only === 'true' ? 'Проверить за нейросетью'
+    : filters.day_review === 'confirmed' ? 'Включены в закрытый день' : filters.day_review === 'pending' ? 'Ещё не включены в закрытый день' : 'Все фотографии дня');
+  const dayChat = meta.chats.find(item => item.max_chat_id === filters.chat_id);
   const archiveTitle=filters.status==='DUPLICATE'?'Дубли':filters.status==='FORWARDED'?'Пересланные фотографии':null;
-  return <><header className="page-header"><div><h1>{review?'Требуют проверки':spam?'Спам':archiveTitle||'Фотографии'}</h1></div><div className="photo-map-actions photo-list-actions"><button aria-label="Открыть на карте" title="Открыть на карте" onClick={()=>navigate('/photo-map?'+query({...filters,...(!filters.date_from&&!filters.date_to?{all_dates:'1'}:{})}))}><MapPin size={18}/><span>На карте</span></button><button onClick={()=>setRevision(x=>x+1)} aria-label="Обновить список"><RefreshCw size={18}/></button></div></header><FilterBar filters={filters} change={change} fixedStatus={review||spam} hideWork={spam} refreshKey={revision}/><PhotoNumberSearch owner={!!user.is_platform_owner} open={id=>navigate(`/photos/${id}?by_number=1&all_dates=1`)}/><ErrorBox error={error}/>{data?<section className="panel photo-panel"><div className="section-title"><h2>{review?'Очередь проверки':spam?'Спам':archiveTitle||'Все фотографии'} <span className="count-pill appeal-count">{data.total}</span></h2></div>{data.items.length===0?<Empty>{review?'В этой выборке нет фотографий, требующих проверки.':'Измените фильтры, чтобы найти нужные фотографии.'}</Empty>:<PhotoTable photos={data.items} openPhoto={openPhoto} focusId={data.focus_id??anchorId} defectBusy={defectBusy} onDefect={markDefect}/>}{data.total>data.page_size&&<div className="pagination"><span>Страница {page} из {Math.max(1,Math.ceil(data.total/data.page_size))}</span><button disabled={page<=1} onClick={()=>setPage(page-1)}><ChevronLeft size={16}/>Назад</button><button disabled={page*data.page_size>=data.total} onClick={()=>setPage(page+1)}>Далее<ChevronRight size={16}/></button></div>}</section>:!error&&<p className="loading">Загружаем фотографии…</p>}</>;
+  return <>{dayTitle && <Link className="back-link" to={'/days?' + query({day: filters.review_day, chat_id: filters.chat_id || ''})}>К проверке дня</Link>}
+  <header className="page-header"><div><h1>{dayTitle || (review?'Требуют проверки':spam?'Спам':archiveTitle||'Фотографии')}</h1>
+    {dayTitle && <p>{dateLabel(filters.review_day)} · {dayChat?.name || 'Все доступные чаты'}</p>}</div><div className="photo-map-actions photo-list-actions"><button aria-label="Открыть на карте" title="Открыть на карте" onClick={()=>navigate('/photo-map?'+query({...filters,...(!filters.date_from&&!filters.date_to?{all_dates:'1'}:{})}))}><MapPin size={18}/><span>На карте</span></button><button onClick={()=>setRevision(x=>x+1)} aria-label="Обновить список"><RefreshCw size={18}/></button></div></header><FilterBar filters={filters} change={change} fixedStatus={review||spam} hideWork={spam} refreshKey={revision}/><PhotoNumberSearch owner={!!user.is_platform_owner} open={id=>task ? openPhoto(id) : navigate(`/photos/${id}?by_number=1&all_dates=1`)}/><ErrorBox error={error}/>{sendControls}
+  {contextEnabled && menu && <PhotoContextMenu target={menu} count={menuPhotos.length} selecting={selecting}
+    canSelect={!!menu.photo.preview_url && (selected.length < 10 || ids.includes(menu.photo.id))}
+    canSendToTask={canSendToTask} close={() => setMenu(null)}
+    select={() => {setSelecting(true); if (!ids.includes(menu.photo.id)) toggle(menu.photo);}}
+    cancel={() => {setSelected([]); setSelecting(false);}}
+    forward={kind => setDestination({kind, photos: menuPhotos})}/>}
+  {destination?.kind === 'task' && <TaskPhotoSend ids={destination.photos.map(photo => photo.id)} close={() => setDestination(null)} sent={sent}/>}
+  {destination?.kind === 'chat' && <ForwardPhotos photos={destination.photos.map(photo => ({...photo, organization_id: user.role === 'ADMIN_OPERATOR' ? meta.organization?.id : undefined}))}
+    base={user.role === 'ADMIN_OPERATOR' && canSendToTask ? '/inspection-admin' : undefined}
+    unified={user.role === 'ADMIN_OPERATOR' && canSendToTask} onClose={() => setDestination(null)} onSent={sent}/>}
+  {data?<section className="panel photo-panel"><div className="section-title"><h2>{dayTitle || (review?'Очередь проверки':spam?'Спам':archiveTitle||'Все фотографии')} <span className="count-pill appeal-count">{data.total}</span></h2></div>{data.items.length===0?<Empty>{review?'В этой выборке нет фотографий, требующих проверки.':'Измените фильтры, чтобы найти нужные фотографии.'}</Empty>:<PhotoTable selection={selection} onPhotoMenu={contextEnabled ? setMenu : undefined} photos={data.items} openPhoto={openPhoto} focusId={data.focus_id??anchorId} defectBusy={defectBusy} onDefect={markDefect}/>}{data.total>data.page_size&&<div className="pagination"><span>Страница {page} из {Math.max(1,Math.ceil(data.total/data.page_size))}</span><button disabled={page<=1} onClick={()=>setPage(page-1)}><ChevronLeft size={16}/>Назад</button><button disabled={page*data.page_size>=data.total} onClick={()=>setPage(page+1)}>Далее<ChevronRight size={16}/></button></div>}</section>:!error&&<p className="loading">Загружаем фотографии…</p>}</>;
 }

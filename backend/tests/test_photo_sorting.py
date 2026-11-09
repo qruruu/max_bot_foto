@@ -26,11 +26,11 @@ def sorting_api(access_api):
 def test_normal_list_and_next_skip_duplicates_forwarded_and_spam(sorting_api):
     client, _ = sorting_api
     result = client.get('/api/photos').json()
-    assert result['total'] == 2 and [p['id'] for p in result['items']] == [50,10]
-    assert client.get('/api/photos?page_size=1&page=2').json()['items'][0]['id'] == 10
-    assert client.get('/api/photos/60/next').json() == {'id':50}
-    assert client.get('/api/photos/50/next').json() == {'id':10}
-    assert client.get('/api/photos/10/next').json() == {'id':None}
+    assert result['total'] == 2 and [p['id'] for p in result['items']] == [10,50]
+    assert client.get('/api/photos?page_size=1&page=2').json()['items'][0]['id'] == 50
+    assert client.get('/api/photos/20/next').json() == {'id':50}
+    assert client.get('/api/photos/10/next').json() == {'id':50}
+    assert client.get('/api/photos/50/next').json() == {'id':None}
     assert client.get('/api/photos/10/next?status=NEEDS_REVIEW').json() == {'id':50}
 
 
@@ -41,8 +41,8 @@ def test_explicit_status_still_opens_each_separate_archive(sorting_api,status,id
     assert {p['id'] for p in result['items']} == ids
     mapped = client.get('/api/photos/map?work_only=true&status='+status).json()
     assert {p['id'] for p in mapped['items']} == ids
-    latest = max(ids)
-    assert client.get(f'/api/photos/{latest}/next?work_only=true&status='+status).json()['id'] == (min(ids) if len(ids)>1 else None)
+    earliest = min(ids)
+    assert client.get(f'/api/photos/{earliest}/next?work_only=true&status='+status).json()['id'] == (max(ids) if len(ids)>1 else None)
 
 
 @pytest.mark.parametrize('scope', ['', '?work_only=true', '?work_only=false'])

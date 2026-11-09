@@ -18,7 +18,7 @@ beforeEach(() => {
 afterEach(async () => {await act(async () => root.unmount()); element.remove();});
 async function mount(archived = false) {await act(async () => {root.render(<AppealDiscussion endpoint="/inspection/organizations/one/appeals/42" archived={archived}/>); await tick();});}
 
-it('shows staff discussion and a status timeline and retries messages with the same identifier', async () => {
+it('shows only discussion messages and retries messages with the same identifier', async () => {
   await mount(); let sent = false;
   vi.mocked(api).mockImplementation(async (_path, method) => {
     if (method === 'POST' && !sent) {sent = true; throw new TypeError('Connection lost');}
@@ -34,8 +34,8 @@ it('shows staff discussion and a status timeline and retries messages with the s
   expect(posts[0][2]).toEqual(posts[1][2]);
   expect(posts[0][0]).toBe('/inspection/organizations/one/appeals/42/comments');
   expect(element.querySelector('[role=log]')!.textContent).toContain('Проверяю на месте');
-  await act(async () => {element.querySelectorAll<HTMLButtonElement>('[role=tab]')[1].click();});
-  expect(element.querySelector('[role=log]')!.textContent).toContain('Изменён статус · Назначен исполнитель');
+  expect(element.querySelector('[role=log]')!.textContent).not.toContain('Назначен исполнитель');
+  expect(element.textContent).not.toContain('История');
 });
 
 it('keeps archived discussions readable without a send form', async () => {

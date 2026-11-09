@@ -23,9 +23,9 @@ const report = {work_types:[{id:'BINS', name:'Урны', count:3}], districts:[{
 const meta = {work_types:[{code:'BINS',name:'Урны'},{code:'LAWN',name:'Газоны'}],
   districts:[{id:1,name:'1 мкр',active:true},{id:2,name:'2 мкр',active:true}]};
 
-it('includes empty districts and work types with zero counts so missing coverage is visible', () => {
+it('hides rows with no photos and keeps zero cells in other rows', () => {
   const markup = renderToStaticMarkup(<WorkDistrictMatrix report={report} meta={meta} filters={{}} canBrowse open={() => {}}/>);
-  expect(markup).toContain('2 мкр'); expect(markup).toContain('Газоны');
+  expect(markup).toContain('2 мкр'); expect(markup).not.toContain('Газоны');
   expect(markup).toContain('>3</button>'); expect(markup).toContain('>0</span>');
   expect(markup).toContain('Вид работы × микрорайон');
 });
@@ -35,4 +35,11 @@ it('limits matrix axes to selected filters and disables browsing without photo a
     filters={{work_type:'BINS',district_id:'1'}} canBrowse={false} open={() => {}}/>);
   expect(markup).not.toContain('2 мкр'); expect(markup).not.toContain('Газоны');
   expect(markup).toContain('disabled=""');
+});
+
+it('shows an empty state when the selected district has no photos', () => {
+  const markup = renderToStaticMarkup(<WorkDistrictMatrix report={report} meta={meta}
+    filters={{district_id: '2'}} canBrowse open={() => {}}/>);
+  expect(markup).toContain('в таблице нет фотографий');
+  expect(markup).not.toContain('<tbody>');
 });

@@ -94,7 +94,7 @@
   border: 1px solid var(--border);
   border-radius: 8px;
 }
-.chat-compose-row button, .chat-compose-reply button {
+.chat-compose-row > button, .chat-attachment-trigger, .chat-compose-reply button {
   display: inline-grid;
   flex: 0 0 40px;
   width: 40px;
@@ -246,3 +246,19 @@
   .forward-filters button { padding-inline:7px; font-size:var(--ui-meta, 12px); }
   .forward-photo-modal .forward-search input { font-size:16px; }
 }
+
+.chat-attachment-control { position: relative; }
+.chat-attachment-options {
+  position: absolute;
+  z-index: 5;
+  bottom: calc(100% + 6px);
+  left: 0;
+  display: grid;
+  min-width: 150px;
+  padding: 5px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px #0002;
+}
+.chat-attachment-options button { justify-content: flex-start; white-space: nowrap; }

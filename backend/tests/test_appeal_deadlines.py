@@ -39,8 +39,11 @@ def test_deadline_permissions_version_history_reassignment_and_public_privacy(wo
         assert inspectors[0].post(f'/api/inspection/organizations/{scopes[0].id}/appeals/{id}/deadline', json=body).status_code == 403
         past = {**body, 'due_date': (today() - timedelta(days=1)).isoformat()}
         assert owner.post(endpoint + '/deadline', json=past).status_code == 422
-        assert owner.post(endpoint + '/deadline', json=body).status_code == 200
-        assert owner.post(endpoint + '/deadline', json=body).status_code == 409
+        original_task = owner.get(endpoint).json()['task']['id']
+        assignment = {**body, 'operator_id': ids[0]}
+        assert owner.post(endpoint + '/assign', json=assignment).status_code == 200
+        assert owner.get(endpoint).json()['task']['id'] == original_task
+        assert owner.post(endpoint + '/assign', json=assignment).status_code == 409
         assert operators[0].get(endpoint).json()['task']['due_date'] == due
         assert owner.get(base, params={'deadline': 'week'}).json()['total'] == 1
         assert owner.get(base, params={'deadline': 'none'}).json()['total'] == 0
@@ -54,12 +57,22 @@ def test_deadline_permissions_version_history_reassignment_and_public_privacy(wo
         assert detail['task_history'][1]['due_date'] == due
         assert detail['task_history'][1]['status'] == 'CANCELLED'
         assert detail['task_history'][1]['finished_at']
+        patch = {'status': 'ASSIGNED', 'owner_note': 'Проверить срок', 'due_date': due,
+                 'expected_version': detail['version']}
+        assert owner.patch(endpoint, json={**patch, 'due_date': past['due_date']}).status_code == 422
+        assert owner.get(endpoint).json()['owner_note'] == detail['owner_note']
+        assert owner.patch(endpoint, json=patch).status_code == 200
+        updated = owner.get(endpoint).json()
+        assert updated['task']['id'] == detail['task']['id']
+        assert updated['task']['due_date'] == due and updated['owner_note'] == patch['owner_note']
+        assert updated['version'] == detail['version'] + 1
+        assert owner.get(endpoint + '/changes').json()[0]['changes']['due_date'] == [None, due]
         for public in (citizen.get(f'/api/public/appeals/wall/{id}').json(), citizen.get('/api/public/appeals/wall', params={'city': 'Сургут'}).json()):
             assert all(key not in json.dumps(public) for key in ('due_date', 'finished_at', 'operator_name', 'overdue'))
-        response = multipart(operators[0], endpoint + '/result', {'status': 'COMPLETED', 'comment': 'Убрано', 'expected_version': 6})
+        response = multipart(operators[0], endpoint + '/result', {'status': 'COMPLETED', 'comment': 'Убрано', 'expected_version': updated['version']})
         assert response.status_code == 200
         assert owner.get(endpoint).json()['task']['finished_at']
-        assert owner.post(endpoint + '/deadline', json={'due_date': due, 'expected_version': 7}).status_code == 409
+        assert owner.post(endpoint + '/deadline', json={'due_date': due, 'expected_version': updated['version'] + 1}).status_code == 409
 
 
 def test_reports_use_real_tasks_scope_dates_and_late_results(workflow):

@@ -261,6 +261,8 @@ def test_source_filter_separates_signal_and_inspector_in_lists_archives_and_stat
     for id in (task,signal):
         assert multipart(owner,inbox + f'/{id}/close',{'comment':'Решено администратором','expected_version':1},False).status_code == 200
         assert owner.post(inbox + f'/{id}/archive',json={'archived':True,'expected_version':2}).status_code == 200
+        assert inspectors[0].get(checked + f'/{id}').json()['personal_archived'] is False
+        assert inspectors[0].post(checked + f'/{id}/archive', json={'archived': True}).status_code == 200
     for client, endpoint in ((owner,inbox),(inspectors[0],checked)):
         for source, id in (('inspector',task),('signal',signal)):
             assert client.get(endpoint,params={'source':source}).json()['total'] == 0
@@ -270,25 +272,35 @@ def test_source_filter_separates_signal_and_inspector_in_lists_archives_and_stat
 
 @pytest.mark.integration
 def test_admin_assigns_private_task_to_operator_in_own_organization(workflow):
-    owner, scopes, operators, ids, _, inspectors = workflow
+    owner, scopes, operators, ids, addresses, inspectors = workflow
     inbox = scopes[0].prefix + '/api/appeals'
     endpoint = inbox + '/internal-tasks'
     response = owner.get(endpoint + '/options')
     assert response.status_code == 200, response.text
     assert ids[0] in [item['id'] for item in response.json()]
 
+    location = owner.get(endpoint + '/location')
+    assert location.status_code == 200, location.text
+    assert location.json()['organization']['addresses'][0]['id'] == addresses[0]['id']
+    assert operators[0].get(endpoint + '/location').status_code == 403
+
     due_date = str(today() + timedelta(days=2))
     body = {'client_id': str(uuid4()), 'subject': 'Проверить урны', 'description': 'Обойти площадки',
-            'operator_id': ids[0], 'due_date': due_date}
+            'operator_id': ids[0], 'due_date': due_date, 'address_id': addresses[0]['id'],
+            'address': addresses[0]['label'], 'latitude': 61.1, 'longitude': 72.6,
+            'place': 'Возле дома', 'category': 'BIN_EMPTYING'}
     assert multipart(operators[0], endpoint, body).status_code == 403
     assert multipart(owner, endpoint, {**body, 'operator_id': 999999}).status_code == 422
 
+    assert multipart(owner, endpoint, {**body, 'latitude': 60}).status_code == 422
     response = multipart(owner, endpoint, body)
     assert response.status_code == 201, response.text
     task_id = response.json()['id']
     assert multipart(owner, endpoint, body).json() == {'id': task_id}
     detail = operators[0].get(inbox + f'/{task_id}').json()
     assert detail['source'] == 'admin' and detail['status'] == 'ASSIGNED'
+    assert (detail['address'], detail['latitude'], detail['longitude'], detail['place'], detail['category']) == (
+        body['address'], body['latitude'], body['longitude'], body['place'], body['category'])
     assert detail['task']['operator_id'] == ids[0]
     assert detail['task']['due_date'] == due_date
     assert len(detail['photos']) == 1

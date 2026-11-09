@@ -15,14 +15,14 @@ describe('sorting control visibility', () => {
   it('hides the control when permission is absent', () => {
     const html = render();
     expect(html).not.toContain('aria-label="Сортировка"');
-    expect(html).not.toContain('Сначала ранние получения');
+    expect(html).not.toContain('Сначала ранние поступления');
   });
 
-  it('shows the two capture-date choices when the administrator enables the permission', () => {
+  it('shows capture and receipt ordering choices when the administrator enables the permission', () => {
     context.user.permissions=['photos_view','photos_sort'];
     const html = render();
     expect(html).toContain('aria-label="Сортировка"');
-    for (const text of ['Сначала ранние фотографии','Сначала поздние фотографии']) {
+    for (const text of ['Сначала ранние фотографии','Сначала поздние фотографии','Сначала ранние поступления','Сначала поздние поступления']) {
       expect(html).toContain(text);
     }
     expect(html).toContain('value="photo_asc" selected=""');
@@ -34,12 +34,12 @@ describe('sorting control visibility', () => {
   });
 });
 
-it('shows the selected period and keeps active filters reachable from a collapsed summary', () => {
+it('shows the selected period and keeps active filters reachable open by default', () => {
   const html = renderToStaticMarkup(<FilterBar filters={{date_from:'2026-10-13',date_to:'2026-10-19',district_id:'3'}} change={() => {}}/>);
   expect(html).toContain('13.10.2026 – 19.10.2026');
   expect(html).toContain('aria-pressed="true">7 дней');
-  expect(html).toContain('<details class="photo-filter-options">');
-  expect(html).toContain('Фильтры и даты<span class="count-pill">1</span>');
+  expect(html).not.toContain('<summary');
+  expect(html).not.toContain('Фильтры');
   expect(html).toContain('aria-label="Микрорайон"');
 });
 
@@ -49,4 +49,11 @@ it('only shows the combined status when the user opens that selection from a rep
   expect(normal).not.toContain('ACCEPTED_ALL');
   const fromReport = renderToStaticMarkup(<FilterBar filters={{work_only:'true',accepted_only:'true'}} change={() => {}}/>);
   expect(fromReport).toContain('value="ACCEPTED_ALL" selected="">Принято и требует проверки');
+});
+
+it('keeps map filters visible without a separate disclosure row', () => {
+  const html = renderToStaticMarkup(<FilterBar filters={{}} change={() => {}}/>);
+  expect(html).not.toContain('<summary');
+  expect(html).toContain('aria-label="Микрорайон"');
+  expect(html).toContain('aria-label="Чат"');
 });

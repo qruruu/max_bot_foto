@@ -84,7 +84,7 @@
 .photo-period-row .quick-period { flex-wrap: wrap; }
 .photo-period-row .date-switch strong { min-width: 0; }
 .photo-period-row .quick-period [aria-pressed=true] { color: var(--accent, var(--green)); background: var(--accent-surface, #edf4ec); }
-.photo-filter-options > summary, .photo-number-search > summary {
+.photo-number-search > summary {
   display: flex;
   min-height: 42px;
   align-items: center;
@@ -96,12 +96,9 @@
   font-size: var(--ui-body, 14px);
   font-weight: 600;
 }
-.photo-filter-options > summary::-webkit-details-marker,
 .photo-number-search > summary::-webkit-details-marker { display: none; }
-:is(.photo-filter-options, .photo-number-search) .disclosure-chevron { margin-inline-start: auto; color: var(--muted); }
-:is(.photo-filter-options, .photo-number-search)[open] .disclosure-chevron { transform: rotate(180deg); }
-.photo-filter-options[open] > summary { border-bottom: 1px solid var(--border); }
-.photo-filter-options .count-pill { margin-inline-start: 0; }
+.photo-number-search .disclosure-chevron { margin-inline-start: auto; color: var(--muted); }
+.photo-number-search[open] .disclosure-chevron { transform: rotate(180deg); }
 @media (max-width: 600px) {
   .filter-panel .period-row.photo-period-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; padding-inline: 8px; }
   .photo-period-row .date-switch { gap: 6px; justify-content: space-between; }
@@ -112,4 +109,21 @@
   .photo-period-row .export span { display: none; }
   .filter-panel .filters :is(input, select) { height: 40px; font-size: 16px; }
   .filter-panel .filters .counted-select-trigger { height: 40px; font-size: var(--ui-body, 14px); }
+}
+
+.photo-period-dates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: .75rem;
+}
+
+.photo-period-dates label {
+  display: grid;
+  gap: .25rem;
+}
+
+@media (max-width: 600px) {
+  .photo-period-dates { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 8px; }
+  .photo-period-dates label, .photo-period-dates input { min-width: 0; width: 100%; }
 }

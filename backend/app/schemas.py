@@ -158,7 +158,7 @@ class PhotoFilters(BaseModel):
     operator_id: int | None = None
     sender_id: int | None = Field(default=None, ge=0, lt=2**63)
     date_basis: Literal["photo", "received"] = "photo"
-    sort_order: Literal["received_desc", "asc", "desc"] = "received_desc"
+    sort_order: Literal["received_asc", "received_desc", "asc", "desc"] = "asc"
 
     @model_validator(mode="after")
     def validate_range(self):

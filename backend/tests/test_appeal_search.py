@@ -66,6 +66,10 @@ def test_staff_searches_all_pages_dates_and_archive_with_existing_access_boundar
     assert inspectors[1].get(checked, params={'q': 'фонаря'}).status_code == 404
     assert owner.patch(inbox + f'/{id}', json={'status': 'SPAM', 'owner_note': '', 'expected_version': 2}).status_code == 200
     assert owner.post(inbox + f'/{id}/archive', json={'archived': True, 'expected_version': 3}).status_code == 200
+    assert inspectors[0].post(checked + f'/{id}/archive', json={'archived': True}).status_code == 200
+    assert search(operators[0], inbox, 'фонаря')['total'] == 1
+    assert search(operators[0], inbox, 'фонаря', archived=True)['total'] == 0
+    assert operators[0].post(inbox + f'/{id}/archive', json={'archived': True}).status_code == 200
     for client, path in readers:
         assert search(client, path, 'фонаря')['total'] == 0
         assert search(client, path, 'фонаря', archived=True, status='SPAM')['total'] == 1

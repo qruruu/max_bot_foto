@@ -68,8 +68,8 @@ def public_organizations(db):
     return items
 
 
-def organization_appeal_catalog(db, record):
-    item = organization_catalog(record)
+def organization_appeal_catalog(db, record, *, public=True):
+    item = organization_catalog(record, public=public)
     # The questionnaire and map use the same active districts from the tenant database.
     # Keep stable UUIDs for mobile drafts and compatibility with the intake contract.
     return {**item, "addresses": [{"id": territory_choice_id(record.id, area["id"]),
