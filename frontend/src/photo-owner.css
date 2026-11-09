@@ -126,3 +126,5 @@
   }
   .workspace .photos-table :is(.photo-cell-operator, .defect-column) { align-self: stretch; }
 }
+
+.photo-pagination-top { margin: 0 0 12px; padding-top: 0; border-top: 0; }

@@ -7,7 +7,7 @@ import TaskPhotoSend, { sendTaskPhotos } from './appeals/TaskPhotoSend';
 import { createContext, lazy, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, CheckCheck, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MapPin, MessageSquare, Newspaper, RefreshCw, ShieldCheck, Users } from 'lucide-react';
+import { ArrowDownToLine, ArchiveX, Camera, ChartNoAxesCombined, CheckCheck, ChevronRight, CircleCheck, ClipboardCheck, Layers, LogOut, Map, MapPin, MessageSquare, Newspaper, RefreshCw, ShieldCheck, Users } from 'lucide-react';
 import { api, dateLabel, photoLink, query, reportPhotoLink, shiftDate, statusNames } from './api';
 import type { Filters, Meta, PhotoPage, Report, User } from './types';
 import PhotoDetail from './PhotoDetail';
@@ -33,6 +33,7 @@ import type { PhotoListPosition } from './photoNavigation';
 import { canEditPhoto, updatePhotoDefect } from './photoWork';
 import type { Photo } from './types';
 import PhotoTable from './PhotoTable';
+import PhotoPagination from './PhotoPagination';
 import PhotoNumberSearch from './PhotoNumberSearch';
 import './photo-owner.css';
 import useSidebar from './useSidebar';
@@ -327,5 +328,12 @@ export function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boole
   {destination?.kind === 'chat' && <ForwardPhotos photos={destination.photos.map(photo => ({...photo, organization_id: user.role === 'ADMIN_OPERATOR' ? meta.organization?.id : undefined}))}
     base={user.role === 'ADMIN_OPERATOR' && canSendToTask ? '/inspection-admin' : undefined}
     unified={user.role === 'ADMIN_OPERATOR' && canSendToTask} onClose={() => setDestination(null)} onSent={sent}/>}
-  {data?<section className="panel photo-panel"><div className="section-title"><h2>{dayTitle || (review?'Очередь проверки':spam?'Спам':archiveTitle||'Все фотографии')} <span className="count-pill appeal-count">{data.total}</span></h2></div>{data.items.length===0?<Empty>{review?'В этой выборке нет фотографий, требующих проверки.':'Измените фильтры, чтобы найти нужные фотографии.'}</Empty>:<PhotoTable selection={selection} onPhotoMenu={contextEnabled ? setMenu : undefined} photos={data.items} openPhoto={openPhoto} focusId={data.focus_id??anchorId} defectBusy={defectBusy} onDefect={markDefect}/>}{data.total>data.page_size&&<div className="pagination"><span>Страница {page} из {Math.max(1,Math.ceil(data.total/data.page_size))}</span><button disabled={page<=1} onClick={()=>setPage(page-1)}><ChevronLeft size={16}/>Назад</button><button disabled={page*data.page_size>=data.total} onClick={()=>setPage(page+1)}>Далее<ChevronRight size={16}/></button></div>}</section>:!error&&<p className="loading">Загружаем фотографии…</p>}</>;
+  {data ? <section className="panel photo-panel">
+    <div className="section-title"><h2>{dayTitle || (review?'Очередь проверки':spam?'Спам':archiveTitle||'Все фотографии')} <span className="count-pill appeal-count">{data.total}</span></h2></div>
+    <PhotoPagination page={page} pageSize={data.page_size} total={data.total} onPageChange={setPage} position="top"/>
+    {data.items.length === 0
+      ? <Empty>{review ? 'В этой выборке нет фотографий, требующих проверки.' : 'Измените фильтры, чтобы найти нужные фотографии.'}</Empty>
+      : <PhotoTable selection={selection} onPhotoMenu={contextEnabled ? setMenu : undefined} photos={data.items} openPhoto={openPhoto} focusId={data.focus_id ?? anchorId} defectBusy={defectBusy} onDefect={markDefect}/>}
+    <PhotoPagination page={page} pageSize={data.page_size} total={data.total} onPageChange={setPage} position="bottom"/>
+  </section> : !error && <p className="loading">Загружаем фотографии…</p>}</>;
 }

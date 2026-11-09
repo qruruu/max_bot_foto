@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { usePresenceHeartbeat } from '../UserPresence';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { Building2, Camera, ChevronLeft, ChevronRight, Layers, LogOut, Map, MapPin, MessageSquare, QrCode, RefreshCw, Users } from 'lucide-react';
+import { Building2, Camera, ChevronRight, Layers, LogOut, Map, MapPin, MessageSquare, QrCode, RefreshCw, Users } from 'lucide-react';
 import { api } from '../api';
 import Login, { signInDestination } from '../Login';
 import type { Meta, User } from '../types';
@@ -21,6 +21,7 @@ import type { InspectionPhotoPosition } from './PhotoDetail';
 import InspectionAccounts from './Accounts';
 import InspectionPhotoTable from './PhotoTable';
 import PhotoNumberSearch from '../PhotoNumberSearch';
+import PhotoPagination from '../PhotoPagination';
 import { capturePhotoListPosition, photoListAnchor, photoListPage, restorePhotoListPosition } from '../photoNavigation';
 import type { PhotoListPosition } from '../photoNavigation';
 import InspectionPhotoMap from './Maps';
@@ -201,9 +202,10 @@ export default function InspectorApp() {
           {dataLoading&&<p className="loading">Загружаем данные…</p>}
           {tab==='photos'&&<>
             <section className="panel photo-panel inspection-photos"><div className="section-title"><h2>Все фотографии <span className="count-pill appeal-count">{photos.total}</span></h2><span>Закрытые дни</span></div>
+              <PhotoPagination page={photos.page} pageSize={photos.page_size} total={photos.total} onPageChange={value=>update('page',String(value))} position="top"/>
               {photos.items.length>0&&<InspectionPhotoTable photos={photos.items} openPhoto={openPhoto} focusId={photos.focus_id} workTypes={meta.work_types}/>}
               {!photos.items.length&&!dataLoading&&<p className="empty">За выбранный период нет фотографий закрытых дней.</p>}
-              {photos.total>photos.page_size&&<div className="pagination"><span>Страница {photos.page} из {Math.max(1,Math.ceil(photos.total/photos.page_size))}</span><button disabled={photos.page<=1} onClick={()=>update('page',String(photos.page-1))}><ChevronLeft size={16}/>Назад</button><button disabled={photos.page*photos.page_size>=photos.total} onClick={()=>update('page',String(photos.page+1))}>Далее<ChevronRight size={16}/></button></div>}
+              <PhotoPagination page={photos.page} pageSize={photos.page_size} total={photos.total} onPageChange={value=>update('page',String(value))} position="bottom"/>
             </section></>}
           {tab==='photo-map'&&<InspectionPhotoMap key={org} base={base} filters={filterQuery} meta={meta} revision={revision} active={!viewingPhoto} openPhoto={openPhoto} mapLink={sectionLink('photo-map')} listLink={sectionLink('photos')}/>}
         </>}
