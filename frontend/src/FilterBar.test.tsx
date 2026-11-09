@@ -51,9 +51,11 @@ it('only shows the combined status when the user opens that selection from a rep
   expect(fromReport).toContain('value="ACCEPTED_ALL" selected="">Принято и требует проверки');
 });
 
-it('keeps map filters visible without a separate disclosure row', () => {
-  const html = renderToStaticMarkup(<FilterBar filters={{}} change={() => {}}/>);
+it('shows map filters and starts loading their counts without a button', () => {
+  const html = renderToStaticMarkup(<FilterBar filters={{}} change={() => {}} mapView/>);
   expect(html).not.toContain('<summary');
+  expect(html).not.toContain('Загрузить количества');
+  expect(html).toContain('aria-busy="true"');
   expect(html).toContain('aria-label="Микрорайон"');
   expect(html).toContain('aria-label="Чат"');
 });

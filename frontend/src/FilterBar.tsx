@@ -22,21 +22,17 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
   const canSort = hasPermission(user, 'photos_sort');
   const sortValue = photoSortValue(photoSortForUser(filters, user));
   const key = query(filters);
-  const [countRequest, setCountRequest] = useState('');
-  const countKey = refreshKey + ':' + key;
-  const fetchCounts = !mapView || countRequest === countKey;
   const [loaded, setLoaded] = useState<{key: string; counts: FilterCounts} | null>(null);
   const [error, setError] = useState(''), [retry, setRetry] = useState(0);
-  const counts = fetchCounts && loaded?.key === key ? loaded.counts : undefined;
+  const counts = loaded?.key === key ? loaded.counts : undefined;
   useEffect(() => {
-    if (!fetchCounts) return;
     const controller = new AbortController();
     setLoaded(null); setError('');
     api<FilterCounts>((mapView ? '/photos/map-filter-counts?' : '/photos/filter-counts?') + key, 'GET', undefined, controller.signal)
       .then(value => {if (!controller.signal.aborted) setLoaded({key, counts: value});})
       .catch(e => {if (!controller.signal.aborted) setError(e.message);});
     return () => controller.abort();
-  }, [key, refreshKey, retry, mapView, fetchCounts]);
+  }, [key, refreshKey, retry, mapView]);
   const label = (name: string, facet: keyof FilterCounts, value?: string) => filterOptionLabel(name, counts?.[facet], value);
   const workOptions = [{value:'',name:'Все виды работ',description:''}, {value:'NONE',name:'Не определён',description:''}, ...meta.work_types.map(work => ({value:work.code,name:work.name,description:work.description||''}))]
     .map(option => ({value:option.value,name:option.name,description:option.description,label:label(option.name,'work_type',option.value||undefined),
@@ -52,7 +48,7 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
       {hasPermission(user, 'reports_export') && <a className="button export" href={apiUrl('/export.xlsx?' + key)}
         aria-label="Скачать Excel" title="Скачать Excel"><ArrowDownToLine size={16}/><span>Скачать Excel</span></a>}
     </PhotoPeriod>
-    <div className="filters" aria-busy={fetchCounts && !counts && !error}>
+    <div className="filters" aria-busy={!counts && !error}>
       <label>Микрорайон<select aria-label="Микрорайон" value={filters.district_id || ''} onChange={e => change({district_id: e.target.value})}>
         <option value="">{label('Все микрорайоны', 'district_id')}</option>
         <option value="0">{label('Не определён', 'district_id', '0')}</option>
@@ -88,7 +84,6 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
       </select></label>}
     </div>
 
-    {mapView && !fetchCounts && <button type="button" onClick={() => setCountRequest(countKey)}>Загрузить количества и отправителей</button>}
-    {fetchCounts && error && <p className="hint filter-counts-error" role="status">Не удалось обновить количество фото. <button type="button" className="text-button" onClick={() => setRetry(value => value + 1)}>Повторить</button></p>}
+    {error && <p className="hint filter-counts-error" role="status">Не удалось обновить количество фото. <button type="button" className="text-button" onClick={() => setRetry(value => value + 1)}>Повторить</button></p>}
   </div>;
 }
