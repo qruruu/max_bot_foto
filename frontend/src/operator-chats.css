@@ -27,6 +27,7 @@
 .operator-message-bubble { min-width: 0; padding: 8px 11px 5px; border-radius: 12px 12px 12px 3px; background: #fff; border: 1px solid var(--border); }
 .operator-message.own .operator-message-bubble { background: #e6f1e9; border-color: #dce9de; border-radius: 12px 12px 3px 12px; }
 .operator-message-bubble p { margin: 0; font-size: var(--ui-body, 14px); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.operator-message-bubble p a { color:var(--green); text-decoration:underline; text-underline-offset:3px; }
 .operator-message-meta { display: flex; justify-content: flex-end; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; margin-top: 5px; }
 .operator-message-meta > span { display: flex; }
 .operator-message-meta .message-read { color: var(--green); }

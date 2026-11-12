@@ -5,6 +5,7 @@ import { ErrorBox } from './App';
 import Avatar from './Avatar';
 import UserPresence from './UserPresence';
 import ChatComposer from './ChatComposer';
+import LinkedText from './LinkedText';
 import { ChatMessageContent, revealMessage } from './ChatMessageContent';
 import ChatMessageMenu from './ChatMessageMenu';
 import { ChatSelectionBar, useChatSelection } from './ChatSelection';
@@ -86,7 +87,7 @@ export default function ChatPanel(props: Props) {
                   selected={selection.ids.length ? selection.ids.includes(message.id) : undefined}>
                   <div className={'operator-message-bubble' + (message.screenshots?.length && !message.body && !message.attachment ? ' media-only' : '')}>
                     <ChatMessageContent message={message} jump={message.reply && visibleMessageIds.has(message.reply.id) ? id => revealMessage(listRef.current, id) : undefined}/>
-                    {message.attachment}{message.body && <p>{message.body}</p>}
+                    {message.attachment}{message.body && <p><LinkedText>{message.body}</LinkedText></p>}
                     <div className="operator-message-meta">
                       <time dateTime={message.created_at}>{messageTime(message.created_at, timezone)}</time>
                       {message.outgoing && <span className={message.read ? 'message-read' : ''} aria-label={message.read ? 'Прочитано' : 'Отправлено'}>
