@@ -1,3 +1,4 @@
+import LinkedText from '../LinkedText';
 import { useEffect, useRef, useState } from 'react';
 import { Check, CheckCheck, LockKeyhole, X } from 'lucide-react';
 import { api, ApiError } from '../api';
@@ -132,7 +133,7 @@ export default function AppealDiscussion({endpoint, archived, channel, title = '
                 ? <span className="message-read" aria-label="Прочитано участником" title="Прочитано участником"><CheckCheck size={16}/></span>
                 : <span aria-label="Отправлено" title="Отправлено"><Check size={16}/></span>)}</span></header>
             <ChatMessageContent message={{...item, forwarded: !!item.forwarded_name, screenshots: item.files?.map(file => file.url)}} jump={item.reply && visibleMessageIds.has(item.reply.id) ? id => revealMessage(log.current, id) : undefined}/>
-            {item.comment && <p className="owner-appeal-text">{item.comment}</p>}
+            {item.comment && <p className="owner-appeal-text"><LinkedText>{item.comment}</LinkedText></p>}
           </div>
         </ChatMessageMenu>)}
     </div>

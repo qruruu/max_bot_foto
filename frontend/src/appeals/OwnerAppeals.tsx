@@ -1,3 +1,4 @@
+import LinkedText from '../LinkedText';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
@@ -171,7 +172,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
   const taskAddress = detail && ([detail.city, detail.address === 'Без территории' ? '' : detail.address].filter(Boolean).join(', ') || '—');
   const taskContext = detail && <section className="panel appeal-description-panel appeal-task-context">
     <h3>{detail.source === 'admin' || detail.submitted_by_inspector_name ? taskTitle : 'Описание обращения'}</h3>
-    <p className="owner-appeal-text">{detail.description}</p>
+    <p className="owner-appeal-text"><LinkedText>{detail.description}</LinkedText></p>
     <dl className="appeal-request-facts"><div><dt><MapPin size={18}/>Адрес</dt>
       <dd>{taskAddress}{detail.place && <small>{detail.place}</small>}</dd></div></dl>
   </section>;
@@ -209,7 +210,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
     <dl className="appeal-edit-fields">
       <div><dt>Вид работ</dt><dd>{detail.work_type_name || 'Не назначен'}</dd></div>
       <div><dt>Состояние</dt><dd>{statuses[detail.status] || detail.status}</dd></div>
-      <div><dt>Внутренняя заметка</dt><dd className="owner-appeal-text">{detail.owner_note || '—'}</dd></div>
+      <div><dt>Внутренняя заметка</dt><dd className="owner-appeal-text"><LinkedText>{detail.owner_note || '—'}</LinkedText></dd></div>
     </dl>
   </section> : null;
   const operatorList = data?.can_execute === true;
@@ -317,7 +318,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
           <div className="appeal-request-copy">
             <section className="panel appeal-description-panel"><h3>{detail.source === 'admin' || detail.submitted_by_inspector_name ? taskTitle : 'Описание жителя'}</h3>
               <p className="appeal-source-label">{sourceLabel(detail)}</p>
-              <p className={'owner-appeal-text appeal-description' + (descriptionOpen ? ' is-expanded' : '')}>{detail.description}</p>
+              <p className={'owner-appeal-text appeal-description' + (descriptionOpen ? ' is-expanded' : '')}><LinkedText>{detail.description}</LinkedText></p>
               {detail.description.length > 450 && <button className="appeal-description-toggle" aria-expanded={descriptionOpen} onClick={() => setDescriptionOpen(value => !value)}>{descriptionOpen ? 'Свернуть текст' : 'Показать весь текст'}<ChevronDown size={15}/></button>}
               <dl className="appeal-request-facts">
                 <div><dt><MapPin size={18}/>Адрес:</dt><dd>{taskAddress}{detail.place && <small>{detail.place}</small>}</dd></div>
@@ -328,9 +329,9 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
                 <div><dt><CalendarDays size={18}/>Получено:</dt><dd>{moment(detail.created_at)}{detail.personal_archived && <small>В моём архиве</small>}</dd></div>
               </dl>
             </section>
-            {detail.public_response && hasAppealDecision(detail) && <section className="panel"><h3>Итоговый ответ администратора</h3><p className="owner-appeal-text">{detail.public_response}</p><div className="appeal-evidence">{detail.response_photos?.map(photo => <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Результат рассмотрения"/></a>)}</div></section>}
+            {detail.public_response && hasAppealDecision(detail) && <section className="panel"><h3>Итоговый ответ администратора</h3><p className="owner-appeal-text"><LinkedText>{detail.public_response}</LinkedText></p><div className="appeal-evidence">{detail.response_photos?.map(photo => <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Результат рассмотрения"/></a>)}</div></section>}
             {!!detail.files?.length && <section className="panel"><h3>Документы задачи</h3>{detail.files.map(file => <p key={file.id}><a href={file.url}>{file.name}</a></p>)}</section>}
-            {(detail.parent || !!detail.children?.length) && <section className="panel"><h3>Связанные задачи</h3>{detail.parent && <button onClick={() => openTask(detail.parent!.id)}>Родительская задача {detail.parent.number}</button>}{detail.children?.map(child => <div className="appeal-task" key={child.id}><button onClick={() => openTask(child.id)}>{child.number} · {child.subject}</button><p>{appealStatuses[child.status]}{!readOnly && ' · ' + (child.operator_name || 'Без исполнителя')}{child.due_date ? ' · до ' + new Date(child.due_date + 'T00:00:00').toLocaleDateString('ru-RU') : ''}</p>{(child.result || child.operator_result) && <p className="owner-appeal-text">{child.result || child.operator_result}</p>}</div>)}</section>}
+            {(detail.parent || !!detail.children?.length) && <section className="panel"><h3>Связанные задачи</h3>{detail.parent && <button onClick={() => openTask(detail.parent!.id)}>Родительская задача {detail.parent.number}</button>}{detail.children?.map(child => <div className="appeal-task" key={child.id}><button onClick={() => openTask(child.id)}>{child.number} · {child.subject}</button><p>{appealStatuses[child.status]}{!readOnly && ' · ' + (child.operator_name || 'Без исполнителя')}{child.due_date ? ' · до ' + new Date(child.due_date + 'T00:00:00').toLocaleDateString('ru-RU') : ''}</p>{(child.result || child.operator_result) && <p className="owner-appeal-text"><LinkedText>{child.result || child.operator_result}</LinkedText></p>}</div>)}</section>}
             {processingSummary}
             {!readOnly && <TaskChanges key={detail.id + ':' + detail.version} endpoint={endpoint + '/' + detail.id}/>}
           </div>

@@ -87,6 +87,7 @@
 .appeal-request-copy,.owner-appeal-photos { display:grid; gap:10px; min-width:0; }
 .appeal-request-layout h3 { font-size:12px; margin:0 0 10px; }
 .owner-appeal-text { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; }
+.owner-appeal-text a { color:var(--appeal-link,var(--green)); text-decoration:underline; text-underline-offset:3px; }
 .appeal-description { font-size:var(--ui-body, .875rem); margin:0; }
 .appeal-description:not(.is-expanded) { display:-webkit-box; -webkit-line-clamp:7; -webkit-box-orient:vertical; overflow:hidden; }
 .appeal-description-toggle { display:flex; align-items:center; gap:7px; border:0; padding:5px 0; margin:8px 0 0; background:transparent; color:var(--appeal-link) !important; font-size:12px; }

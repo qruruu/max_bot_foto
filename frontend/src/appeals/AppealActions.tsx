@@ -1,3 +1,4 @@
+import LinkedText from '../LinkedText';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '../api';
@@ -121,7 +122,7 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
   </div>;
   const tasks = <>
     {taskContext}
-    {!!appeal.children?.length && <section className="appeal-task"><h3>Подзадачи · {appeal.children.length}</h3>{appeal.children.map(child => <article className="appeal-subtask-row" key={child.id}><button onClick={() => openTask?.(child.id)}>{child.number} · {child.subject}</button><p>{appealStatuses[child.status]}{!readOnly && ' · ' + child.operator_name}</p>{!readOnly && child.due_date && <small className="hint">Срок: {new Date(child.due_date + 'T00:00:00').toLocaleDateString('ru-RU')}</small>}{(child.result || child.operator_result) && <p className="owner-appeal-text">{child.result || child.operator_result}</p>}</article>)}</section>}
+    {!!appeal.children?.length && <section className="appeal-task"><h3>Подзадачи · {appeal.children.length}</h3>{appeal.children.map(child => <article className="appeal-subtask-row" key={child.id}><button onClick={() => openTask?.(child.id)}>{child.number} · {child.subject}</button><p>{appealStatuses[child.status]}{!readOnly && ' · ' + child.operator_name}</p>{!readOnly && child.due_date && <small className="hint">Срок: {new Date(child.due_date + 'T00:00:00').toLocaleDateString('ru-RU')}</small>}{(child.result || child.operator_result) && <p className="owner-appeal-text"><LinkedText>{child.result || child.operator_result}</LinkedText></p>}</article>)}</section>}
     {appeal.parent_id && !appeal.parent && <p className="hint">Подзадача обращения ОБ-{String(appeal.parent_id).padStart(6, '0')}</p>}
     {!execute && !!appeal.submitted_by_inspector_name && <section className="appeal-task"><h3>{readOnly ? 'Срок задачи' : 'Срок от проверяющего'}</h3>
       <p>{appeal.inspector_due_date ? new Date(appeal.inspector_due_date + 'T00:00:00').toLocaleDateString('ru-RU') : 'Без срока'}</p>
@@ -142,8 +143,8 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
     </details>}
     {appeal.task && <section className="panel appeal-work-card">{!execute && <><h3>Исполнитель: {appeal.task.operator_name}</h3><p className="hint">{appealStatuses[appeal.task.status]}</p></>}
       <p className="appeal-task-deadline">Срок исполнения: <strong>{appeal.task.due_date ? new Date(appeal.task.due_date + 'T00:00:00').toLocaleDateString('ru-RU') : 'Не установлен'}</strong></p>
-      {appeal.task.instruction && <><strong>Комментарий к задаче</strong><p className="owner-appeal-text">{appeal.task.instruction}</p>{!execute && <small className="hint">Виден администратору и исполнителю.</small>}</>}
-      {appeal.task.result_comment && <><h4>Результат исполнителя</h4><p className="owner-appeal-text">{appeal.task.result_comment}</p></>}
+      {appeal.task.instruction && <><strong>Комментарий к задаче</strong><p className="owner-appeal-text"><LinkedText>{appeal.task.instruction}</LinkedText></p>{!execute && <small className="hint">Виден администратору и исполнителю.</small>}</>}
+      {appeal.task.result_comment && <><h4>Результат исполнителя</h4><p className="owner-appeal-text"><LinkedText>{appeal.task.result_comment}</LinkedText></p></>}
       {!!appeal.task.photos.length && <div className="appeal-evidence">{appeal.task.photos.map(photo => <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Фото результата исполнителя"/></a>)}</div>}
     </section>}
     {workflowActions()}
@@ -161,10 +162,10 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
         <button className="primary" disabled={busy || !comment.trim() || !files.length || files.length > MAX_PHOTOS} onClick={() => void send('/result', upload({status: result, comment}))}>{preparing ? 'Подготавливаем фото…' : busy ? 'Отправляем…' : 'Передать результат администратору'}</button>
       </>}
     </section>}
-    {manage && !!appeal.task_history?.length && <details><summary>История назначений ({appeal.task_history.length})</summary>{appeal.task_history.map(task => <section className="appeal-task" key={task.id}><strong>{task.operator_name} · {appealStatuses[task.status]}</strong>{task.due_date && <p>Срок: {new Date(task.due_date + 'T00:00:00').toLocaleDateString('ru-RU')}</p>}<p className="owner-appeal-text">{task.instruction}</p><p className="owner-appeal-text">{task.result_comment}</p></section>)}</details>}
+    {manage && !!appeal.task_history?.length && <details><summary>История назначений ({appeal.task_history.length})</summary>{appeal.task_history.map(task => <section className="appeal-task" key={task.id}><strong>{task.operator_name} · {appealStatuses[task.status]}</strong>{task.due_date && <p>Срок: {new Date(task.due_date + 'T00:00:00').toLocaleDateString('ru-RU')}</p>}<p className="owner-appeal-text"><LinkedText>{task.instruction}</LinkedText></p><p className="owner-appeal-text"><LinkedText>{task.result_comment}</LinkedText></p></section>)}</details>}
   </>;
   const decisions = <>
-    {appeal.public_response && hasAppealDecision(appeal) && <section className="appeal-task"><h3>{appeal.is_public === false ? 'Ответ организации в «Метке»' : 'Ответ организации на стене'}</h3><p className="owner-appeal-text">{appeal.public_response}</p><div className="appeal-evidence">{appeal.response_photos?.map(photo => <a href={photo.url} key={photo.id} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Результат рассмотрения"/></a>)}</div></section>}
+    {appeal.public_response && hasAppealDecision(appeal) && <section className="appeal-task"><h3>{appeal.is_public === false ? 'Ответ организации в «Метке»' : 'Ответ организации на стене'}</h3><p className="owner-appeal-text"><LinkedText>{appeal.public_response}</LinkedText></p><div className="appeal-evidence">{appeal.response_photos?.map(photo => <a href={photo.url} key={photo.id} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Результат рассмотрения"/></a>)}</div></section>}
   </>;
   return <div className="appeal-workflow">
     {manage && inspectorDiscussion ? <>
