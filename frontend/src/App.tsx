@@ -343,7 +343,7 @@ export function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boole
     setDownloading(true); setError('');
     try {await downloadPhotos({ids: photos.map(photo => photo.id)}, message => {
       setError(message); setDownloadMessage('');
-    }, state => setDownloadMessage(state === 'queued' ? 'Запрос принят. Скачивание начнётся автоматически, когда освободится место.'
+    }, state => setDownloadMessage(state === 'queued' ? 'Подготавливаем скачивание…'
       : state === 'streaming' ? 'Фотографии скачиваются. Прогресс можно посмотреть в загрузках браузера.' : 'Скачивание завершено.'));}
     catch (error) {setError((error as Error).message);}
     finally {setDownloading(false);}

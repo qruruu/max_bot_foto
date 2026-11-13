@@ -243,3 +243,68 @@ def test_selection_growth_cannot_bypass_fifty_photo_limit(selection_db, monkeypa
     assert error.value.status_code == 400
     assert '50' in error.value.detail
     assert photo_downloads.read_ticket(token, photo_downloads.ticket_owner(request, user))['state'] == 'failed'
+
+
+@pytest.mark.parametrize("count", [1, 5, 50])
+def test_download_through_real_http_middleware(selection_db, monkeypatch, count):
+    import asyncio
+    import io
+    from zipfile import ZipFile
+
+    import httpx
+    from fastapi import Request
+
+    from app import photo_downloads
+    from app.api import app
+    from app.auth import current_user
+    from app.config import settings
+    from app.db import get_db
+
+    db, add = selection_db
+    for id in range(1, count + 1):
+        add(id)
+    db.commit()
+    engine = db.get_bind()
+    directory = settings().data_dir / 'previews'
+    directory.mkdir(parents=True)
+    for id in range(1, count + 1):
+        (directory / f'{id}.jpg').write_bytes(f'jpeg-{id}'.encode())
+    user = SimpleNamespace(id=1, active=True, role='ADMIN_OPERATOR')
+
+    def login(request: Request):
+        request.state.login_session = SimpleNamespace(token_hash='session')
+        return user
+
+    def database():
+        with Session(engine) as session:
+            yield session
+
+    class ReadSession(Session):
+        def get(self, model, key, *args, **kwargs):
+            from app.models import User
+            return user if model is User else super().get(model, key, *args, **kwargs)
+
+    monkeypatch.setattr(photo_downloads, 'Session', ReadSession)
+    app.dependency_overrides[current_user] = login
+    app.dependency_overrides[get_db] = database
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://testserver') as client:
+            created = await client.post('/api/photos/downloads', json={'ids': list(range(1, count + 1))})
+            assert created.status_code == 200, created.text
+            ticket = created.json()
+            async with asyncio.timeout(3):
+                response = await client.get(ticket['url'])
+            assert response.status_code == 200
+            if count == 1:
+                assert response.content == b'jpeg-1'
+            else:
+                with ZipFile(io.BytesIO(response.content)) as archive:
+                    assert len(archive.namelist()) == count
+                    assert archive.testzip() is None
+            status = await client.get('/api' + ticket['status_url'])
+            assert status.json() == {'state': 'finished'}
+    try:
+        asyncio.run(run())
+    finally:
+        app.dependency_overrides.clear()

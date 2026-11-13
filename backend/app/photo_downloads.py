@@ -91,6 +91,7 @@ class PhotoDownloadAdmission:
         lease = None
         entered = False
         dispatched = False
+        disconnect_scope = CancelScope()
 
         async def enter():
             nonlocal lease, entered
@@ -104,9 +105,10 @@ class PhotoDownloadAdmission:
                         await asyncio.sleep(0.25)
 
         async def disconnected():
-            while True:
-                if (await receive())["type"] == "http.disconnect":
-                    return
+            with disconnect_scope:
+                while not disconnect_scope.cancel_called:
+                    if (await receive())["type"] == "http.disconnect":
+                        return
 
         start = asyncio.create_task(enter())
         disconnect = asyncio.create_task(disconnected()) if downloading else None
@@ -119,7 +121,11 @@ class PhotoDownloadAdmission:
                 await start
             # Stop listening before passing receive to the application.
             if disconnect:
-                disconnect.cancel()
+                # BaseHTTPMiddleware's receive wrapper can swallow a one-shot
+                # Task.cancel() when its own task group finishes concurrently.
+                # A dedicated cancellation scope remains cancelled until the
+                # listener exits, rather than waiting for the response it blocks.
+                disconnect_scope.cancel()
                 with suppress(asyncio.CancelledError):
                     await disconnect
             if lease is not None:
@@ -136,9 +142,8 @@ class PhotoDownloadAdmission:
                 raise
             return await JSONResponse({"detail": exc.detail}, exc.status_code, headers=exc.headers)(scope, receive, send)
         finally:
-            for task in (start, disconnect):
-                if task:
-                    task.cancel()
+            start.cancel()
+            disconnect_scope.cancel()
             with CancelScope(shield=True):
                 await asyncio.gather(*(task for task in (start, disconnect) if task), return_exceptions=True)
             if lease is not None:
