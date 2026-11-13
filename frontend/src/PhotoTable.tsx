@@ -6,6 +6,7 @@ import { canEditPhoto } from './photoWork';
 import type { PhotoMenuTarget } from './PhotoContextMenu';
 import type { Photo } from './types';
 import WorkTypeHint from './WorkTypeHint';
+import { MAX_DOWNLOAD_PHOTOS } from './photoLimits';
 
 export default function PhotoTable({photos, openPhoto, focusId, defectBusy = null, onDefect, selection, onPhotoMenu}: {
   photos: Photo[];
@@ -33,7 +34,7 @@ export default function PhotoTable({photos, openPhoto, focusId, defectBusy = nul
         onPhotoMenu({photo, x: bounds.left + 12, y: bounds.top + 12, row: event.currentTarget});
       } : undefined}>
       {selection && <td className="photo-cell-select"><label><input type="checkbox" aria-label={'Выбрать фото №' + photo.id} checked={selection.ids.has(photo.id)}
-        disabled={!photo.preview_url || (selection.ids.size >= (selection.limit ?? 10) && !selection.ids.has(photo.id))} onChange={() => selection.toggle(photo)}/><span className="photo-mobile-field" aria-hidden="true">Выбрать</span></label></td>}
+        disabled={!photo.preview_url || (selection.ids.size >= (selection.limit ?? MAX_DOWNLOAD_PHOTOS) && !selection.ids.has(photo.id))} onChange={() => selection.toggle(photo)}/><span className="photo-mobile-field" aria-hidden="true">Выбрать</span></label></td>}
       <td className="photo-cell-preview"><button className="photo-thumb" aria-label={'Открыть фото №' + photo.id} onClick={() => openPhoto(photo.id)}>{photo.preview_url ? <img src={photo.preview_url} loading="lazy" alt={'Фото №' + photo.id}/> : <Camera size={22}/>}<small>#{photo.id}</small></button></td>
       <td className="photo-cell-date"><span className="photo-capture"><span>{dateLabel(photo.photo_date)}</span><small>{photo.photo_time || 'Время не указано'}</small></span><small className="photo-received-at">Получено {new Date(photo.received_at).toLocaleString('ru-RU')}</small></td>
       <td className="photo-cell-location"><span>{photo.chat_name}</span><small>{photo.district_name || 'Микрорайон не определён'}</small></td>

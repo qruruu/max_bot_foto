@@ -2,6 +2,9 @@ import { ResponsePhotoDraftProvider, useResponsePhotoDraft } from './appeals/Res
 import { usePresenceHeartbeat } from './UserPresence';
 import { MAX_PHOTOS } from './appeals/TaskImageInput';
 import PhotoContextMenu, { type PhotoMenuTarget } from './PhotoContextMenu';
+import { downloadPhotos } from './photoDownload';
+import { MAX_DOWNLOAD_PHOTOS } from './photoLimits';
+import { selectFilteredPhotos, selectionPhotos } from './photoSelection';
 import ForwardPhotos from './inspection/Forward';
 import TaskPhotoSend, { sendTaskPhotos } from './appeals/TaskPhotoSend';
 import { createContext, lazy, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -258,22 +261,29 @@ export function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boole
   const reply = !!task && params.get('attach_reply') === '1';
   const response = reply && draft?.current?.appealId === task ? draft.current : null;
   const selectionLimit = reply ? response ? MAX_PHOTOS - response.files.length - response.operatorPhotos.length
-    - response.sourcePhotos.filter(photo => photo.source === 'chat').length : 0 : MAX_PHOTOS;
-  const [selected, setSelected] = useState<SelectedPhoto[]>(() => listState?.selectedPhotos || response?.sourcePhotos
-    .filter(photo => photo.source === 'general').map(photo => ({id: Number(photo.id), preview_url: photo.url})) || []);
+    - response.sourcePhotos.filter(photo => photo.source === 'chat').length : 0 : task ? MAX_PHOTOS : MAX_DOWNLOAD_PHOTOS;
+  const [selected, setSelected] = useState<SelectedPhoto[]>(() => (listState?.selectedPhotos || response?.sourcePhotos
+    .filter(photo => photo.source === 'general').map(photo => ({id: Number(photo.id), preview_url: photo.url})) || []).slice(0, selectionLimit));
   const [destination, setDestination] = useState<{kind: 'chat' | 'task'; photos: SelectedPhoto[]} | null>(null);
   const [selecting, setSelecting] = useState(() => !!listState?.selectedPhotos?.length);
   const [menu, setMenu] = useState<PhotoMenuTarget | null>(null);
   const [sending, setSending] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadMessage, setDownloadMessage] = useState('');
+  const [selectingAll, setSelectingAll] = useState(false);
+  const selectionRequest = useRef<AbortController | null>(null);
   const attempt = useRef<{key: string; id: string} | null>(null);
-  const selectionScope = JSON.stringify([task, review, spam, reply]);
+  const selectionScope = JSON.stringify([task, review, spam, reply, Object.entries(filters).sort()]);
   const previousScope = useRef(selectionScope);
   useEffect(() => {
     if (previousScope.current === selectionScope) return;
     previousScope.current = selectionScope;
+    selectionRequest.current?.abort(); selectionRequest.current = null; setSelectingAll(false);
     setSelected([]); setSelecting(false); setDestination(null); setMenu(null);
   }, [selectionScope]);
+  useEffect(() => () => selectionRequest.current?.abort(), []);
   const ids = selected.map(photo => photo.id);
+  const selectedCount = ids.length;
   const returnToTask = () => navigate('/appeals?' + query({appeal: String(task), tab: channel}), {replace: true});
   function sent() {
     setSelected([]); setSelecting(false); setDestination(null); notify('Фотографии отправлены');
@@ -299,7 +309,7 @@ export function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boole
     finally {setSending(false);}
   }
   function toggle(photo: Photo) {
-    if (sending) return;
+    if (sending || selectingAll) return;
     setSelected(current => current.some(item => item.id === photo.id) ? current.filter(item => item.id !== photo.id)
       : current.length < selectionLimit ? [...current, photo] : current);
   }
@@ -311,6 +321,36 @@ export function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boole
     <button className="primary" disabled={sending || (reply ? !response : !ids.length)} onClick={() => void attach()}>{reply ? 'Добавить в ответ' : sending ? 'Отправляем…' : 'Отправить в задачу'}</button>
   </section>;
   const menuPhotos = selected.length ? selected : menu?.photo.preview_url ? [menu.photo] : [];
+  function cancelSelection() {
+    selectionRequest.current?.abort(); selectionRequest.current = null;
+    setSelectingAll(false); setSelected([]); setSelecting(false);
+  }
+  async function selectAll() {
+    selectionRequest.current?.abort();
+    const controller = new AbortController(); selectionRequest.current = controller;
+    setSelectingAll(true); setError(''); setMenu(null);
+    try {
+      const result = await selectFilteredPhotos(filters, controller.signal);
+      if (!controller.signal.aborted) {setSelected(selectionPhotos(result.ids.slice(0, selectionLimit))); setSelecting(true);}
+    } catch (error) {
+      if (!controller.signal.aborted) setError((error as Error).message);
+    } finally {
+      if (selectionRequest.current === controller) {selectionRequest.current = null; setSelectingAll(false);}
+    }
+  }
+  async function download(photos = menuPhotos) {
+    if (downloading || !photos.length || photos.length > MAX_DOWNLOAD_PHOTOS) return;
+    setDownloading(true); setError('');
+    try {await downloadPhotos({ids: photos.map(photo => photo.id)}, message => {
+      setError(message); setDownloadMessage('');
+    }, state => setDownloadMessage(state === 'queued' ? 'Подготавливаем скачивание…'
+      : state === 'streaming' ? 'Фотографии скачиваются. Прогресс можно посмотреть в загрузках браузера.' : 'Скачивание завершено.'));}
+    catch (error) {setError((error as Error).message);}
+    finally {setDownloading(false);}
+  }
+  function forwardSelection(kind: 'chat' | 'task') {
+    if (!selectingAll && menuPhotos.length > 0 && menuPhotos.length <= MAX_PHOTOS) setDestination({kind, photos: menuPhotos});
+  }
   const dayTitle = filters.review_day && (review ? 'Требуют проверки' : filters.day_ai_only === 'true' ? 'Проверить за нейросетью'
     : filters.day_review === 'confirmed' ? 'Включены в закрытый день' : filters.day_review === 'pending' ? 'Ещё не включены в закрытый день' : 'Все фотографии дня');
   const dayChat = meta.chats.find(item => item.max_chat_id === filters.chat_id);
@@ -319,17 +359,28 @@ export function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boole
   <header className="page-header"><div><h1>{dayTitle || (review?'Требуют проверки':spam?'Спам':archiveTitle||'Фотографии')}</h1>
     {dayTitle && <p>{dateLabel(filters.review_day)} · {dayChat?.name || 'Все доступные чаты'}</p>}</div><div className="photo-map-actions photo-list-actions"><button aria-label="Открыть на карте" title="Открыть на карте" onClick={()=>navigate('/photo-map?'+query({...filters,...(!filters.date_from&&!filters.date_to?{all_dates:'1'}:{})}))}><MapPin size={18}/><span>На карте</span></button><button onClick={()=>setRevision(x=>x+1)} aria-label="Обновить список"><RefreshCw size={18}/></button></div></header><FilterBar filters={filters} change={change} fixedStatus={review||spam} hideWork={spam} refreshKey={revision}/><PhotoNumberSearch owner={!!user.is_platform_owner} open={id=>task ? openPhoto(id) : navigate(`/photos/${id}?by_number=1&all_dates=1`)}/><ErrorBox error={error}/>{sendControls}
   {contextEnabled && menu && <PhotoContextMenu target={menu} count={menuPhotos.length} selecting={selecting}
-    canSelect={!!menu.photo.preview_url && (selected.length < 10 || ids.includes(menu.photo.id))}
+    canSelect={!!menu.photo.preview_url && !selectingAll && (selectedCount < selectionLimit || ids.includes(menu.photo.id))} downloading={downloading || selectingAll} download={() => void download()}
     canSendToTask={canSendToTask} close={() => setMenu(null)}
-    select={() => {setSelecting(true); if (!ids.includes(menu.photo.id)) toggle(menu.photo);}}
-    cancel={() => {setSelected([]); setSelecting(false);}}
-    forward={kind => setDestination({kind, photos: menuPhotos})}/>}
+    select={() => {setSelecting(true); if (!selection?.ids.has(menu.photo.id)) toggle(menu.photo);}}
+    cancel={cancelSelection}
+    forward={kind => void forwardSelection(kind)}/>}
   {destination?.kind === 'task' && <TaskPhotoSend ids={destination.photos.map(photo => photo.id)} close={() => setDestination(null)} sent={sent}/>}
   {destination?.kind === 'chat' && <ForwardPhotos photos={destination.photos.map(photo => ({...photo, organization_id: user.role === 'ADMIN_OPERATOR' ? meta.organization?.id : undefined}))}
     base={user.role === 'ADMIN_OPERATOR' && canSendToTask ? '/inspection-admin' : undefined}
     unified={user.role === 'ADMIN_OPERATOR' && canSendToTask} onClose={() => setDestination(null)} onSent={sent}/>}
   {data ? <section className="panel photo-panel">
     <div className="section-title"><h2>{dayTitle || (review?'Очередь проверки':spam?'Спам':archiveTitle||'Все фотографии')} <span className="count-pill appeal-count">{data.total}</span></h2></div>
+    {contextEnabled && <section className="day-dialog-actions" aria-label="Выбор и скачивание фотографий">
+      <button disabled={selectingAll || downloading || !data.total} onClick={() => void selectAll()}>Выбрать все</button>
+      {(selecting || selectingAll) && <>
+        <span role="status">{selectingAll ? 'Выбираем фотографии…' : `Выбрано фотографий: ${selectedCount}`}</span>
+        <button disabled={selectingAll || downloading || !selectedCount || selectedCount > MAX_DOWNLOAD_PHOTOS} onClick={() => void download(selected)}>Скачать</button>
+        <button onClick={cancelSelection}>Отменить выбор</button>
+      </>}
+    </section>}
+    {contextEnabled && selecting && selectedCount > MAX_PHOTOS && <p className="hint">Пересылка доступна при выборе не более 10 фотографий</p>}
+    {downloading && <p role="status">Подготавливаем фотографии для скачивания…</p>}
+    {downloadMessage && <p role="status">{downloadMessage}</p>}
     <PhotoPagination page={page} pageSize={data.page_size} total={data.total} onPageChange={setPage} position="top"/>
     {data.items.length === 0
       ? <Empty>{review ? 'В этой выборке нет фотографий, требующих проверки.' : 'Измените фильтры, чтобы найти нужные фотографии.'}</Empty>

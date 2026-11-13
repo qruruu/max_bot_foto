@@ -2,11 +2,14 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, ListChecks, Share2, X } from 'lucide-react';
 import type { Photo } from './types';
+import { MAX_DOWNLOAD_PHOTOS } from './photoLimits';
+import { MAX_PHOTOS } from './appeals/TaskImageInput';
 
 export type PhotoMenuTarget = {photo: Photo; x: number; y: number; row: HTMLTableRowElement};
 
-export default function PhotoContextMenu({target, count, canSelect, selecting, canSendToTask, close, select, cancel, forward}: {
+export default function PhotoContextMenu({target, count, canSelect, selecting, canSendToTask, downloading, download, close, select, cancel, forward}: {
   target: PhotoMenuTarget; count: number; canSelect: boolean; selecting: boolean; canSendToTask: boolean;
+  downloading: boolean; download: () => void;
   close: () => void; select: () => void; cancel: () => void; forward: (destination: 'chat' | 'task') => void;
 }) {
   const menu = useRef<HTMLDivElement>(null);
@@ -37,16 +40,6 @@ export default function PhotoContextMenu({target, count, canSelect, selecting, c
     action();
   }
 
-  function download() {
-    if (!target.photo.preview_url) return;
-    const link = document.createElement('a');
-    link.href = target.photo.preview_url;
-    link.download = 'photo-' + target.photo.id + '.jpg';
-    document.body.append(link);
-    link.click();
-    link.remove();
-  }
-
   return createPortal(<div ref={menu} className="chat-context-menu" role="menu" aria-label="Действия с фотографиями"
     onKeyDown={event => {
       if (event.key === 'Escape' || event.key === 'Tab') {
@@ -63,8 +56,9 @@ export default function PhotoContextMenu({target, count, canSelect, selecting, c
     }}>
     {canSelect && <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(select)}><ListChecks size={16}/>Выбрать</button>}
     {selecting && <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(cancel)}><X size={16}/>Отменить выбор</button>}
-    <button type="button" role="menuitem" tabIndex={-1} disabled={!count} onClick={() => run(() => forward('chat'))}><Share2 size={16}/>Переслать в чат</button>
-    {canSendToTask && <button type="button" role="menuitem" tabIndex={-1} disabled={!count} onClick={() => run(() => forward('task'))}><Share2 size={16}/>Переслать в задачу</button>}
-    <button type="button" role="menuitem" tabIndex={-1} disabled={!target.photo.preview_url} onClick={() => run(download)}><Download size={16}/>Скачать изображение</button>
+    {count <= MAX_PHOTOS && <button type="button" role="menuitem" tabIndex={-1} disabled={!count} onClick={() => run(() => forward('chat'))}><Share2 size={16}/>Переслать в чат</button>}
+    {count <= MAX_PHOTOS && canSendToTask && <button type="button" role="menuitem" tabIndex={-1} disabled={!count} onClick={() => run(() => forward('task'))}><Share2 size={16}/>Переслать в задачу</button>}
+    <button type="button" role="menuitem" tabIndex={-1} disabled={!count || downloading || count > MAX_DOWNLOAD_PHOTOS}
+      onClick={() => run(download)}><Download size={16}/>{count > 1 ? 'Скачать выбранные фотографии' : 'Скачать изображение'}</button>
   </div>, document.body);
 }

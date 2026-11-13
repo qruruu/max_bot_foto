@@ -1,6 +1,7 @@
 import json
 import secrets
 from datetime import timedelta
+from itertools import chain
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
@@ -100,6 +101,23 @@ from app.permissions import (
     has_permission,
     permission_catalog,
 )
+from app.photo_downloads import (
+    MAX_DOWNLOAD_PHOTOS,
+    PhotoArchiveResponse,
+    PhotoDownloadAdmission,
+    PhotoDownloadInput,
+    acquire_download,
+    bounded_selection,
+    consume_ticket,
+    finish_ticket,
+    photo_batch,
+    photo_files,
+    read_ticket,
+    selection_summary,
+    ticket_owner,
+    ticket_write,
+    write_ticket,
+)
 from app.photo_map import PAGE_SIZE as MAP_PAGE_SIZE
 from app.photo_map import PhotoMapAdmission, map_read, viewport_page
 from app.photo_ordering import apply_sort_permission, photo_order, photo_position
@@ -163,6 +181,7 @@ app.add_middleware(SecurityTelemetry)
 app.add_middleware(OrganizationsMiddleware)
 app.add_middleware(PreviewAdmission)
 app.add_middleware(PhotoMapAdmission)
+app.add_middleware(PhotoDownloadAdmission)
 app.add_middleware(AppealBodyLimit)
 Filters = Annotated[PhotoFilters, Query()]
 
@@ -172,7 +191,7 @@ async def security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "same-origin"
-    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN" if "/api/photos/downloads/" in request.url.path else "DENY"
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -316,6 +335,73 @@ def photo_filter_options(db: Db, user: CurrentUser, filters: Filters):
 def photo_map_filter_options(db: Db, user: PhotosReader, filters: Filters):
     with map_read(db):
         return photo_filter_options(db, user, filters)
+
+
+def prepare_photo_selection(body, user, db):
+    if body.filters is not None:
+        body.filters = apply_sort_permission(body.filters, user)
+        check_spam_filter(user, body.filters, db)
+
+
+@app.post("/api/photos/selection")
+def photo_selection(db: Db, user: PhotosReader, body: PhotoDownloadInput):
+    prepare_photo_selection(body, user, db)
+    return bounded_selection(db, user, body)
+
+
+@app.post("/api/photos/downloads")
+def create_photo_download(request: Request, db: Db, user: PhotosReader, body: PhotoDownloadInput):
+    prepare_photo_selection(body, user, db)
+    summary = selection_summary(db, user, body)
+    if not summary["count"]:
+        raise HTTPException(404, "Нет доступных фотографий для скачивания")
+    if summary["count"] > MAX_DOWNLOAD_PHOTOS:
+        raise HTTPException(400, "За один раз можно скачать не более 50 фотографий. Уменьшите выбор.")
+    if body.ids is not None and summary["count"] != len(set(body.ids) - set(body.excluded_ids)):
+        raise HTTPException(409, "Часть выбранных фотографий недоступна. Обновите выбор.")
+    if body.filters is not None:
+        body.filters.snapshot_id = summary["snapshot_id"]
+    with ticket_write():
+        token = write_ticket(ticket_owner(request, user), body)
+    return {"url": workspace_url(f"/api/photos/downloads/{token}"),
+            "status_url": f"/photos/downloads/{token}/status"}
+
+
+@app.get("/api/photos/downloads/{token}/status")
+def photo_download_status(token: str, request: Request, user: PhotosReader):
+    return {"state": read_ticket(token, ticket_owner(request, user))["state"]}
+
+
+@app.get("/api/photos/downloads/{token}")
+def get_photo_download(token: str, request: Request, db: Db, user: PhotosReader):
+    lease = getattr(request.state, "photo_download_lease", None) or acquire_download()
+    consumed = False
+    owner = ticket_owner(request, user)
+    try:
+        body = consume_ticket(token, owner)
+        consumed = True
+        prepare_photo_selection(body, user, db)
+        user_id, engine, directory = user.id, db.get_bind(), settings().data_dir
+        # Return the authentication connection before beginning a potentially slow download.
+        db.close()
+        ids = photo_batch(engine, user_id, body, 0)
+        if len(ids) > MAX_DOWNLOAD_PHOTOS:
+            raise HTTPException(400, "Подборка изменилась. За один раз можно скачать не более 50 фотографий.")
+        # Freeze this small selection before streaming, even if filters change later.
+        body = PhotoDownloadInput(ids=ids)
+        files = photo_files(engine, user_id, body, directory)
+        first = next(files, None)
+        if first is None or not first[1].is_file():
+            raise HTTPException(404, "Фотографии недоступны. Обновите выбор.")
+        second = next(files, None)
+        return PhotoArchiveResponse(chain([first, second], files) if second else (), lease,
+                                    single=first if second is None else None,
+                                    complete=lambda success: finish_ticket(token, owner, success))
+    except BaseException:
+        lease.close()
+        if consumed:
+            finish_ticket(token, owner, False)
+        raise
 
 
 @app.get("/api/photos/arrivals")

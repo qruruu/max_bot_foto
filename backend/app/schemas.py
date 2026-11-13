@@ -175,6 +175,10 @@ class PhotoListFilters(PhotoBrowseFilters):
     anchor_id: int | None = Field(default=None, ge=1)
 
 
+class PhotoSelectionFilters(PhotoBrowseFilters):
+    snapshot_id: int | None = Field(default=None, ge=0)
+
+
 class PhotoMapFilters(PhotoBrowseFilters):
     bounds: str | None = Field(default=None, max_length=120)
     after_id: int = Field(default=0, ge=0)

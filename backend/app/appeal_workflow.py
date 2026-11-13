@@ -16,7 +16,12 @@ from sqlalchemy.orm import Session, load_only
 from starlette.datastructures import UploadFile
 
 from app.appeal_archive import ArchiveInput, set_archived
-from app.appeal_catalog import organization_appeal_catalog, organization_catalog, territory_choice_id, validate_recipient
+from app.appeal_catalog import (
+    organization_appeal_catalog,
+    organization_catalog,
+    territory_choice_id,
+    validate_recipient,
+)
 from app.appeal_events import (
     CommentInput,
     CommentReadInput,
