@@ -12,7 +12,7 @@ class SignalApp extends StatelessWidget {
   final SignalController controller;
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'Сигнал — обращения жителей',
+    title: 'Сигнал — обращения жителей Нефтеюганска',
     debugShowCheckedModeBanner: false,
     theme: signalTheme(),
     locale: const Locale('ru'),
