@@ -27,6 +27,7 @@ jobs:
       - run: uv sync --project backend --frozen --python 3.12
       - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-rus
       - run: uv run --project backend ruff check backend
+      - run: uv run --project backend python -m unittest discover -s ops/backup -p 'test*backup.py'
       - run: uv run --project backend python backend/app/ocr_models.py "$OCR_MODEL_DIR"
       - run: uv run --project backend pytest backend/tests --cov=app --cov-report=term-missing
   frontend:

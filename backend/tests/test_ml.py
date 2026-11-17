@@ -23,6 +23,63 @@ def examples(per_class=60):
     ]
 
 
+def test_shutdown_request_stops_training_before_database_or_torch(monkeypatch):
+    monkeypatch.setattr(ml, "_training_stop_requested", False)
+    monkeypatch.setattr(ml, "engine", lambda: pytest.fail("A stopped trainer must not open the database"))
+    ml.request_training_stop()
+    with pytest.raises(ml.TrainingInterrupted):
+        ml.train_model()
+
+
+def test_trainer_main_propagates_sigterm_to_the_training_module(monkeypatch):
+    import importlib.util
+    import signal
+    import sys
+    from types import SimpleNamespace
+
+    from app import worker
+
+    monkeypatch.setattr(ml, "_training_stop_requested", False)
+    monkeypatch.setattr(ml, "settings", lambda: SimpleNamespace(organizations_enabled=False,
+                                                               ml_check_seconds=60))
+    handlers = {}
+    monkeypatch.setattr(signal, "signal", lambda signum, handler: handlers.setdefault(signum, handler))
+    monkeypatch.setattr(ml, "cleanup_model_files", lambda: None)
+    monkeypatch.setattr(ml, "schedule_training", lambda: None)
+    monkeypatch.setattr(ml.time, "sleep", lambda _: pytest.fail("Stopped trainer must exit its loop"))
+
+    def training_batch(**kwargs):
+        handlers[signal.SIGTERM](signal.SIGTERM, None)
+        with pytest.raises(ml.TrainingInterrupted):
+            ml.check_training_stop()
+        return True
+
+    monkeypatch.setattr(worker, "run_once", training_batch)
+    # Simulate python -m app.ml: the entrypoint and imported training module
+    # are different module instances with separate global variables.
+    spec = importlib.util.spec_from_file_location("trainer_entrypoint_test", ml.__file__)
+    entrypoint = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, entrypoint)
+    spec.loader.exec_module(entrypoint)
+    monkeypatch.setattr(entrypoint, "settings", ml.settings)
+    monkeypatch.setattr(entrypoint, "cleanup_model_files", lambda: None)
+    monkeypatch.setattr(entrypoint, "schedule_training", lambda: None)
+    entrypoint.main()
+
+
+def test_shutdown_interrupts_evaluation_before_loading_a_batch(monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(ml, "_training_stop_requested", True)
+    monkeypatch.setattr(ml, "torch_modules", lambda: (
+        SimpleNamespace(inference_mode=nullcontext), None, None))
+    monkeypatch.setattr(ml, "settings", lambda: SimpleNamespace(ml_batch_size=16))
+    monkeypatch.setattr(ml, "analysis_image", lambda _: pytest.fail("Cancelled evaluation loaded an image"))
+    with pytest.raises(ml.TrainingInterrupted):
+        ml.evaluate(SimpleNamespace(eval=lambda: None), examples()[:1], ml.CODES[:2])
+
+
 def test_holdout_is_stable_across_corrections_and_new_data():
     data = examples()
     old = ml.snapshot(data)

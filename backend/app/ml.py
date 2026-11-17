@@ -29,6 +29,21 @@ log = logging.getLogger(__name__)
 CODES = list(WORK_TYPES)  # Frozen legacy head order; only a fallback for pre-0022 checkpoints.
 ARCHITECTURE = "resnet18-local-v2-short16"
 BACKBONE_URL = "https://download.pytorch.org/models/resnet18-f37072fd.pth"
+_training_stop_requested = False
+
+
+class TrainingInterrupted(RuntimeError):
+    """An orderly shutdown cancels training before a model is activated."""
+
+
+def request_training_stop():
+    global _training_stop_requested
+    _training_stop_requested = True
+
+
+def check_training_stop():
+    if _training_stop_requested:
+        raise TrainingInterrupted("TRAINING_INTERRUPTED")
 
 
 @dataclass(frozen=True)
@@ -76,6 +91,7 @@ def collect_examples(db: Session) -> tuple[list[Example], int]:
     catalog = work_catalog(db)
     examples, missing, labels_by_hash = {}, 0, {}
     for photo_id, sha256, label in rows:
+        check_training_stop()
         labels_by_hash.setdefault(sha256, set()).add(label)
         path = media_path(photo_id, preview=True)
         if label not in catalog or not path.is_file():
@@ -246,6 +262,7 @@ def prepare_backbone() -> Path:
             size = 0
             with temp.open("wb") as out:
                 for chunk in response.iter_bytes(256 * 1024):
+                    check_training_stop()
                     size += len(chunk)
                     if size > 60_000_000:
                         raise RuntimeError("BACKBONE_TOO_LARGE")
@@ -315,6 +332,7 @@ def evaluate(model, examples: list[Example], classes: list[str], codes=None) -> 
     model.eval()
     with torch.inference_mode():
         for start in range(0, len(examples), settings().ml_batch_size):
+            check_training_stop()
             batch = examples[start : start + settings().ml_batch_size]
             images = torch.stack([transform_image(analysis_image(e.path)) for e in batch])
             predictions.extend(model(images).argmax(dim=1).tolist())
@@ -438,6 +456,7 @@ class LocalClassifier:
 
 
 def train_model(force: bool = False):
+    check_training_stop()
     with engine().connect() as lock:
         if not lock.scalar(text("SELECT pg_try_advisory_lock(7005, 1)")):
             lock.commit()
@@ -503,10 +522,12 @@ def train_model(force: bool = False):
                 [p for p in model.parameters() if p.requires_grad], lr=cfg.ml_learning_rate
             )
             for epoch in range(cfg.ml_epochs):
+                check_training_stop()
                 # Keep BatchNorm statistics from the backbone stable on small/operator datasets.
                 model.eval()
                 order = torch.randperm(len(train)).tolist()
                 for start in range(0, len(order), cfg.ml_batch_size):
+                    check_training_stop()
                     indices = order[start : start + cfg.ml_batch_size]
                     batch = torch.stack(
                         [
@@ -530,6 +551,7 @@ def train_model(force: bool = False):
                     }
                     db.commit()
             metrics = evaluate(model, validation, plan["eligible_classes"], codes)
+            check_training_stop()
             supported = supported_classes(metrics)
             incumbent = (
                 evaluate(load_model(active_info[0], active_info[1], active_info[3]), validation,
@@ -558,6 +580,7 @@ def train_model(force: bool = False):
             # Don't activate a model trained from labels changed/deleted while this run was computing.
             with Session(engine()) as db:
                 fresh, _ = collect_examples(db)
+                check_training_stop()
                 fresh_labels = snapshot(fresh)
                 corrected = any(fresh_labels.get(k) != v for k, v in labels.items())
                 if corrected:
@@ -591,8 +614,8 @@ def train_model(force: bool = False):
             if run_id:
                 with Session(engine()) as db:
                     run = db.get(ModelVersion, run_id)
-                    run.status = "ERROR"
-                    run.last_error = type(exc).__name__
+                    run.status = "INTERRUPTED" if isinstance(exc, TrainingInterrupted) else "ERROR"
+                    run.last_error = None if isinstance(exc, TrainingInterrupted) else type(exc).__name__
                     run.finished_at = now()
                     db.commit()
             raise
@@ -606,6 +629,7 @@ def train_model(force: bool = False):
 def main():
     import signal
 
+    from app import ml as trainer_module
     from app.worker import run_once
 
     logging.basicConfig(level=logging.INFO)
@@ -614,6 +638,9 @@ def main():
     def stop(*_):
         nonlocal stopping
         stopping = True
+        # `python -m app.ml` runs as __main__, while run_once imports app.ml.
+        # Set the flag on the module that actually executes the training job.
+        trainer_module.request_training_stop()
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)

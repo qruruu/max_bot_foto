@@ -6,8 +6,9 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/max-foto-yandex-backup verify
-TimeoutStartSec=2h
-TimeoutStopSec=1min
+TimeoutStartSec=3h
+TimeoutStopSec=5min
+KillMode=mixed
 Nice=15
 IOSchedulingClass=idle
 CPUQuota=75%

@@ -93,16 +93,20 @@ class YandexArchiveTests(unittest.TestCase):
     def test_only_read_actions_and_local_destinations_are_allowed(self):
         for action, destination in [('delete', None), ('sync', '/tmp/local'), ('copy', 'other:remote')]:
             with self.subTest(action=action), self.assertRaises(module.BackupError), \
-                    patch.object(module.subprocess, 'run') as run:
+                    patch.object(module, 'run_process') as run:
                 module.YandexBackup.rclone('config', action, 'account:PHOTOS', destination)
                 run.assert_not_called()
 
     def test_remote_errors_do_not_expose_token_or_signed_download_url(self):
         result = subprocess.CompletedProcess([], 1, b'', b'https://private/?token=secret-test-token')
-        with patch.object(module.subprocess, 'run', return_value=result):
+        config = self.state / 'auth' / 'rclone.conf'
+        config.parent.mkdir()
+        config.write_text('token = {"access_token":"secret-test-token"}')
+        with patch.object(module, 'run_process', return_value=result):
             with self.assertRaises(module.BackupError) as raised:
-                module.YandexBackup.rclone('config', 'copy', 'account:PHOTOS', '/tmp/local')
+                module.YandexBackup.rclone(config, 'copy', 'account:PHOTOS', '/tmp/local')
         self.assertNotIn('secret-test-token', str(raised.exception))
+        self.assertNotIn('secret-test-token', (self.state / 'yandex-transfer-error.json').read_text())
 
     def test_restore_detects_corrupted_photo(self):
         (self.state / 'yandex-last-success.json').write_text(json.dumps(
