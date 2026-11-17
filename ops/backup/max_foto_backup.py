@@ -43,11 +43,48 @@ def atomic_json(path, value):
     os.replace(tmp, path)
 
 
+def run_process(args, *, cwd=None, env=None, data=None, output=None,
+                stdin=None, timeout=600, termination_grace=90):
+    """Reap children on every exit, allowing restic to release its S3 lock."""
+    if stdin is not None and data is not None:
+        raise ValueError('Use either stdin or data')
+    process = subprocess.Popen(
+        args, cwd=cwd, env=env, stdin=subprocess.PIPE if data is not None else stdin,
+        stdout=output if output is not None else subprocess.PIPE,
+        stderr=subprocess.PIPE, start_new_session=True)
+    # restic 0.12 handles SIGINT for lock cleanup, but not SIGTERM.
+    stop_signal = signal.SIGINT if Path(args[0]).name == 'restic' else signal.SIGTERM
+    try:
+        stdout, stderr = process.communicate(input=data, timeout=timeout)
+    except BaseException:
+        # Repeated SIGTERM/INT must not interrupt the child's lock cleanup.
+        handlers = {}
+        try:
+            for signum in (signal.SIGTERM, signal.SIGINT):
+                handlers[signum] = signal.signal(signum, signal.SIG_IGN)
+            if process.poll() is None:
+                try:
+                    os.killpg(process.pid, stop_signal)
+                except ProcessLookupError:
+                    pass
+            try:
+                process.communicate(timeout=termination_grace)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.communicate()
+        finally:
+            for signum, handler in handlers.items():
+                signal.signal(signum, handler)
+        raise
+    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+
+
 def command(args, *, cwd=None, env=None, data=None, output=None,
             timeout=600, allowed=(0,)):
-    result = subprocess.run(args, cwd=cwd, env=env, input=data,
-                            stdout=output or subprocess.PIPE,
-                            stderr=subprocess.PIPE, timeout=timeout)
+    result = run_process(args, cwd=cwd, env=env, data=data, output=output, timeout=timeout)
     if result.returncode not in allowed:
         # Commands never contain secrets. Do not include stdout in exceptions.
         error = result.stderr.decode(errors='replace')[-2000:].strip()
@@ -121,9 +158,26 @@ class Backup:
         return env
 
     def restic(self, args, **kwargs):
-        return command(['restic', '-o', 's3.bucket-lookup=dns', '-o',
-                        's3.connections=2'] + args, env=self.restic_env(),
-                       timeout=2700, **kwargs)
+        action = args[0]
+        defaults = {'check': 10800, 'restore': 7200, 'backup': 7200, 'forget': 7200}
+        timeout = kwargs.pop('timeout', self.config.get(
+            'restic_' + action + '_timeout_seconds', defaults.get(action, 600)))
+        started = time.monotonic()
+        print(json.dumps({'time': utcnow(), 'phase': 'restic-' + action,
+                          'event': 'started', 'timeout_seconds': timeout}), file=sys.stderr, flush=True)
+        try:
+            result = command(['restic', '-o', 's3.bucket-lookup=dns', '-o',
+                              's3.connections=2'] + args, env=self.restic_env(),
+                             timeout=timeout, **kwargs)
+        except BaseException:
+            print(json.dumps({'time': utcnow(), 'phase': 'restic-' + action,
+                              'event': 'failed',
+                              'elapsed_seconds': round(time.monotonic() - started, 1)}), file=sys.stderr, flush=True)
+            raise
+        print(json.dumps({'time': utcnow(), 'phase': 'restic-' + action,
+                          'event': 'finished',
+                          'elapsed_seconds': round(time.monotonic() - started, 1)}), file=sys.stderr, flush=True)
+        return result
 
     def containers(self):
         ids = command(['docker', 'ps', '-q', '--filter',
@@ -309,6 +363,21 @@ class Backup:
         atomic_json(self.state / 'last-attempt.json', status)
         print(json.dumps(status), flush=True)
 
+    def verification_database_args(self, name, image, data_dir):
+        data_dir = Path(data_dir)
+        root = (self.state / 'verification').resolve()
+        if (data_dir.is_symlink() or data_dir.resolve() == root
+                or not data_dir.resolve().is_relative_to(root) or ',' in str(data_dir)
+                or not re.fullmatch(r'max-foto-backup-verify-[a-f0-9]{12}', name)):
+            raise BackupError('Verification database must use a private temporary directory')
+        data_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
+        return ['docker', 'run', '-d', '--rm', '--pull=never', '--name', name,
+                '--label', 'max-foto.backup.verify=true', '--network', 'none',
+                '--memory', '1g', '--cpus', '0.5', '--mount',
+                'type=bind,src=' + str(data_dir) + ',dst=/var/lib/postgresql/data',
+                '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', '-e',
+                'POSTGRES_USER=backup_verify', '-e', 'POSTGRES_DB=postgres', image]
+
     def verify(self):
         self.cleanup_verification()
         status = json.loads((self.state / 'last-success.json').read_text())
@@ -322,6 +391,8 @@ class Backup:
             target = Path(temporary)
             try:
                 self.restic(['restore', snapshot, '--target', str(target)])
+                print(json.dumps({'time': utcnow(), 'phase': 'verify-file-checksums',
+                                  'event': 'started'}), flush=True)
                 restored = target / str(self.stage).lstrip('/')
                 checksums = json.loads((restored / 'file-checksums.json').read_text())
                 for relative, expected in checksums['sha256'].items():
@@ -333,14 +404,10 @@ class Backup:
                     if not path.is_symlink() or os.readlink(path) != expected:
                         raise BackupError('Restored symlink mismatch')
                 metadata = json.loads((restored / 'manifest.json').read_text())
-                command(['docker', 'run', '-d', '--rm', '--pull=never', '--name', name,
-                         '--label', 'max-foto.backup.verify=true', '--network', 'none',
-                         '--memory', '768m', '--cpus', '0.5', '--tmpfs',
-                         '/var/lib/postgresql/data:rw,size=384m',
-                         '-e', 'POSTGRES_HOST_AUTH_METHOD=trust',
-                         '-e', 'POSTGRES_USER=backup_verify', '-e',
-                         'POSTGRES_DB=postgres',
-                         metadata['database_image_id']])
+                print(json.dumps({'time': utcnow(), 'phase': 'verify-database-restore',
+                                  'event': 'started'}), flush=True)
+                command(self.verification_database_args(name, metadata['database_image_id'],
+                                                        target / 'verification-postgres-data'))
                 created = True
                 end = time.monotonic() + 90
                 while time.monotonic() < end:
@@ -363,11 +430,11 @@ class Backup:
                 command(['docker', 'exec', name, 'createdb', '-U', 'backup_verify',
                          '--template=template0', self.config['database']])
                 with (restored / 'postgres.dump').open('rb') as stream:
-                    result = subprocess.run(['docker', 'exec', '-i', name,
+                    result = run_process(['docker', 'exec', '-i', name,
                              'pg_restore', '--exit-on-error', '--no-owner',
                              '--no-privileges', '-U', 'backup_verify', '-d',
                              self.config['database']], stdin=stream,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                             output=subprocess.DEVNULL,
                              timeout=600)
                 if result.returncode:
                     raise BackupError('Isolated database restore failed: ' +

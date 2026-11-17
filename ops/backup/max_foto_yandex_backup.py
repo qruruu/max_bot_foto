@@ -11,7 +11,15 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from max_foto_backup import Backup, BackupError, atomic_json, file_hash, interrupted, utcnow
+from max_foto_backup import (
+    Backup,
+    BackupError,
+    atomic_json,
+    file_hash,
+    interrupted,
+    run_process,
+    utcnow,
+)
 
 # Executed inside the existing API container. Tokens go only to a private pipe,
 # then a temporary 0600 rclone config; never to arguments, journals or snapshots.
@@ -110,9 +118,24 @@ class YandexBackup:
         if destination is not None:
             args.append(str(destination))
         args.extend(options)
-        result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=7200)
+        try:
+            result = run_process(args, timeout=7200)
+        except subprocess.TimeoutExpired:
+            raise BackupError(f'Yandex {action} timed out; previous copies kept') from None
         if result.returncode:
-            raise BackupError(f'Yandex {action} failed (code {result.returncode}); previous copies kept')
+            detail = result.stderr.decode(errors='replace')
+            # Preserve actionable diagnostics without OAuth tokens or signed URLs.
+            for token in re.findall(r'"access_token"\s*:\s*"([^"]+)"', Path(config).read_text()):
+                detail = detail.replace(token, '[REDACTED]')
+            detail = re.sub(r'https?://\S+', '[URL]', detail)
+            diagnostic = Path(config).parent.parent / 'yandex-transfer-error.json'
+            atomic_json(diagnostic, {'time': utcnow(), 'action': action,
+                                    'code': result.returncode, 'detail': detail[-16000:]})
+            kinds = [text for text in ('file name too long', '500 Internal Server Error',
+                     '403 Forbidden', '401 Unauthorized', 'directory not found',
+                     'corrupted on transfer', 'no space left on device') if text.lower() in detail.lower()]
+            raise BackupError(f'Yandex {action} failed (code {result.returncode}); '
+                              f'{", ".join(kinds) or "see yandex-transfer-error.json"}; previous copies kept')
         return result.stdout
 
     def capture(self, sources):

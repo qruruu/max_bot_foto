@@ -1,6 +1,7 @@
 """Allow up to ten images per appeal or chat message."""
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "0055"

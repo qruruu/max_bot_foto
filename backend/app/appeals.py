@@ -380,8 +380,12 @@ def edit_appeal(appeal_id: int, body: OwnerEdit, user: AppealReader):
             appeal.resolved_at = None
         deadline_task = None
         if "due_date" in body.model_fields_set:
-            from app.appeal_workflow import (active_executor_task, effective_due_date, update_executor_due_date,
-                                             validate_executor_due_date)
+            from app.appeal_workflow import (
+                active_executor_task,
+                effective_due_date,
+                update_executor_due_date,
+                validate_executor_due_date,
+            )
             deadline_task = active_executor_task(db, appeal)
             validate_executor_due_date(body.due_date, effective_due_date(db, appeal))
             before["due_date"] = deadline_task.due_date

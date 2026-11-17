@@ -1,6 +1,7 @@
 """Give each staff member and inspector a personal appeal archive."""
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "0056"

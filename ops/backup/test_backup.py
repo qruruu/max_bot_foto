@@ -1,7 +1,10 @@
 import importlib.util
 import json
+import os
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -137,6 +140,128 @@ class BackupSafetyTests(unittest.TestCase):
             with self.assertRaisesRegex(module.BackupError, 'outside isolated verification'):
                 self.app.cleanup_verification()
         self.assertFalse(any(call[:2] == ['docker', 'rm'] for call in calls))
+
+    def test_command_timeout_allows_child_to_remove_its_lock(self):
+        ready = self.root / 'ready'
+        released = self.root / 'released'
+        script = '''
+import os, pathlib, signal, sys, time
+ready, released = map(pathlib.Path, sys.argv[1:])
+def stop(signum, frame):
+    released.write_text('lock removed')
+    raise SystemExit(0)
+signal.signal(signal.SIGTERM, stop)
+ready.write_text(str(os.getpid()))
+while True: time.sleep(.02)
+'''
+        with self.assertRaises(subprocess.TimeoutExpired):
+            module.run_process([sys.executable, '-c', script, str(ready), str(released)],
+                               timeout=.8, termination_grace=2)
+        self.assertTrue(released.is_file())
+        with self.assertRaises(ProcessLookupError):
+            os.kill(int(ready.read_text()), 0)
+
+    def test_restic_timeout_uses_sigint_for_old_versions_lock_cleanup(self):
+        ready = self.root / 'restic-ready'
+        released = self.root / 'restic-unlocked'
+        executable = self.root / 'restic'
+        executable.write_text('#!' + sys.executable + '\n' + '''
+import os,pathlib,signal,sys,time
+ready,released=map(pathlib.Path,sys.argv[1:])
+def stop(signum,frame):
+    released.write_text('SIGINT removed repository lock')
+    raise SystemExit(1)
+signal.signal(signal.SIGINT,stop)
+ready.write_text(str(os.getpid()))
+while True:time.sleep(.02)
+''')
+        executable.chmod(0o700)
+        with self.assertRaises(subprocess.TimeoutExpired):
+            module.run_process([str(executable), str(ready), str(released)],
+                               timeout=2, termination_grace=2)
+        self.assertTrue(released.is_file())
+        with self.assertRaises(ProcessLookupError):
+            os.kill(int(ready.read_text()), 0)
+
+    def test_parent_sigterm_waits_for_child_cleanup_and_reaps_it(self):
+        ready = self.root / 'ready'
+        released = self.root / 'released'
+        child = '''
+import os, pathlib, signal, sys, time
+ready, released = map(pathlib.Path, sys.argv[1:])
+def stop(signum, frame):
+    time.sleep(.15)
+    released.write_text('lock removed')
+    raise SystemExit(0)
+signal.signal(signal.SIGTERM, stop)
+ready.write_text(str(os.getpid()))
+while True: time.sleep(.02)
+'''
+        parent = '''
+import signal, sys
+sys.path.insert(0, sys.argv[1])
+from max_foto_backup import BackupError, interrupted, run_process
+signal.signal(signal.SIGTERM, interrupted)
+try:
+    run_process([sys.executable, '-c', sys.argv[2], sys.argv[3], sys.argv[4]],
+                timeout=30, termination_grace=2)
+except BackupError:
+    raise SystemExit(1)
+'''
+        process = subprocess.Popen([sys.executable, '-c', parent, str(Path(__file__).parent),
+                                    child, str(ready), str(released)],
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            deadline = time.monotonic() + 5
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(.02)
+            self.assertTrue(ready.exists(), 'Child did not start')
+            process.terminate()
+            process.communicate(timeout=5)
+            self.assertEqual(process.returncode, 1)
+            self.assertTrue(released.is_file())
+            with self.assertRaises(ProcessLookupError):
+                os.kill(int(ready.read_text()), 0)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.communicate()
+
+    def test_unresponsive_child_is_killed_after_grace_and_reaped(self):
+        script = 'import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(30)'
+        started = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            module.run_process([sys.executable, '-c', script], timeout=.8, termination_grace=.1)
+        self.assertLess(time.monotonic() - started, 4)
+
+    def test_restic_full_check_has_separate_configurable_time_limit(self):
+        self.app.restic_env = dict
+        with patch.object(module, 'command', return_value=self.result()) as run:
+            self.app.restic(['check', '--read-data'])
+            self.assertEqual(run.call_args.kwargs['timeout'], 10800)
+            self.app.config['restic_check_timeout_seconds'] = 14400
+            self.app.restic(['check', '--read-data'])
+            self.assertEqual(run.call_args.kwargs['timeout'], 14400)
+            self.app.restic(['snapshots', '--json'])
+            self.assertEqual(run.call_args.kwargs['timeout'], 600)
+
+    def test_verification_database_cannot_mount_live_data_or_symlink_outside_temp(self):
+        name = 'max-foto-backup-verify-0123456789ab'
+        for path in (self.source, self.app.state / 'verification'):
+            with self.assertRaises(module.BackupError):
+                self.app.verification_database_args(name, 'test-image', path)
+        directory = self.app.state / 'verification' / 'test'
+        directory.mkdir(parents=True)
+        (directory / 'escape').symlink_to(self.source, target_is_directory=True)
+        with self.assertRaises(module.BackupError):
+            self.app.verification_database_args(name, 'test-image', directory / 'escape')
+        with self.assertRaises(module.BackupError):
+            self.app.verification_database_args(name, 'test-image', directory / 'escape' / 'child')
+        args = self.app.verification_database_args(name, 'test-image', directory / 'postgres')
+        self.assertEqual(args[args.index('--network') + 1], 'none')
+        self.assertNotIn('--tmpfs', args)
+        self.assertIn('type=bind,src=' + str(directory / 'postgres') +
+                      ',dst=/var/lib/postgresql/data', args)
 
 
 if __name__ == '__main__':
