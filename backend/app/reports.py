@@ -68,6 +68,8 @@ def filtered(filters: PhotoFilters, user=None):
         stmt = stmt.where(
             Photo.sender_id == filters.sender_id if filters.sender_id else Photo.sender_id.is_(None)
         )
+    if filters.is_defect is not None:
+        stmt = stmt.where(Photo.is_defect.is_(filters.is_defect))
     return stmt
 
 

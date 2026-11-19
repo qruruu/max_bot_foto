@@ -141,6 +141,7 @@ class PhotoEdit(StrictModel):
 
 
 class PhotoFilters(BaseModel):
+    is_defect: bool | None = None
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=30, ge=1, le=100)
     accepted_only: bool = False

@@ -15,7 +15,7 @@ export default function InspectionFilters({meta,filters,change}: {
         <option value="">Все виды работ</option><option value="NONE">Не определён</option>
         {meta.work_types.map(work=><option key={work.code} value={work.code}>{work.name}</option>)}
       </select></label>
-      <label>Неисправность<select value={filters.is_defect||''} onChange={e=>change({is_defect:e.target.value})}><option value="">Все фотографии</option><option value="true">С неисправностями</option><option value="false">Без неисправностей</option></select></label>
+      <label>Повреждения<select value={filters.is_defect||''} onChange={e=>change({is_defect:e.target.value})}><option value="">Все фотографии</option><option value="true">С повреждениями</option><option value="false">Без повреждений</option></select></label>
     </div>
   </div>;
 }

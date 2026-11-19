@@ -18,7 +18,7 @@ def selection_db():
     # Exercise the actual filter query without requiring PostGIS photo geometry.
     columns = (
         "id", "received_at", "preview_removed_at", "is_spam", "photo_date", "photo_time", "sha256",
-        "max_chat_id", "district_id", "work_type", "status", "reviewed_by", "sender_id", "cohort",
+        "max_chat_id", "district_id", "work_type", "status", "reviewed_by", "sender_id", "cohort", "is_defect",
     )
     metadata = MetaData()
     table = Table("photos", metadata, *(
@@ -39,7 +39,7 @@ def selection_db():
             fields = dict(
                 id=id, received_at=datetime(2026, 11, 12), photo_date=date(2026, 11, 12),
                 is_spam=False, sha256="a" * 64, max_chat_id=123, district_id=5,
-                work_type="BIN_EMPTYING", status="ACCEPTED", reviewed_by=2, sender_id=9, cohort="test",
+                work_type="BIN_EMPTYING", status="ACCEPTED", reviewed_by=2, sender_id=9, cohort="test", is_defect=False,
             )
             db.execute(table.insert().values(**(fields | values)))
 
@@ -308,3 +308,12 @@ def test_download_through_real_http_middleware(selection_db, monkeypatch, count)
         asyncio.run(run())
     finally:
         app.dependency_overrides.clear()
+
+
+
+@pytest.mark.parametrize(("is_defect", "expected"), [(True, [2]), (False, [1]), (None, [1, 2])])
+def test_bounded_selection_respects_damage_filter(selection_db, is_defect, expected):
+    db, add = selection_db
+    add(1)
+    add(2, is_defect=True)
+    assert read(db, is_defect=is_defect)["ids"] == expected

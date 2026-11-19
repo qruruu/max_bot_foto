@@ -59,6 +59,9 @@ export default function FilterBar({filters, change, fixedStatus = false, hideWor
         {meta.chats.map(c => <option key={c.id} value={c.max_chat_id}>{label(c.name, 'chat_id', c.max_chat_id)}</option>)}
       </select></label>
       {!hideWork && <CountedSelect label="Вид работы" value={filters.work_type || ''} options={workOptions} onChange={value => change({work_type:value})}/>}
+      {!hideWork && <label>Повреждения<select value={filters.is_defect || ''} onChange={e => change({is_defect: e.target.value})}>
+        <option value="">Все фотографии</option><option value="true">С повреждениями</option><option value="false">Без повреждений</option>
+      </select></label>}
       <label>Статус<select aria-label="Статус" disabled={fixedStatus} value={filters.accepted_only === 'true' ? 'ACCEPTED_ALL' : filters.status || ''}
         onChange={e => change({status: e.target.value === 'ACCEPTED_ALL' ? '' : e.target.value, accepted_only: e.target.value === 'ACCEPTED_ALL' ? 'true' : ''})}>
         <option value="">{label(filters.work_only === 'true' ? 'Основная лента' : 'Все статусы', 'status')}</option>
