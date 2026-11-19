@@ -13,6 +13,7 @@ from test_appeal_images import frame
 from test_organizations import companies as companies
 
 from app.api import app
+from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS
 from app.appeals_public import app as public_app
 from app.config import settings
 from app.domain import now
@@ -157,7 +158,12 @@ def test_limit_requests_and_reject_oversized_body_before_parsing(owner):
             assert citizen.post("/api/public/appeals/capture-sessions", headers=HEADERS).status_code == 201
         limited = citizen.post("/api/public/appeals/capture-sessions", headers=HEADERS)
         assert limited.status_code == 429 and "retry-after" in limited.headers
-        assert citizen.post("/api/public/appeals", content=b"", headers={**HEADERS, "content-length": "99999999"}).status_code == 413
+        limit = MAX_PHOTO_BYTES * MAX_PHOTOS + 128 * 1024
+        for length, expected in ((limit, 422), (limit + 1, 413)):
+            response = citizen.post("/api/public/appeals", content=b"", headers={
+                **HEADERS, "content-length": str(length),
+            })
+            assert response.status_code == expected
 
 
 def test_tenant_operator_and_owner_inside_company_cannot_read_global_inbox(companies):

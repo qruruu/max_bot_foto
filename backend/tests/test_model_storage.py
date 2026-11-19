@@ -269,6 +269,7 @@ def test_trainer_checks_retention_even_when_auto_training_disabled(db, monkeypat
     _, path = checkpoint(db, "REJECTED")
     checkpoint(db, "ACTIVE")
     monkeypatch.setenv("ML_AUTO_TRAIN", "false")
+    monkeypatch.setattr(ml, "_training_stop_requested", False)
     settings.cache_clear()
     handlers = {}
     monkeypatch.setattr(signal, "signal", lambda key, handler: handlers.update({key: handler}))
