@@ -13,6 +13,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import Field, field_validator
 from sqlalchemy import delete, func, insert, literal, select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import appeal_reporting as reporting
@@ -94,14 +95,19 @@ def account_view(db, account):
 
 def add_account(db, body, agency, *, creator=None):
     login = body.login.lower()
-    if db.scalar(select(Inspector.id).where(Inspector.login == login)) or db.scalar(
+    if db.scalar(select(Inspector.id).where(Inspector.login == login, Inspector.deleted_at.is_(None))) or db.scalar(
         select(User.id).where(User.login == login)
     ) or db.scalar(select(OrganizationLogin.user_id).where(OrganizationLogin.login == login).limit(1)):
         raise HTTPException(409, "Этот логин уже занят")
     account = Inspector(agency_id=agency, login=login, name=body.name, password_hash=hasher.hash(body.password),
                         active=True, can_create_accounts=creator is None, created_by=creator)
     db.add(account)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        if getattr(getattr(exc.orig, "diag", None), "constraint_name", None) != "uq_inspectors_live_login":
+            raise
+        raise HTTPException(409, "Этот логин уже занят") from exc
     return account
 
 

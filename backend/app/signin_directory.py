@@ -14,7 +14,7 @@ def register_user(scope, user):
     if scope is None or user.id == scope.owner_user_id:
         return
     with control_session() as control:
-        if control.scalar(select(Inspector.id).where(Inspector.login == user.login.lower())):
+        if control.scalar(select(Inspector.id).where(Inspector.login == user.login.lower(), Inspector.deleted_at.is_(None))):
             raise HTTPException(409, "Этот логин занят проверяющим. Выберите другой логин.")
         control.execute(insert(OrganizationLogin).values(login=user.login.lower(), organization_id=scope.id,
                                                         user_id=user.id).on_conflict_do_update(

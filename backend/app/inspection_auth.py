@@ -70,11 +70,11 @@ InspectorUser = Annotated[Inspector, Depends(current_inspector)]
 
 
 def try_inspector_login(body, request, response, db):
-    account = db.scalar(select(Inspector).where(Inspector.login == body.login.lower()))
+    account = db.scalar(select(Inspector).where(Inspector.login == body.login.lower(), Inspector.deleted_at.is_(None)))
     if account:
         lock_inspector(db, account.id)
         db.refresh(account)
-    if account is None or not verify_password(account.password_hash, body.password):
+    if account is None or account.deleted_at or not verify_password(account.password_hash, body.password):
         return None
     agency = db.get(InspectionAgency, account.agency_id)
     if not account.active or not agency or not agency.active:

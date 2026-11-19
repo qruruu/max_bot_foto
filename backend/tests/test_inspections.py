@@ -827,3 +827,20 @@ def test_presence_is_available_to_authorized_inspection_contacts(inspection):
     assert first.post("/api/inspection/logout").status_code == 200
     assert next(item for item in second.get("/api/inspection/contacts").json()
                 if item["key"] == contact["key"])["last_seen_at"] == contact["last_seen_at"]
+
+
+def test_deleted_inspector_login_can_be_reused_without_restoring_old_access(inspection):
+    owner, scopes, _, agency, accounts, clients = inspection
+    old_id = accounts[0]["id"]
+    grant(owner, clients[0], scopes[0])
+    assert owner.delete(f"/api/platform/inspection/accounts/{old_id}").status_code == 200
+    endpoint = f'/api/platform/inspection/agencies/{agency["id"]}/accounts'
+    body = {"login": "INSPECTOR0", "name": "Новый проверяющий", "password": "replacement-password"}
+    created = owner.post(endpoint, json=body)
+    assert created.status_code == 201, created.text
+    assert created.json()["id"] != old_id
+    assert owner.post(endpoint, json=body).status_code == 409
+    assert clients[0].get("/api/inspection/me").status_code == 401
+    logged_in = clients[0].post("/api/auth/login", json={"login": "inspector0", "password": body["password"]})
+    assert logged_in.json()["id"] == created.json()["id"]
+    assert clients[0].get("/api/inspection/organizations").json() == []

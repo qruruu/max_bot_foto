@@ -406,9 +406,11 @@ class InspectionAgency(Timestamps, Base):
 
 class Inspector(Timestamps, Base):
     __tablename__ = "inspectors"
+    __table_args__ = (Index("uq_inspectors_live_login", "login", unique=True,
+                            postgresql_where=text("deleted_at IS NULL")),)
     id: Mapped[int] = mapped_column(primary_key=True)
     agency_id: Mapped[str] = mapped_column(ForeignKey("inspection_agencies.id"), index=True)
-    login: Mapped[str] = mapped_column(String(100), unique=True)
+    login: Mapped[str] = mapped_column(String(100))
     name: Mapped[str] = mapped_column(String(150))
     password_hash: Mapped[str] = mapped_column(Text)
     avatar_image: Mapped[bytes | None] = mapped_column(LargeBinary)
