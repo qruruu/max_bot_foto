@@ -19,7 +19,7 @@ import InspectionChats from './Chats';
 import InspectionPhotoDetail from './PhotoDetail';
 import type { InspectionPhotoPosition } from './PhotoDetail';
 import InspectionAccounts from './Accounts';
-import InspectionPhotoTable from './PhotoTable';
+import { SelectableInspectionPhotoTable } from './PhotoTable';
 import PhotoNumberSearch from '../PhotoNumberSearch';
 import PhotoPagination from '../PhotoPagination';
 import { capturePhotoListPosition, photoListAnchor, photoListPage, restorePhotoListPosition } from '../photoNavigation';
@@ -57,8 +57,9 @@ export default function InspectorApp() {
   const org=params.get('org') || '',tab=params.get('tab')==='reports'?'photos':params.get('tab') || 'photos',photoId=Number(pathPhoto||params.get('photo'));
   const viewingPhoto=!!org&&Number.isSafeInteger(photoId)&&photoId>0;
   const page=photoListPage(params.get('page')),orgInfo=organizations.find(o=>o.id===org);
+  const browsingPhotos=tab==='photos'||tab==='photo-map';
   const filters=new URLSearchParams();for(const key of inspectionFilterKeys){const value=params.get(key);if(value)filters.set(key,value);}
-  if(tab==='photo-map'&&!params.has('all_dates')&&!filters.has('date_from')&&!filters.has('date_to')){
+  if(browsingPhotos&&!params.has('all_dates')&&!filters.has('date_from')&&!filters.has('date_to')){
     filters.set('date_from',meta.today);filters.set('date_to',meta.today);
   }
   const filterQuery=filters.toString(),base='/inspection/organizations/'+org;
@@ -125,7 +126,7 @@ export default function InspectorApp() {
   },[user?.id,org,tab,listQuery,revision]);
   useEffect(()=>{const refresh=()=>setRevision(v=>v+1);window.addEventListener('refresh-photo-list',refresh);return()=>window.removeEventListener('refresh-photo-list',refresh);},[]);
   function update(key:string,value:string){const next=new URLSearchParams(params);value?next.set(key,value):next.delete(key);next.delete('photo');next.delete('anchor_id');if(key!=='page')next.delete('page');setParams(next);}
-  function change(values:Record<string,string>){const next=new URLSearchParams(params);if(tab==='photo-map')for(const [key,value] of filters)next.set(key,value);for(const [key,value] of Object.entries(values)){value?next.set(key,value):next.delete(key);}if(tab==='photo-map'&&('date_from' in values||'date_to' in values)){if(next.has('date_from')||next.has('date_to'))next.delete('all_dates');else next.set('all_dates','1');}next.delete('page');next.delete('photo');next.delete('anchor_id');setParams(next);}
+  function change(values:Record<string,string>){const next=new URLSearchParams(params);for(const [key,value] of filters)next.set(key,value);for(const [key,value] of Object.entries(values)){value?next.set(key,value):next.delete(key);}if('date_from' in values||'date_to' in values){if(next.has('date_from')||next.has('date_to'))next.delete('all_dates');else next.set('all_dates','1');}next.delete('page');next.delete('photo');next.delete('anchor_id');setParams(next);}
   function rememberPhotoPosition(){photoPosition.current={scrollY:window.scrollY,focus:document.activeElement as HTMLElement|null,chatScrollTop:document.querySelector<HTMLElement>('.operator-message-list')?.scrollTop,tableScrollLeft:document.querySelector<HTMLElement>('.inspection-photos .table-scroll')?.scrollLeft};}
   function openPhoto(id:number,replace=false){
     const next=new URLSearchParams(params);next.delete('photo');
@@ -147,7 +148,7 @@ export default function InspectorApp() {
   const title=tab==='accounts'?'Аккаунты':!org&&!independent?'Организации':tabs.find(t=>t.id===tab)?.label || 'Фотографии';
   function sectionLink(section:string,extra:Record<string,string>={}) {
     const next=new URLSearchParams(params);next.set('tab',section);next.delete('page');next.delete('photo');next.delete('anchor_id');next.delete('section');next.delete('appeal');
-    if(tab==='photo-map'&&(section==='photos'||section==='photo-map'))for(const [key,value] of filters)next.set(key,value);
+    if(browsingPhotos&&(section==='photos'||section==='photo-map'))for(const [key,value] of filters)next.set(key,value);
     for(const [key,value] of Object.entries(extra))value?next.set(key,value):next.delete(key);
     return '/inspection?'+next;
   }
@@ -197,13 +198,13 @@ export default function InspectorApp() {
         tab==='districts'?<><button className="inspection-district-refresh" aria-label="Обновить микрорайоны" onClick={()=>setRevision(v=>v+1)}><RefreshCw size={17}/></button><DistrictMap key={org+':'+revision} endpoint={base+'/districts'} readOnly/></>:
         tab==='appeals'?<InspectionAppeals key={org} organizationId={org} inspectorId={user.id} refreshKey={revision}/>:
         <>
-          {['photos','photo-map'].includes(tab)&&<InspectionFilters meta={meta} filters={Object.fromEntries(filters)} change={change}/>}
+          {browsingPhotos&&<InspectionFilters meta={meta} filters={Object.fromEntries(filters)} change={change}/>}
           {tab==='photos'&&<PhotoNumberSearch owner={false} endpoint={base+'/photos'} open={openPhoto} description="Поиск среди фотографий закрытых дней этой организации, независимо от даты и фильтров."/>}
           {dataLoading&&<p className="loading">Загружаем данные…</p>}
           {tab==='photos'&&<>
             <section className="panel photo-panel inspection-photos"><div className="section-title"><h2>Все фотографии <span className="count-pill appeal-count">{photos.total}</span></h2><span>Закрытые дни</span></div>
-              <PhotoPagination page={photos.page} pageSize={photos.page_size} total={photos.total} onPageChange={value=>update('page',String(value))} position="top"/>
-              {photos.items.length>0&&<InspectionPhotoTable photos={photos.items} openPhoto={openPhoto} focusId={photos.focus_id} workTypes={meta.work_types}/>}
+              <SelectableInspectionPhotoTable organization={org} filterQuery={filterQuery} photos={photos.items} openPhoto={openPhoto} focusId={photos.focus_id} workTypes={meta.work_types}
+                pagination={<PhotoPagination page={photos.page} pageSize={photos.page_size} total={photos.total} onPageChange={value=>update('page',String(value))} position="top"/>}/>
               {!photos.items.length&&!dataLoading&&<p className="empty">За выбранный период нет фотографий закрытых дней.</p>}
               <PhotoPagination page={photos.page} pageSize={photos.page_size} total={photos.total} onPageChange={value=>update('page',String(value))} position="bottom"/>
             </section></>}

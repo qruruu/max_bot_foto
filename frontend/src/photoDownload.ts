@@ -5,8 +5,8 @@ export type DownloadState = 'queued' | 'streaming' | 'finished';
 const LIFETIME = 11 * 60_000;
 
 export async function downloadPhotos(selection: PhotoSelectionSpec, onError: (message: string) => void = () => {},
-  onState: (state: DownloadState) => void = () => {}) {
-  const {url, status_url: statusUrl} = await api<{url: string; status_url: string}>('/photos/downloads', 'POST', selection);
+  onState: (state: DownloadState) => void = () => {}, endpoint = '/photos/downloads') {
+  const {url, status_url: statusUrl} = await api<{url: string; status_url: string}>(endpoint, 'POST', selection);
   // Each transfer gets its own context. Starting another must not cancel it.
   const frame = document.createElement('iframe');
   frame.hidden = true;

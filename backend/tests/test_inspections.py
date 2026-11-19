@@ -844,3 +844,41 @@ def test_deleted_inspector_login_can_be_reused_without_restoring_old_access(insp
     logged_in = clients[0].post("/api/auth/login", json={"login": "inspector0", "password": body["password"]})
     assert logged_in.json()["id"] == created.json()["id"]
     assert clients[0].get("/api/inspection/organizations").json() == []
+
+
+def test_inspector_batch_actions_require_visible_photos_and_writable_task(inspection):
+    owner, scopes, _, _, accounts, clients = inspection
+    scope, client = scopes[0], clients[0]
+    grant(owner, client, scope)
+    seed_photos(scope)
+    base = f"/api/inspection/organizations/{scope.id}"
+    with control_session() as db:
+        values = dict(organization_id=scope.id, city="Город", address="Улица", place="Двор",
+                      category="CLEAN", description="Проверить двор", photo_count=0)
+        task = CitizenAppeal(**values, subject="Задача", submitted_by_inspector_id=accounts[0]["id"])
+        citizen = CitizenAppeal(**values, subject="Обращение")
+        db.add_all([task, citizen])
+        db.flush()
+        task_id, citizen_id = task.id, citizen.id
+        db.commit()
+    body = {"client_id": str(uuid4()), "photo_ids": [10, 20]}
+    endpoint = base + f"/appeals/{task_id}/photo-comments"
+    assert client.post(endpoint, json=body).status_code == 404
+    assert client.post(base + "/photos/downloads", json={"ids": [10, 20]}).status_code == 404
+    with organization_scope(scope):
+        for id in (10, 20):
+            Image.new("RGB", (320, 240), "green").save(media_path(id, preview=True))
+    close(owner, scope)
+    assert set(client.get(base + "/photos/selection").json()["ids"]) == {10, 20}
+    assert [item["id"] for item in client.get(base + "/appeals/photo-targets").json()["items"]] == [task_id]
+    assert client.post(base + f"/appeals/{citizen_id}/photo-comments", json=body).status_code == 403
+    sent = client.post(endpoint, json=body)
+    assert sent.status_code == 201, sent.text
+    assert client.post(endpoint, json=body).json() == sent.json()
+    events = client.get(base + f"/appeals/{task_id}/events").json()["items"]
+    assert len(next(event for event in events if event["id"] == sent.json()["id"])["files"]) == 2
+    ticket = client.post(base + "/photos/downloads", json={"ids": [10, 20]})
+    assert ticket.status_code == 200, ticket.text
+    download = client.get(ticket.json()["url"])
+    assert download.status_code == 200
+    assert download.content.startswith(b"PK")

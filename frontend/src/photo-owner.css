@@ -128,3 +128,5 @@
 }
 
 .photo-pagination-top { margin: 0 0 12px; padding-top: 0; border-top: 0; }
+
+.photos-table tr[data-photo-selectable="true"] { cursor: pointer; }

@@ -5,7 +5,7 @@ import type { Photo } from './types';
 import { MAX_DOWNLOAD_PHOTOS } from './photoLimits';
 import { MAX_PHOTOS } from './appeals/TaskImageInput';
 
-export type PhotoMenuTarget = {photo: Photo; x: number; y: number; row: HTMLTableRowElement};
+export type PhotoMenuTarget = {photo: Pick<Photo, 'id' | 'preview_url'>; x: number; y: number; row: HTMLElement};
 
 export default function PhotoContextMenu({target, count, canSelect, selecting, canSendToTask, downloading, download, close, select, cancel, forward}: {
   target: PhotoMenuTarget; count: number; canSelect: boolean; selecting: boolean; canSendToTask: boolean;

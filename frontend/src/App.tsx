@@ -1,6 +1,7 @@
 import { ResponsePhotoDraftProvider, useResponsePhotoDraft } from './appeals/ResponsePhotoDraft';
 import { usePresenceHeartbeat } from './UserPresence';
 import { MAX_PHOTOS } from './appeals/TaskImageInput';
+import PhotoSelectionToolbar from './PhotoSelectionToolbar';
 import PhotoContextMenu, { type PhotoMenuTarget } from './PhotoContextMenu';
 import { downloadPhotos } from './photoDownload';
 import { MAX_DOWNLOAD_PHOTOS } from './photoLimits';
@@ -202,7 +203,7 @@ function Overview() {
 
 export function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boolean}) {
   const {user,notify,meta}=useApp();
-  const {filters,change}=useFilters(review,spam,false,true);
+  const {filters,change}=useFilters(review,spam,true,true);
   const [params,setParams]=useSearchParams();
   const location=useLocation();const navigate=useNavigate();
   type SelectedPhoto = Pick<Photo, 'id' | 'preview_url'>;
@@ -308,7 +309,7 @@ export function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boole
     catch (error) {setError((error as Error).message);}
     finally {setSending(false);}
   }
-  function toggle(photo: Photo) {
+  function toggle(photo: SelectedPhoto) {
     if (sending || selectingAll) return;
     setSelected(current => current.some(item => item.id === photo.id) ? current.filter(item => item.id !== photo.id)
       : current.length < selectionLimit ? [...current, photo] : current);
@@ -370,15 +371,9 @@ export function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boole
     unified={user.role === 'ADMIN_OPERATOR' && canSendToTask} onClose={() => setDestination(null)} onSent={sent}/>}
   {data ? <section className="panel photo-panel">
     <div className="section-title"><h2>{dayTitle || (review?'Очередь проверки':spam?'Спам':archiveTitle||'Все фотографии')} <span className="count-pill appeal-count">{data.total}</span></h2></div>
-    {contextEnabled && <section className="day-dialog-actions" aria-label="Выбор и скачивание фотографий">
-      <button disabled={selectingAll || downloading || !data.total} onClick={() => void selectAll()}>Выбрать все</button>
-      {(selecting || selectingAll) && <>
-        <span role="status">{selectingAll ? 'Выбираем фотографии…' : `Выбрано фотографий: ${selectedCount}`}</span>
-        <button disabled={selectingAll || downloading || !selectedCount || selectedCount > MAX_DOWNLOAD_PHOTOS} onClick={() => void download(selected)}>Скачать</button>
-        <button onClick={cancelSelection}>Отменить выбор</button>
-      </>}
-    </section>}
-    {contextEnabled && selecting && selectedCount > MAX_PHOTOS && <p className="hint">Пересылка доступна при выборе не более 10 фотографий</p>}
+    {contextEnabled && selecting && <PhotoSelectionToolbar count={selectedCount} selectingAll={selectingAll}
+      canSelectAll={!!data.total} downloading={downloading} selectAll={() => void selectAll()}
+      download={() => void download(selected)} cancel={cancelSelection}/>}
     {downloading && <p role="status">Подготавливаем фотографии для скачивания…</p>}
     {downloadMessage && <p role="status">{downloadMessage}</p>}
     <PhotoPagination page={page} pageSize={data.page_size} total={data.total} onPageChange={setPage} position="top"/>

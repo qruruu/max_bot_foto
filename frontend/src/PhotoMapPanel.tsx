@@ -3,7 +3,8 @@ import { Camera, Check, LocateFixed } from 'lucide-react';
 import { dateLabel } from './api';
 import { loadPhotoMap, mapPreviewUrl, previewMarkerProperties, viewportBounds, type MapPage, type MapPhoto } from './photoMapData';
 import { createPhotoMarkerLayout } from './photoMapMarker';
-import { loadYandexMaps, type MapFeature, type YMap, type YObjectManager } from './yandexMaps';
+import { loadYandexMaps, type MapFeature, type YMap, type YMapEvent, type YObjectManager } from './yandexMaps';
+import type { PhotoBatchActions } from './PhotoBatchActions';
 import './photo-map.css';
 
 const city = [72.603, 61.099];
@@ -25,6 +26,7 @@ type Props = {
   children?: ReactNode;
   active?: boolean;
   previewMarkers?: boolean;
+  batch?: PhotoBatchActions;
 };
 
 function feature(photo: MapPhoto): MapFeature {
@@ -32,12 +34,13 @@ function feature(photo: MapPhoto): MapFeature {
 }
 
 export default function PhotoMapPanel({
-  endpoint, filterQuery, apiKey, revision, timezone, photoHref, openPhoto, listAction, children, active = true, previewMarkers = false,
+  endpoint, filterQuery, apiKey, revision, timezone, photoHref, openPhoto, listAction, children, active = true, previewMarkers = false, batch,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const cards = useRef<HTMLDivElement>(null);
   const camera = useRef({center: city, zoom: cityZoom});
-  const previewPhotoHref = previewMarkers ? photoHref : null;
+  const usePreviewPins = previewMarkers && !batch?.selecting;
+  const previewPhotoHref = usePreviewPins ? photoHref : null;
   const [view, setView] = useState<{map: YMap; points: YObjectManager; showHighlight: (photo: MapPhoto) => (() => void) | undefined} | null>(null);
   const [bounds, setBounds] = useState('');
   const [cursor, setCursor] = useState({scope: '', offsets: [0]});
@@ -55,7 +58,27 @@ export default function PhotoMapPanel({
   const photos = page?.items;
   const selection = selected?.scope === selectionScope ? photos?.find(photo => photo.id === selected.id) : undefined;
   const selectionHandler = useRef<(id: number) => void>(() => {});
-  selectionHandler.current = id => setSelected({scope: selectionScope, id, fromMap: true});
+  selectionHandler.current = id => {
+    if (batch?.selecting) {
+      const photo = photos?.find(item => item.id === id);
+      if (photo) batch.toggle(photo);
+    } else setSelected({scope: selectionScope, id, fromMap: true});
+  };
+  const markerMenuHandler = useRef<(id: number, event: YMapEvent) => void>(() => {});
+  markerMenuHandler.current = (id, event) => {
+    const photo = photos?.find(item => item.id === id);
+    const canvas = container.current;
+    if (!batch || !photo || !canvas) return;
+    const domEvent = event.get('domEvent') as {get(name: string): unknown; callMethod?(name: string): void} | undefined;
+    const position = domEvent?.get('position');
+    const bounds = canvas.getBoundingClientRect();
+    const [x, y] = Array.isArray(position) ? [position[0] - window.scrollX, position[1] - window.scrollY]
+      : [bounds.left + 12, bounds.top + 12];
+    domEvent?.callMethod?.('preventDefault');
+    batch.setMenu({photo, x, y, row: canvas});
+  };
+  const highlighted = batch?.selecting ? photos?.filter(photo => batch.ids.has(photo.id)) : undefined;
+  const highlightedKey = highlighted?.map(photo => photo.id).join(',');
 
   useLayoutEffect(() => {
     if (!selection || !selected?.fromMap) return;
@@ -85,7 +108,7 @@ export default function PhotoMapPanel({
         ...camera.current, behaviors: ['default', 'scrollZoom'], controls: ['zoomControl', 'typeSelector', 'fullscreenControl'],
       }, {suppressMapOpenBlock: true, maxZoom});
       map = instance;
-      const iconLayout = previewMarkers ? createPhotoMarkerLayout(sdk) : null;
+      const iconLayout = usePreviewPins ? createPhotoMarkerLayout(sdk) : null;
       const points = new sdk.ObjectManager(iconLayout ? {
         clusterize: true, gridSize: 80, geoObjectIconLayout: iconLayout, clusterIconLayout: iconLayout,
         geoObjectIconShape: {type: 'Rectangle', coordinates: [[-28, -64], [28, 0]]},
@@ -96,11 +119,11 @@ export default function PhotoMapPanel({
         clusterize: true, gridSize: 56, geoObjectOpenBalloonOnClick: false, clusterOpenBalloonOnClick: false,
         clusterDisableClickZoom: true, geoObjectPreset: pinPreset, geoObjectIconColor: pinColor,
       });
-      const selectedPreviewLayout = previewMarkers
+      const selectedPreviewLayout = usePreviewPins
         ? sdk.templateLayoutFactory.createClass('<div class="photo-map-selected-preview"></div>')
         : null;
       const showHighlight = (photo: MapPhoto) => {
-        if (!previewMarkers && !points.getObjectState?.(photo.id).isClustered && points.objects.setObjectOptions) {
+        if (!usePreviewPins && !points.getObjectState?.(photo.id).isClustered && points.objects.setObjectOptions) {
           points.objects.setObjectOptions(photo.id, {iconColor: selectedPinColor});
           return () => {if (!cancelled) points.objects.setObjectOptions?.(photo.id, {iconColor: pinColor});};
         }
@@ -121,7 +144,8 @@ export default function PhotoMapPanel({
         if (Number.isSafeInteger(photoId) && photoId > 0) selectionHandler.current(photoId);
       };
       points.objects?.events?.add('click', event => select(event.get('objectId')));
-      if (!previewMarkers) {
+      points.objects?.events?.add('contextmenu', event => markerMenuHandler.current(Number(event.get('objectId')), event));
+      if (!usePreviewPins) {
         points.clusters?.events?.add('click', event => {
           const members = points.clusters.getById?.(Number(event.get('objectId')))?.properties.geoObjects;
           if (!members?.length) return;
@@ -155,7 +179,7 @@ export default function PhotoMapPanel({
         map.destroy();
       }
     };
-  }, [apiKey, previewMarkers]);
+  }, [apiKey, usePreviewPins]);
 
   useLayoutEffect(() => {
     if (active) view?.map.container?.fitToViewport();
@@ -174,8 +198,11 @@ export default function PhotoMapPanel({
   }, [view, photos, endpoint, previewPhotoHref, timezone]);
 
   useLayoutEffect(() => {
-    if (view && selection) return view.showHighlight(selection);
-  }, [view, selection]);
+    if (!view) return;
+    const chosen = highlighted ?? (selection ? [selection] : []);
+    const cleanup = chosen.map(view.showHighlight);
+    return () => cleanup.forEach(remove => remove?.());
+  }, [view, selection, photos, highlightedKey]);
 
   function followPhoto(event: MouseEvent<HTMLAnchorElement>, id: number) {
     if (!openPhoto || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -204,31 +231,44 @@ export default function PhotoMapPanel({
       </div>
     </div>
     {unavailable && <p className="error" role="alert">{unavailable}</p>}
-    {previewMarkers && !unavailable && status}
-    <div className={'photo-map-layout' + (previewMarkers ? ' is-preview-map' : '')} hidden={!!unavailable}>
-      {!previewMarkers && <aside className="photo-map-sidebar" aria-label="Фото в видимой области">
+    {batch?.dialogs}
+    {previewMarkers && !batch?.selecting && !unavailable && status}
+    <div className={'photo-map-layout' + (previewMarkers && !batch?.selecting ? ' is-preview-map' : '')} hidden={!!unavailable}>
+      {(!previewMarkers || batch?.selecting) && <aside className="photo-map-sidebar" aria-label="Фото в видимой области">
         <h3>Фото в видимой области</h3>
         {status}
         <div className="photo-map-cards" ref={cards}>
-          {photos?.map(photo => <article key={photo.id} data-map-photo={photo.id} className={selection?.id === photo.id ? 'is-selected' : undefined}>
-            <button className="photo-map-card-button" type="button" aria-pressed={selection?.id === photo.id} onClick={() => setSelected({scope: selectionScope, id: photo.id, fromMap: false})}>
+          {photos?.map(photo => <article key={photo.id} data-map-photo={photo.id} className={(batch?.selecting ? batch.ids.has(photo.id) : selection?.id === photo.id) ? 'is-selected' : undefined}
+            onContextMenu={batch ? event => {
+              event.preventDefault();
+              batch.setMenu({photo, x: event.clientX, y: event.clientY, row: event.currentTarget.querySelector('button')!});
+            } : undefined}>
+            <button className="photo-map-card-button" type="button" aria-haspopup={batch ? 'menu' : undefined}
+              onKeyDown={batch ? event => {
+                if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+                event.preventDefault();
+                const bounds = event.currentTarget.getBoundingClientRect();
+                batch.setMenu({photo, x: bounds.left + 12, y: bounds.top + 12, row: event.currentTarget});
+              } : undefined} aria-pressed={batch?.selecting ? batch.ids.has(photo.id) : selection?.id === photo.id}
+              disabled={batch?.selecting && !batch.canToggle(photo)}
+              onClick={() => batch?.selecting ? batch.toggle(photo) : setSelected({scope: selectionScope, id: photo.id, fromMap: false})}>
               <span className="photo-map-card-image">
                 <Camera size={22} aria-hidden="true"/>
                 {photo.preview_url && <img src={mapPreviewUrl(endpoint, photo.id)} alt="" loading="lazy" decoding="async" onError={event => {event.currentTarget.hidden = true;}}/>}
               </span>
-              {selection?.id === photo.id && <span className="photo-map-selected-label"><Check size={14} aria-hidden="true"/> Выбрано</span>}
+              {(batch?.selecting ? batch.ids.has(photo.id) : selection?.id === photo.id) && <span className="photo-map-selected-label"><Check size={14} aria-hidden="true"/> Выбрано</span>}
               <strong>Фото №{photo.id}</strong>
               <small>{photo.photo_date ? dateLabel(photo.photo_date) : new Date(photo.received_at).toLocaleDateString('ru-RU', {timeZone: timezone})}</small>
               <span>{photo.work_type_name || photo.district_name || photo.chat_name || 'Вид работы не указан'}</span>
             </button>
-            {selection?.id === photo.id && <a href={photoHref(photo.id)} onClick={event => followPhoto(event, photo.id)}>Открыть фото</a>}
+            {!batch?.selecting && selection?.id === photo.id && <a href={photoHref(photo.id)} onClick={event => followPhoto(event, photo.id)}>Открыть фото</a>}
           </article>)}
         </div>
         {paging}
       </aside>}
-      <div className="photo-map-canvas" ref={container} aria-label="Карта мест съёмки фотографий"/>
+      <div className="photo-map-canvas" ref={container} tabIndex={batch ? -1 : undefined} aria-label="Карта мест съёмки фотографий"/>
     </div>
-    {previewMarkers && !unavailable && paging}
+    {previewMarkers && !batch?.selecting && !unavailable && paging}
     {children}
   </section>;
 }

@@ -8,7 +8,7 @@ export function sendTaskPhotos(task: number, ids: number[], clientId: string, ch
   return api('/appeals/' + task + '/photo-comments', 'POST', {photo_ids: ids, client_id: clientId, channel});
 }
 
-export default function TaskPhotoSend({ids, close, sent}: {ids: number[]; close: () => void; sent: () => void}) {
+export default function TaskPhotoSend({ids, close, sent, inspectionBase}: {ids: number[]; inspectionBase?: string; close: () => void; sent: () => void}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const attempt = useRef<{task: number; channel: TaskChannel; id: string} | null>(null);
   const [search, setSearch] = useState(''), [tasks, setTasks] = useState<Task[]>([]);
@@ -20,15 +20,15 @@ export default function TaskPhotoSend({ids, close, sent}: {ids: number[]; close:
     const controller = new AbortController();
     setLoading(true); setError('');
     const timer = window.setTimeout(() => {
-      api<{items: Task[]; can_manage: boolean}>('/appeals?' + new URLSearchParams({q: search.trim()}), 'GET', undefined, controller.signal)
+      api<{items: Task[]; can_manage: boolean}>((inspectionBase ? inspectionBase + '/appeals/photo-targets?' : '/appeals?') + new URLSearchParams({q: search.trim()}), 'GET', undefined, controller.signal)
         .then(value => {if (controller.signal.aborted) return;
           setCanManage(value.can_manage);
-          setTasks(value.items.filter(task => task.operator_id || (value.can_manage && task.submitted_by_inspector_name)));})
+          setTasks(value.items.filter(task => !!inspectionBase || task.operator_id || (value.can_manage && task.submitted_by_inspector_name)));})
         .catch(error => {if (!controller.signal.aborted) setError(error.message);})
         .finally(() => {if (!controller.signal.aborted) setLoading(false);});
     }, 200);
     return () => {controller.abort(); window.clearTimeout(timer);};
-  }, [search]);
+  }, [search, inspectionBase]);
 
   async function send() {
     if (!selected || busy) return;
@@ -37,7 +37,12 @@ export default function TaskPhotoSend({ids, close, sent}: {ids: number[]; close:
     }
     setBusy(true); setError('');
     try {
-      await sendTaskPhotos(selected.id, ids, attempt.current.id, channel);
+      if (inspectionBase) {
+        await api(inspectionBase + '/appeals/' + selected.id + '/photo-comments', 'POST',
+          {photo_ids: ids, client_id: attempt.current.id});
+      } else {
+        await sendTaskPhotos(selected.id, ids, attempt.current.id, channel);
+      }
       sent();
     } catch (error) {setError((error as Error).message);}
     finally {setBusy(false);}

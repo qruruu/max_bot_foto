@@ -5,6 +5,7 @@ import DefectCheckbox from './DefectCheckbox';
 import { canEditPhoto } from './photoWork';
 import type { PhotoMenuTarget } from './PhotoContextMenu';
 import type { Photo } from './types';
+import { isPhotoRowClick } from './photoRowClick';
 import WorkTypeHint from './WorkTypeHint';
 import { MAX_DOWNLOAD_PHOTOS } from './photoLimits';
 
@@ -18,11 +19,16 @@ export default function PhotoTable({photos, openPhoto, focusId, defectBusy = nul
   onDefect: (photo: Photo, checked: boolean) => Promise<void>;
 }) {
   const {meta, user} = useApp();
+  const canToggle = (photo: Photo) => !!photo.preview_url && !!selection &&
+    (selection.ids.has(photo.id) || selection.ids.size < (selection.limit ?? MAX_DOWNLOAD_PHOTOS));
   return <div className="table-scroll"><table className="photos-table">
     <thead><tr>{selection && <th scope="col">Выбор</th>}<th>Фотография</th><th>Дата / время</th><th>Чат / микрорайон</th><th>Координаты</th><th>Вид работы</th><th className="defect-column" scope="col">Неисправность</th><th>Статус</th><th>Нейросеть</th><th>Оператор</th><th/></tr></thead>
     <tbody>{photos.map(photo => <tr key={photo.id} id={'photo-row-' + photo.id} className={photo.id === focusId ? 'photo-return-row' : undefined}
       data-photo-selected={selection?.ids.has(photo.id) || undefined} data-photo-selectable={!!selection || undefined} tabIndex={onPhotoMenu ? 0 : undefined}
       aria-haspopup={onPhotoMenu ? 'menu' : undefined} aria-keyshortcuts={onPhotoMenu ? 'Shift+F10 ContextMenu' : undefined}
+      onClick={selection ? event => {
+        if (isPhotoRowClick(event) && canToggle(photo)) selection.toggle(photo);
+      } : undefined}
       onContextMenu={onPhotoMenu ? event => {
         event.preventDefault();
         onPhotoMenu({photo, x: event.clientX, y: event.clientY, row: event.currentTarget});
@@ -34,8 +40,10 @@ export default function PhotoTable({photos, openPhoto, focusId, defectBusy = nul
         onPhotoMenu({photo, x: bounds.left + 12, y: bounds.top + 12, row: event.currentTarget});
       } : undefined}>
       {selection && <td className="photo-cell-select"><label><input type="checkbox" aria-label={'Выбрать фото №' + photo.id} checked={selection.ids.has(photo.id)}
-        disabled={!photo.preview_url || (selection.ids.size >= (selection.limit ?? MAX_DOWNLOAD_PHOTOS) && !selection.ids.has(photo.id))} onChange={() => selection.toggle(photo)}/><span className="photo-mobile-field" aria-hidden="true">Выбрать</span></label></td>}
-      <td className="photo-cell-preview"><button className="photo-thumb" aria-label={'Открыть фото №' + photo.id} onClick={() => openPhoto(photo.id)}>{photo.preview_url ? <img src={photo.preview_url} loading="lazy" alt={'Фото №' + photo.id}/> : <Camera size={22}/>}<small>#{photo.id}</small></button></td>
+        disabled={!canToggle(photo)} onChange={() => selection.toggle(photo)}/><span className="photo-mobile-field" aria-hidden="true">Выбрать</span></label></td>}
+      <td className="photo-cell-preview"><button className="photo-thumb" aria-label={(selection ? 'Отметить фото №' : 'Открыть фото №') + photo.id} disabled={!!selection && !canToggle(photo)} onClick={() => {
+        if (selection) selection.toggle(photo); else openPhoto(photo.id);
+      }}>{photo.preview_url ? <img src={photo.preview_url} loading="lazy" alt={'Фото №' + photo.id}/> : <Camera size={22}/>}<small>#{photo.id}</small></button></td>
       <td className="photo-cell-date"><span className="photo-capture"><span>{dateLabel(photo.photo_date)}</span><small>{photo.photo_time || 'Время не указано'}</small></span><small className="photo-received-at">Получено {new Date(photo.received_at).toLocaleString('ru-RU')}</small></td>
       <td className="photo-cell-location"><span>{photo.chat_name}</span><small>{photo.district_name || 'Микрорайон не определён'}</small></td>
       <td className="mono photo-cell-technical photo-cell-coordinates"><span className="photo-mobile-field">Координаты</span><span className="photo-coordinate">{photo.latitude?.toFixed(5) ?? '—'}</span><small className="photo-coordinate">{photo.longitude?.toFixed(5) ?? '—'}</small></td>

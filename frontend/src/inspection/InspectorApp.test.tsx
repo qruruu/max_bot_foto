@@ -87,7 +87,7 @@ it.each(['list button','browser back'])('returns to the last viewed photo on a d
   expect(element.textContent).toContain('Страница 2 из 3');
   expect(element.querySelector('#photo-row-84')?.classList.contains('photo-return-row')).toBe(true);
   expect(document.activeElement).toBe(element.querySelector('#inspection-photo-84'));
-  expect(vi.mocked(api).mock.calls.some(([path])=>path.includes('/photos?work_type=CLEAN&page=3&anchor_id=84'))).toBe(true);
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.includes('/photos?work_type=CLEAN&')&&path.endsWith('&page=3&anchor_id=84'))).toBe(true);
 });
 
 it('redeems a QR link only once under StrictMode and removes its secret from the URL',async()=>{
@@ -154,6 +154,7 @@ it('links visible cards and map points, and keeps the map when closing a photo',
   const mapState = vi.fn();
   const fitToViewport=vi.fn();
   let pointClick: (event: yandexMaps.YMapEvent) => void;
+  let pointMenu: typeof pointClick;
   const getBounds=()=>[[72.5,61],[72.7,61.2]];
   vi.spyOn(yandexMaps,'loadYandexMaps').mockResolvedValue({
     Map: function(_container: HTMLElement, state: object){
@@ -162,7 +163,7 @@ it('links visible cards and map points, and keeps the map when closing a photo',
     },
     ObjectManager: function(){
       return {add,removeAll:vi.fn(),getObjectState:(id:number)=>({isClustered:id===86}),
-        objects:{setObjectOptions,events:{add:(_name:string,click:typeof pointClick)=>{pointClick=click;}}}};
+        objects:{setObjectOptions,events:{add:(name:string,handler:typeof pointClick)=>{if(name==='click') pointClick=handler; else if(name==='contextmenu') pointMenu=handler;}}}};
     },
     Placemark: function(coordinates: number[], properties: object, options: object){
       return placemark(coordinates, properties, options) || {properties};
@@ -199,6 +200,19 @@ it('links visible cards and map points, and keeps the map when closing a photo',
   expect(element.querySelector('.photo-map-canvas')).toBe(canvas);
   expect(fitToViewport).toHaveBeenCalledTimes(2);
   expect(vi.mocked(api).mock.calls.filter(([path])=>path.startsWith(endpoint))).toHaveLength(calls.length);
+  expect(element.querySelector('[aria-label="Выбор и скачивание фотографий"]')).toBeNull();
+  const preventDefault = vi.fn();
+  await act(async()=>pointMenu({get:name=>name==='objectId'?85:{get:()=>[90, 100],callMethod:preventDefault}}));
+  expect(preventDefault).toHaveBeenCalledWith('preventDefault');
+  await choosePhotoFromMenu();
+  await act(async()=>pointClick({get:()=>86}));
+  expect(element.querySelectorAll('article.is-selected')).toHaveLength(2);
+  expect(element.querySelector('[aria-label="Выбор и скачивание фотографий"]')).toBeNull();
+  await act(async()=>element.querySelector('[data-map-photo="85"]')!.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true})));
+  expect(document.querySelector('[role="menu"]')?.textContent).toContain('Переслать в задачу');
+  expect(document.querySelector('[role="menu"]')?.textContent).toContain('Скачать выбранные фотографии');
+  await act(async()=>{([...document.querySelectorAll('[role="menuitem"]')].find(item=>item.textContent==='Отменить выбор') as HTMLButtonElement).click();await tick();});
+  expect(element.querySelector('[aria-label="Выбор и скачивание фотографий"]')).toBeNull();
   await act(async()=>{element.querySelector<HTMLAnchorElement>('.photo-map-actions a')!.click();await tick();});
   expect(vi.mocked(api).mock.calls.some(([path])=>path.includes('/photos?') && new URLSearchParams(path.split('?')[1]).get('district_id') === '2')).toBe(true);
 });
@@ -257,6 +271,18 @@ it('applies the work-type filter in the inspector archive',async()=>{
   expect(element.querySelector('.export')).toBeNull();
 });
 
+it('defaults to today in the inspector photo list and keeps an explicitly cleared period',async()=>{
+  await mount('/inspection?org=company&tab=photos');
+  expect(button('Сегодня').getAttribute('aria-pressed')).toBe('true');
+  const lastQuery=()=>new URLSearchParams(vi.mocked(api).mock.calls.filter(([path])=>path.includes('/photos?')).at(-1)?.[0].split('?')[1]);
+  expect(lastQuery().get('date_from')).toBeTruthy();
+  expect(lastQuery().get('date_to')).toBe(lastQuery().get('date_from'));
+  await act(async()=>{button('За всё время').click();await tick();});
+  expect(button('За всё время').getAttribute('aria-pressed')).toBe('true');
+  expect(lastQuery().has('date_from')).toBe(false);
+  expect(lastQuery().has('date_to')).toBe(false);
+});
+
 it('opens photos for a legacy reports URL and never exposes inspector reports or Excel',async()=>{
   await mount('/inspection?org=company&tab=reports&date_from=2026-10-18&date_to=2026-10-18');
   expect(element.querySelector('a[aria-label="Отчёты"]')).toBeNull();
@@ -268,4 +294,24 @@ it('opens photos for a legacy reports URL and never exposes inspector reports or
   expect(vi.mocked(api).mock.calls.some(([path])=>path.includes('/photos?date_from=2026-10-18&date_to=2026-10-18'))).toBe(true);
   await act(async()=>{element.querySelector<HTMLButtonElement>('button[aria-label="Изменить порядок меню"]')!.click();await tick();});
   expect(element.querySelector('button[aria-label*=«Отчёты»]')).toBeNull();
+});
+
+async function choosePhotoFromMenu() {
+  const choose = [...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent === 'Выбрать') as HTMLButtonElement;
+  await act(async () => choose.click());
+}
+
+it('toggles inspector photo selection from the row and the thumbnail', async () => {
+  await mount();
+  const row = element.querySelector('#photo-row-85')!;
+  expect(element.querySelector('[aria-label="Выбор и скачивание фотографий"]')).toBeNull();
+  await act(async () => row.dispatchEvent(new MouseEvent('contextmenu', {bubbles: true, cancelable: true})));
+  await choosePhotoFromMenu();
+  expect(element.querySelector('[aria-label="Выбор и скачивание фотографий"]')?.textContent).toContain('Выбрать все');
+  expect(row.querySelector<HTMLInputElement>('input[aria-label="Выбрать фото №85"]')?.checked).toBe(true);
+  await act(async () => row.querySelector<HTMLTableCellElement>('.photo-cell-date')!.click());
+  expect(row.querySelector<HTMLInputElement>('input[aria-label="Выбрать фото №85"]')?.checked).toBe(false);
+  await act(async () => row.querySelector<HTMLButtonElement>('.photo-thumb')!.click());
+  expect(row.querySelector<HTMLInputElement>('input[aria-label="Выбрать фото №85"]')?.checked).toBe(true);
+  expect(element.querySelector('.inspection-photo-detail')).toBeNull();
 });

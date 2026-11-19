@@ -31,7 +31,7 @@ from app.reports import filtered
 from app.schemas import PhotoSelectionFilters, StrictModel
 
 BUSY = "Скачивание сейчас занято. Попробуйте через несколько секунд."
-DOWNLOAD_PATH = re.compile(r"(?:/org/[0-9a-f-]{36})?/api/photos/(?:selection|downloads(?:/[^/]+(?:/status)?)?)")
+DOWNLOAD_PATH = re.compile(r"(?:(?:/org/[0-9a-f-]{36})?/api|/api/inspection/organizations/[0-9a-f-]{36})/photos/(?:selection|downloads(?:/[^/]+(?:/status)?)?)")
 TOKEN = re.compile(r"[a-f0-9]{64}-[a-f0-9]{32}")
 BODY_LIMIT = 256 * 1024
 BATCH_SIZE = 256
@@ -247,7 +247,10 @@ def ticket_write():
         yield
 
 
-def ticket_owner(request, user):
+def ticket_owner(request, user, *, inspection_org=None):
+    if inspection_org is not None:
+        identity = f"inspection:{inspection_org}:{user.id}:{request.state.inspection_session.token_hash}"
+        return hashlib.sha256(identity.encode()).hexdigest()
     organization = current_organization()
     identity = f"{organization.id if organization else ''}:{user.id}:{request.state.login_session.token_hash}"
     return hashlib.sha256(identity.encode()).hexdigest()

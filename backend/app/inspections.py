@@ -56,6 +56,18 @@ from app.models import (
 from app.organization_context import current_organization, organization_scope
 from app.organization_registry import control_session, scope_for
 from app.organizations import Owner
+from app.photo_downloads import (
+    MAX_DOWNLOAD_PHOTOS,
+    PhotoArchiveResponse,
+    PhotoDownloadInput,
+    acquire_download,
+    consume_ticket,
+    finish_ticket,
+    read_ticket,
+    ticket_owner,
+    ticket_write,
+    write_ticket,
+)
 from app.photo_map import PAGE_SIZE as MAP_PAGE_SIZE
 from app.photo_map import map_read, viewport_page
 from app.photo_ordering import photo_order, photo_position, sort_keys
@@ -509,6 +521,66 @@ def photos(organization_id: UUID, db: Db, user: InspectorUser,
         return {"items": items, "page": page, "page_size": filters.page_size, "total": total, "focus_id": focus_id}
 
 
+@router.get("/organizations/{organization_id}/photos/selection")
+def inspection_selection(organization_id: UUID, db: Db, user: InspectorUser,
+                         filters: Annotated[InspectionFilters, Query()]):
+    with tenant_reader(db, user, organization_id) as tenant:
+        statement = visible_photos(filters).with_only_columns(Photo.id).where(Photo.sha256.is_not(None))
+        return {"ids": list(tenant.scalars(statement.order_by(*photo_order(filters)).limit(MAX_DOWNLOAD_PHOTOS)))}
+
+
+def inspection_photo_ids(tenant, ids):
+    return set(tenant.scalars(visible_photos(InspectionFilters()).with_only_columns(Photo.id)
+                              .where(Photo.id.in_(ids))))
+
+
+class InspectionDownloadInput(StrictModel):
+    ids: list[Annotated[int, Field(gt=0, lt=2**31)]] = Field(min_length=1, max_length=MAX_DOWNLOAD_PHOTOS)
+
+
+@router.post("/organizations/{organization_id}/photos/downloads")
+def create_inspection_download(organization_id: UUID, request: Request, body: InspectionDownloadInput,
+                               db: Db, user: InspectorUser):
+    selection = PhotoDownloadInput(ids=body.ids)
+    with tenant_reader(db, user, organization_id) as tenant:
+        if inspection_photo_ids(tenant, selection.ids) != set(selection.ids):
+            raise HTTPException(404, "Одна из фотографий недоступна")
+    with ticket_write():
+        token = write_ticket(ticket_owner(request, user, inspection_org=organization_id), selection)
+    path = f"/inspection/organizations/{organization_id}/photos/downloads/{token}"
+    return {"url": "/api" + path, "status_url": path + "/status"}
+
+
+@router.get("/organizations/{organization_id}/photos/downloads/{token}/status")
+def inspection_download_status(organization_id: UUID, token: str, request: Request, db: Db, user: InspectorUser):
+    authorized_organization(db, user, organization_id)
+    return {"state": read_ticket(token, ticket_owner(request, user, inspection_org=organization_id))["state"]}
+
+
+@router.get("/organizations/{organization_id}/photos/downloads/{token}")
+def get_inspection_download(organization_id: UUID, token: str, request: Request, db: Db, user: InspectorUser):
+    owner = ticket_owner(request, user, inspection_org=organization_id)
+    lease = getattr(request.state, "photo_download_lease", None) or acquire_download()
+    consumed = False
+    try:
+        authorized_organization(db, user, organization_id)
+        selection = consume_ticket(token, owner)
+        consumed = True
+        with tenant_reader(db, user, organization_id) as tenant:
+            if inspection_photo_ids(tenant, selection.ids) != set(selection.ids):
+                raise HTTPException(404, "Одна из фотографий недоступна")
+            files = [(f"photo-{id}.jpg", media_path(id, preview=True)) for id in selection.ids]
+            if any(not path.is_file() for _, path in files):
+                raise HTTPException(404, "Одно из превью недоступно")
+        return PhotoArchiveResponse(files, lease, single=files[0] if len(files) == 1 else None,
+                                    complete=lambda success: finish_ticket(token, owner, success))
+    except BaseException:
+        lease.close()
+        if consumed:
+            finish_ticket(token, owner, False)
+        raise
+
+
 def require_visible_photo(tenant, photo_id):
     photo = tenant.scalar(visible_photos(InspectionFilters()).where(Photo.id == photo_id))
     if photo is None:
@@ -767,6 +839,27 @@ def appeal_forward_targets(organization_id: UUID, appeal_id: int, db: Db, user: 
     authorized_organization(db, user, organization_id)
     appeal = find_inspector_appeal(db, organization_id, appeal_id)
     return forward_targets(db, appeal, message_id, user, "inspector", q, inspector=True)
+
+
+@router.get("/organizations/{organization_id}/appeals/photo-targets")
+def inspection_photo_targets(organization_id: UUID, db: Db, user: InspectorUser,
+                             q: str = Query("", max_length=200)):
+    authorized_organization(db, user, organization_id)
+    rows = db.execute(select(CitizenAppeal.id, CitizenAppeal.subject).where(
+        inspector_appeal_scope(organization_id), CitizenAppeal.submitted_by_inspector_id.is_not(None),
+        CitizenAppeal.archived_at.is_(None), *appeal_search(q),
+    ).order_by(CitizenAppeal.id.desc()).limit(20))
+    return {"items": [{"id": id, "number": f"ОБ-{id:06d}", "subject": subject} for id, subject in rows]}
+
+
+@router.post("/organizations/{organization_id}/appeals/{appeal_id}/photo-comments", status_code=201)
+def inspection_photo_comment(organization_id: UUID, appeal_id: int, body: CommentInput, db: Db, user: InspectorUser):
+    authorized_organization(db, user, organization_id)
+    if not body.photo_ids:
+        raise HTTPException(422, "Выберите фотографии")
+    appeal = find_inspector_appeal(db, organization_id, appeal_id, lock=True)
+    with tenant_reader(db, user, organization_id) as tenant:
+        return add_comment(db, appeal, body, user, inspector=True, photos_db=tenant)
 
 
 @router.post("/organizations/{organization_id}/appeals/{appeal_id}/comments", status_code=201)

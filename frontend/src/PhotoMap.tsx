@@ -5,6 +5,7 @@ import { useApp, useFilters } from './App';
 import FilterBar from './FilterBar';
 import { photoLink, query } from './api';
 import { workspaceStorageKey, workspaceUrl } from './workspace';
+import usePhotoBatchActions from './PhotoBatchActions';
 import PhotoMapPanel from './PhotoMapPanel';
 
 export default function PhotoMap() {
@@ -28,6 +29,7 @@ export default function PhotoMap() {
   }, [owner, previewPreference]);
   const {filters, change} = useFilters(false, false, true, true);
   const filterQuery = query(filters);
+  const batch = usePhotoBatchActions(filterQuery);
   const [revision, setRevision] = useState(0);
   const mapStart = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -48,7 +50,7 @@ export default function PhotoMap() {
     <div ref={mapStart} className="photo-map-entry">
       <PhotoMapPanel endpoint="/photos/map" filterQuery={filterQuery} apiKey={meta.yandex_maps_api_key}
         revision={revision} timezone={meta.timezone} photoHref={photoHref}
-        openPhoto={id => navigate(photoPath(id))} previewMarkers={owner && previewMarkers}
+        openPhoto={id => navigate(photoPath(id))} previewMarkers={owner && previewMarkers} batch={filters.status === 'SPAM' ? undefined : batch}
         listAction={<Link className="button" to={(filters.status === 'SPAM' ? '/spam?' : '/photos?') + listQuery}><Camera size={16}/>Списком</Link>}>
         <p className="hint">Если дата снимка не определена, фильтр по дате фотографии использует дату получения. Часовой пояс: {meta.timezone}.</p>
       </PhotoMapPanel>

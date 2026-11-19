@@ -40,8 +40,16 @@ async function click(text: string) {
   await act(async () => button.click());
 }
 
-it('selects across pages using the active filters, then downloads the full selection', async () => {
+async function selectAllFromMenu() {
+  expect(host.querySelector('[aria-label="Выбор и скачивание фотографий"]')).toBeNull();
+  await act(async () => host.querySelector('#photo-row-1')!.dispatchEvent(new MouseEvent('contextmenu', {bubbles: true, cancelable: true})));
+  const choose = [...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent === 'Выбрать') as HTMLButtonElement;
+  await act(async () => choose.click());
   await click('Выбрать все');
+}
+
+it('selects across pages using the active filters, then downloads the full selection', async () => {
+  await selectAllFromMenu();
   expect(selectFilteredPhotos).toHaveBeenCalledWith(expect.objectContaining({chat_id: '123', date_from: '2026-11-12', date_to: '2026-11-12', work_only: 'true'}), expect.any(AbortSignal));
   expect(host.textContent).toContain('Выбрано фотографий: 12');
   expect(host.querySelector<HTMLInputElement>('[aria-label="Выбрать фото №1"]')?.checked).toBe(true);
@@ -50,7 +58,7 @@ it('selects across pages using the active filters, then downloads the full selec
 });
 
 it('allows excluding an individual photo from select-all before downloading', async () => {
-  await click('Выбрать все');
+  await selectAllFromMenu();
   await act(async () => host.querySelector<HTMLInputElement>('[aria-label="Выбрать фото №1"]')!.click());
   expect(host.textContent).toContain('Выбрано фотографий: 11');
   await click('Скачать');
@@ -58,14 +66,14 @@ it('allows excluding an individual photo from select-all before downloading', as
 });
 
 it('clears the previous selection when the user changes filters', async () => {
-  await click('Выбрать все');
+  await selectAllFromMenu();
   await click('Другой чат');
   expect(host.textContent).not.toContain('Выбрано фотографий:');
   expect([...host.querySelectorAll('button')].some(button => button.textContent === 'Скачать')).toBe(false);
 });
 
 it('keeps select-all when moving to another page without loading the whole selection', async () => {
-  await click('Выбрать все');
+  await selectAllFromMenu();
   vi.mocked(api).mockResolvedValueOnce({items: [{...photos[1], received_at: '2026-11-12T09:00:00Z', ai_confidence: null}], total: 12, page: 2, page_size: 1});
   await click('Далее');
   expect(host.querySelector<HTMLInputElement>('[aria-label="Выбрать фото №2"]')?.checked).toBe(true);
@@ -76,7 +84,7 @@ it('keeps select-all when moving to another page without loading the whole selec
 it('caps select-all at fifty, disables unchecked rows and re-enables them after deselection', async () => {
   vi.mocked(selectFilteredPhotos).mockResolvedValueOnce({filters: {chat_id: '123'}, snapshot_id: 51, count: 51,
     ids: Array.from({length: 51}, (_, index) => index + 1)});
-  await click('Выбрать все');
+  await selectAllFromMenu();
   expect(host.textContent).toContain('Выбрано фотографий: 50');
   expect(host.textContent).not.toContain('За один раз можно скачать');
   const download = [...host.querySelectorAll('button')].find(button => button.textContent === 'Скачать')!;

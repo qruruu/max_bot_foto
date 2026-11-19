@@ -185,7 +185,14 @@ def add_comment(db, appeal, body, user, *, inspector=False, photos_db=None):
         from app.operator_chats import visible_photos
 
         ids = list(dict.fromkeys(body.photo_ids))
-        if photos_db is None or len(visible_photos(photos_db, user, ids)) != len(ids):
+        if photos_db is None:
+            raise HTTPException(404, "Одна из фотографий недоступна")
+        if inspector:
+            from app.inspections import inspection_photo_ids
+            available = inspection_photo_ids(photos_db, ids)
+        else:
+            available = visible_photos(photos_db, user, ids)
+        if len(available) != len(ids):
             raise HTTPException(404, "Одна из фотографий недоступна")
         if len(ids) + len(screenshots) > MAX_PHOTOS:
             raise HTTPException(422, "Слишком много вложений")
