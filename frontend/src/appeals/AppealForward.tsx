@@ -55,24 +55,29 @@ export default function AppealForward({endpoint, ids, close, sent}: {
   const [recipient, setRecipient] = useState<Recipient | null>(null);
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const sending = useRef(false);
+  const attempt = useRef<{recipient: number; key: string} | null>(null);
+  const organization = endpoint === '/appeals';
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true); setError('');
     const timer = window.setTimeout(() => {
-      api<Recipient[]>(endpoint + '/share-recipients?' + new URLSearchParams({q: search.trim()}), 'GET', undefined, controller.signal)
+      api<Recipient[]>(endpoint + (organization ? '/sharing/recipients?' : '/share-recipients?') + new URLSearchParams({q: search.trim()}), 'GET', undefined, controller.signal)
         .then(items => {if (!controller.signal.aborted) setRecipients(items);})
         .catch(error => {if (!controller.signal.aborted) setError(error.message);})
         .finally(() => {if (!controller.signal.aborted) setLoading(false);});
     }, search ? 220 : 0);
     return () => {controller.abort(); window.clearTimeout(timer);};
-  }, [endpoint, search]);
+  }, [endpoint, organization, search]);
   return <AppealModal title={ids.length === 1 ? 'Переслать задачу' : 'Переслать задачи'} close={close} busy={busy}>
     <form onSubmit={async event => {
       event.preventDefault();
       if (!recipient || sending.current) return;
       sending.current = true; setBusy(true); setError('');
       try {
-        await api(endpoint + '/share', 'POST', {appeal_ids: ids, inspector_id: recipient.id});
+        if (attempt.current?.recipient !== recipient.id) attempt.current = {recipient: recipient.id, key: crypto.randomUUID()};
+        await api(endpoint + (organization ? '/sharing/send' : '/share'), 'POST', {
+          appeal_ids: ids, inspector_id: recipient.id, client_id: attempt.current.key,
+        });
         sent();
       } catch (error) {setError((error as Error).message);}
       finally {sending.current = false; setBusy(false);}

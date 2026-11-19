@@ -29,7 +29,7 @@ type Appeal = {id: number; number: string; city: string; address: string; place:
   created_at: string; updated_at: string; preview_url: string; source?: AppealSource; submitted_by_inspector_name?: string; unanswered_comments?: number;
   parent_id?: number | null; inspector_due_date?: string | null; child_count?: number; due_date?: string | null; operator_name?: string; overdue?: boolean; can_share?: boolean};
 type Photo = {id: string; url: string; preview_url: string; original_url: string; captured_at: string; latitude: number; longitude: number; accuracy: number};
-type Detail = Appeal & WorkflowAppeal & {photos: Photo[]; cancelled_by_inspector?: boolean; latitude?: number; longitude?: number};
+type Detail = Appeal & WorkflowAppeal & {photos: Photo[]; cancelled_by_inspector?: boolean; latitude?: number; longitude?: number; yandex_maps_api_key?: string};
 type Page = {items: Appeal[]; total: number; page: number; page_size: number; categories: Record<string, string>; public_url: string; yandex_maps_api_key?: string; can_manage?: boolean; can_execute?: boolean; filter_options?: AppealFilterOptions};
 type WorkType = {code: string; name: string};
 const statuses = appealStatuses;
@@ -81,6 +81,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
     return () => window.clearTimeout(timer);
   }, [search]);
   useEffect(() => {
+    if (sharedOnly) return;
     const controller = new AbortController(); setError(''); setData(null); let refreshing = false;
     async function refresh(initial = false) {
       if (refreshing || document.hidden && !initial) return;
@@ -106,7 +107,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
     const changed = () => {void refresh();}, timer = window.setInterval(changed, 10_000);
     for (const event of ['focus', 'online', 'appeal-discussion-changed']) window.addEventListener(event, changed);
     return () => {controller.abort(); window.clearInterval(timer); for (const event of ['focus', 'online', 'appeal-discussion-changed']) window.removeEventListener(event, changed);};
-  }, [page, status, archived, query, revision, endpoint, refreshKey, categoryFilter, operatorFilter, deadlineFilter, source]);
+  }, [page, status, archived, query, revision, endpoint, refreshKey, categoryFilter, operatorFilter, deadlineFilter, source, sharedOnly]);
   useEffect(() => {setPage(1); setSearch(''); setQuery(''); setCategoryFilter(''); setOperatorFilter(''); setDeadlineFilter('any'); setFilterOptions(null); setShowStatistics(false); setSource('all');}, [endpoint]);
   useEffect(() => {
     const refresh = () => {setRevision(value => value + 1);};
@@ -248,6 +249,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
   }
   function closeTask() {
     if (location.state?.appealFromList) {navigate(-1); return;}
+    if (sharedOnly) {navigate('/inspection?' + new URLSearchParams({tab: 'messages', with: params.get('with') || ''}), {replace: true}); return;}
     const next = new URLSearchParams(params);
     next.delete('appeal');
     setParams(next, {replace: true});
@@ -299,8 +301,8 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
     {error && <p className="error" role="alert">{error}</p>}
     {selected !== null ? <>
       <header className="appeal-detail-header">
-        <button className="owner-appeal-back" aria-label={readOnly ? 'К списку' : 'Все обращения'} title={readOnly ? 'К списку' : 'Все обращения'}
-          disabled={busy} onClick={() => closeTask()}><ArrowLeft size={16}/><span className="appeal-action-text">{readOnly ? 'К списку' : 'Все обращения'}</span></button>
+        <button className="owner-appeal-back" aria-label={sharedOnly ? 'К переписке' : readOnly ? 'К списку' : 'Все обращения'}
+          disabled={busy} onClick={() => closeTask()}><ArrowLeft size={16}/><span className="appeal-action-text">{sharedOnly ? 'К переписке' : readOnly ? 'К списку' : 'Все обращения'}</span></button>
         {detail?.id === selected && <><h1 ref={detailHeading} tabIndex={-1}><span>{detail.number}</span>{appealTitle(detail)}</h1><button type="button" className="appeal-copy-link" aria-label="Скопировать ссылку на обращение" title="Скопировать ссылку" onClick={() => void copyTaskLink()}><Copy size={16}/></button>
           {detail.can_share && <button type="button" className="appeal-copy-link" aria-label="Переслать задачу" title="Переслать задачу"
             onClick={() => {setForwardStatus(''); setForwardTasks([detail.id]);}}><Send size={16}/></button>}
@@ -360,7 +362,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
                 <a className="button" href={photo.original_url || photo.url} target="_blank" rel="noreferrer"><Maximize2 size={15}/>Открыть фотографию</a></div>
             </section>) : null}
             {detail.longitude != null && detail.latitude != null && <AppealLocation longitude={detail.longitude}
-              latitude={detail.latitude} apiKey={data?.yandex_maps_api_key || ''}/>}
+              latitude={detail.latitude} apiKey={detail.yandex_maps_api_key || data?.yandex_maps_api_key || ''}/>}
           </div>
         </div>
         {showWork && <div id="appeal-panel-work" role="tabpanel" aria-labelledby={'appeal-tab-' + (detailTab === 'inspector' ? 'inspector' : 'executor')} hidden={detailTab === 'request'}>

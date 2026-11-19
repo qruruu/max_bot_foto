@@ -65,7 +65,7 @@ it('selects tasks from the context menu and forwards them to the chosen inspecto
   await act(async () => {choose('Переслать'); await tick(); await tick();});
   await act(async () => {element.querySelector<HTMLButtonElement>('dialog .forward-destinations button')!.click();});
   await clickButton('Переслать');
-  expect(api).toHaveBeenCalledWith(endpoint + '/share', 'POST', {appeal_ids: [42, 43], inspector_id: 7});
+  expect(api).toHaveBeenCalledWith(endpoint + '/share', 'POST', {appeal_ids: [42, 43], inspector_id: 7, client_id: expect.any(String)});
   expect(element.textContent).toContain('Задачи пересланы');
 });
 

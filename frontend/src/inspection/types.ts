@@ -15,8 +15,9 @@ export type Appeal = {id: number; organization_name: string; address: string; pl
 export type Contact = {key: string; last_seen_at?: string | null; aliases?: string[]; name: string; kind: string; organization_name: string | null; avatar_url: string | null;
   unread: number; last_message: string | null; last_message_at: string | null; last_message_outgoing: boolean};
 export type MessagePhoto = {id: number; available: boolean; organization_id: string | null; organization_name: string | null;
-  preview_url: string | null; detail_url: string | null};
+  preview_url: string | null; detail_url: string | null; shared_preview_url?: string};
 export type Message = ChatContent & {id: number; body: string; outgoing: boolean; created_at: string; read_at: string | null; peer_name?: string;
+  shared_appeal?: {id: number; number: string; organization_id: string};
   photo?: MessagePhoto | null};
 export type MessagePage = {items: Message[]; next_before_id: number | null};
 export type ConversationPage = MessagePage & {has_newer: boolean; peer_read_through_id: number; peer_read_ids?: number[]};

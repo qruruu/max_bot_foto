@@ -801,6 +801,7 @@ def test_second_owner_workspace_cannot_read_primary_chats_and_can_write_to_prima
 
     owner, scopes, operators, _, _, _ = inspection
     scope, staff = scopes[0], operators[0]
+    seed_photos(scope)
     with control_session() as db:
         primary = db.scalar(select(PlatformOwner.user_id))
         developer = User(login="developer", name="Разработчик", password_hash=hasher.hash(PASSWORD),
@@ -829,6 +830,19 @@ def test_second_owner_workspace_cannot_read_primary_chats_and_can_write_to_prima
         assert f"o:{developer_id}" not in {item["key"] for item in contacts}
         staff_key = f"a:{scope.id}:{staff_id}"
         assert second.get(direct + "/messages", params={"peer": staff_key}).json()["items"] == []
+        with organization_scope(scope), Session(engine()) as tenant:
+            tenant.get(User, staff_id).allowed_chat_ids = []
+            tenant.commit()
+        photo = {"photo_id": 10, "photo_organization_id": scope.id, "share_photo": True}
+        staff_contacts = second.get(direct + "/contacts", params=photo)
+        assert staff_contacts.status_code == 200 and {item["key"] for item in staff_contacts.json()} == {staff_key}
+        shared = second.post(direct + "/messages", params={"peer": staff_key},
+                             json={**photo, "client_id": str(uuid4())})
+        assert shared.status_code == 201, shared.text
+        staff_history = staff.get(direct + "/messages", params={"peer": f"o:{developer_id}"}).json()["items"]
+        preview = staff_history[0]["photo"]["shared_preview_url"]
+        assert staff.get(preview).content == b"safe preview"
+        assert owner.get(preview).status_code == 404
         sent = second.post(direct + "/messages", params={"peer": f"o:{primary}"},
                            json={"client_id": str(uuid4()), "body": "Лично владельцу"})
         assert sent.status_code == 201, sent.text

@@ -56,11 +56,14 @@ def test_other_agency_only_sees_explicitly_shared_task_request(workflow):
         recipient.headers["X-CSRF-Token"] = recipient.cookies["inspection_csrf"]
         assert recipient.get(shared + f"/{id}").status_code == 404
         assert account["id"] in {item["id"] for item in inspectors[0].get(endpoint + "/share-recipients").json()}
-        payload = {"appeal_ids": [id], "inspector_id": account["id"]}
+        payload = {"appeal_ids": [id], "inspector_id": account["id"], "client_id": str(uuid4())}
         for _ in range(2):
             response = inspectors[0].post(endpoint + "/share", json=payload)
             assert response.status_code == 200, response.text
         assert recipient.get(shared).json()["total"] == 1
+        sender = next(item for item in recipient.get("/api/inspection/contacts").json() if item["key"].startswith("i:"))
+        received = recipient.get("/api/inspection/messages", params={"peer": sender["key"]}).json()["items"]
+        assert len(received) == 1 and received[0]["shared_appeal"]["id"] == id
         detail = recipient.get(shared + f"/{id}").json()
         assert detail["id"] == id and detail["subject"] == body["subject"] and not detail["can_share"]
         assert not detail["can_set_task_status"] and not detail["can_set_inspector_deadline"]
@@ -72,6 +75,24 @@ def test_other_agency_only_sees_explicitly_shared_task_request(workflow):
         assert recipient.get(endpoint + f"/{id}").status_code == 404
         assert recipient.get(endpoint + f"/{id}/events").status_code == 404
         assert recipient.post(endpoint + "/share", json=payload).status_code == 404
+
+        with TestClient(public_app) as citizen:
+            result = submit(citizen, metadata(scope, addresses[0]))
+            assert result.status_code == 201, result.text
+        citizen_id = int(result.json()["number"].split("-")[-1])
+        admin_api = scope.prefix + "/api/appeals"
+        assert owner.get(f"{admin_api}/{citizen_id}").json()["can_share"]
+        assert inspectors[0].get(f"{endpoint}/{citizen_id}").json()["can_share"]
+        citizen_share = {**payload, "client_id": str(uuid4()), "appeal_ids": [citizen_id]}
+        denied = owner.post(scopes[1].prefix + "/api/appeals/sharing/send", json=citizen_share)
+        assert denied.status_code == 404
+        sent = owner.post(admin_api + "/sharing/send", json=citizen_share)
+        assert sent.status_code == 200, sent.text
+        assert recipient.get(shared + f"/{citizen_id}").json()["source"] == "signal"
+        assert "contact" not in recipient.get(shared + f"/{citizen_id}").json()
+        admin_peer = next(item["key"] for item in recipient.get("/api/inspection/contacts").json() if item["unread"])
+        admin_messages = recipient.get("/api/inspection/messages", params={"peer": admin_peer}).json()["items"]
+        assert any(item.get("shared_appeal", {}).get("id") == citizen_id for item in admin_messages)
 
 
 @pytest.mark.parametrize('name,content', [('a.pdf', b'%PDF-1.7\nexample'),

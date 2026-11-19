@@ -153,8 +153,14 @@ export default function InspectionChats({base = '/inspection', revision = 0, tim
       subtitle: [item.kind, item.organization_name].filter(Boolean).join(' · '), organization: item.organization_name,
       preview: item.last_message ? (item.last_message_outgoing ? 'Вы: ' : '') + item.last_message : null, preview_at: item.last_message_at}))}
       selected={peerKey} select={select} contactLoading={contactLoading} contactError={contactError} messages={items.map(item => ({...item, author: item.outgoing ? 'Вы' : contact?.name || 'Собеседник', read: !!item.read_at || item.id <= readThrough || readIds.includes(item.id),
-        canForward: !item.photo || item.photo.available,
-        attachment: item.photo && (item.photo.available && item.photo.detail_url ? (base==='/inspection' ? <Link className="operator-message-photo" to={item.photo.detail_url} onClick={event=>{if(openPhotoLink){event.preventDefault();openPhotoLink(item.photo!.detail_url!);}}}>
+        canForward: !item.shared_appeal && (!item.photo || (item.photo.available && !item.photo.shared_preview_url)),
+        attachment: item.shared_appeal ? (base === '/inspection' ? <Link className="operator-message-photo" to={'/inspection?' + new URLSearchParams(item.outgoing ? {
+          tab: 'appeals', org: item.shared_appeal.organization_id, appeal: String(item.shared_appeal.id),
+        } : {tab: 'shared-appeal', with: peerKey, appeal: String(item.shared_appeal.id)})}>{item.shared_appeal.number} · Открыть обращение</Link>
+          : <a className="operator-message-photo" href={'/org/' + item.shared_appeal.organization_id + '/appeals?appeal=' + item.shared_appeal.id}>{item.shared_appeal.number} · Открыть обращение</a>)
+          : item.photo && (item.photo.shared_preview_url ? <a className="operator-message-photo" href={item.photo.shared_preview_url} target="_blank" rel="noreferrer">
+            <img src={item.photo.shared_preview_url} loading="lazy" alt={'Фотография №'+item.photo.id}/><span>Фотография #{item.photo.id}</span>
+          </a> : item.photo.available && item.photo.detail_url ? (base==='/inspection' ? <Link className="operator-message-photo" to={item.photo.detail_url} onClick={event=>{if(openPhotoLink){event.preventDefault();openPhotoLink(item.photo!.detail_url!);}}}>
           {item.photo.preview_url?<img src={item.photo.preview_url} loading="lazy" alt={'Фотография №'+item.photo.id}/>:<span className="operator-message-photo-placeholder"><Camera size={30}/></span>}<span>Фотография #{item.photo.id}<small>{item.photo.organization_name} · Открыть карточку</small></span>
         </Link> : <a className="operator-message-photo" href={item.photo.detail_url} target="_blank" rel="noreferrer">
           {item.photo.preview_url&&<img src={item.photo.preview_url} loading="lazy" alt={'Фотография №'+item.photo.id}/>}<span>Фотография #{item.photo.id}<small>{item.photo.organization_name} · Открыть карточку</small></span>

@@ -67,7 +67,14 @@ async function personalRecipients(base: string, messages: PersonalMessage[], pho
     if (photo && error instanceof ApiError && error.status === 404) return [];
     throw error;
   });
-  const lists = await Promise.all([recipients(true), inspectors]);
+  const workspaceStaff = photo?.organization_id && sharePhoto
+    ? loadRecipients('/inspection-admin/owners', false, new URLSearchParams({
+      photo_organization_id: photo.organization_id, photo_id: String(photo.id), share_photo: 'true',
+    }), signal).catch(error => {
+      if (error instanceof ApiError && error.status === 404) return [];
+      throw error;
+    }) : Promise.resolve([]);
+  const lists = await Promise.all([recipients(true), inspectors, workspaceStaff]);
   return lists.flat().sort((a, b) => (b.recent || '').localeCompare(a.recent || '') || a.name.localeCompare(b.name, 'ru'));
 }
 
@@ -139,13 +146,15 @@ export default function InspectionForward({base: endpoint, photo, photos, messag
         const peer = selection[Math.floor(index / sourceCount)];
         const sourceIndex = index % sourceCount, source = sources[sourceIndex], attachment = photoBatch[sourceIndex];
         const operatorTarget = peer.kind === 'staff' && /^\d+$/.test(peer.key);
+        const ownerStaffTarget = !!attachment && sharePhoto && peer.key.startsWith('a:');
         const taskTarget = !!appeal && peer.kind === 'task';
         const path = taskTarget ? appeal.endpoint.slice(0, appeal.endpoint.lastIndexOf('/')) + '/' + peer.key.slice(5) + '/comments'
-          : operatorTarget ? '/operator-chats/' + peer.key + '/messages' : base + '/messages?' + new URLSearchParams({peer: peer.key});
+          : operatorTarget ? '/operator-chats/' + peer.key + '/messages'
+          : (ownerStaffTarget ? '/inspection-admin/owners' : base) + '/messages?' + new URLSearchParams({peer: peer.key});
         await api(path, 'POST', {client_id: current.ids[index],
           ...(source ? {[taskTarget ? 'forward_message_id' : appeal ? 'forward_task_message_id' : forwardField(operatorMessage(personal[sourceIndex]), operatorTarget)]: source.id,
             ...(taskTarget && appeal.channel ? {channel: appeal.channel} : {})}
-            : {body: text, photo_id: attachment.id, ...(operatorTarget && sharePhoto ? {share_photo: true} : {}),
+            : {body: text, photo_id: attachment.id, ...((operatorTarget || ownerStaffTarget) && sharePhoto ? {share_photo: true} : {}),
               ...(!operatorTarget && attachment.organization_id ? {photo_organization_id: attachment.organization_id} : {})})});
         current.completed++;
         setProgress(current.completed);

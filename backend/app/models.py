@@ -470,6 +470,9 @@ class InspectionMessage(ChatMessageContent, Base):
     body: Mapped[str] = mapped_column(Text)
     photo_organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"))
     photo_id: Mapped[int | None] = mapped_column(Integer)
+    photo_shared: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    shared_appeal_id: Mapped[int | None] = mapped_column(
+        ForeignKey("citizen_appeals.id", name="fk_inspection_message_shared_appeal", ondelete="SET NULL"))
     forwarded_from_id: Mapped[int | None] = mapped_column(ForeignKey("inspection_messages.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -481,6 +484,8 @@ class InspectionMessage(ChatMessageContent, Base):
                         "OR (photo_id IS NOT NULL AND photo_id > 0 AND photo_organization_id IS NOT NULL))",
                         name="ck_inspection_message_content"),
         Index("ix_inspection_messages_pair", "sender_key", "recipient_key", "id"),
+        Index("ix_inspection_task_chat_recipient", "recipient_key", "sender_key",
+              postgresql_where=text("shared_appeal_id IS NOT NULL")),
     )
 
 

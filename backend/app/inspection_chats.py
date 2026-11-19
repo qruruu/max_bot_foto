@@ -22,6 +22,7 @@ from app.inspection_auth import InspectorUser
 from app.inspections import admin_router, owner_router, require_visible_photo, router
 from app.media import media_path
 from app.models import (
+    CitizenAppeal,
     InspectionAgency,
     InspectionGrant,
     InspectionMessage,
@@ -72,6 +73,10 @@ class AdminMessageInput(MessageInput):
         return next((value for value in forwards if value is not None), None)
 
 
+class StaffOwnerMessageInput(MessageInput):
+    share_photo: bool = False
+
+
 class ReadInput(StrictModel):
     through_id: int = Field(gt=0)
 
@@ -104,6 +109,24 @@ def inspection_tenant(db, org, scope=None):
     return Session(database_engine(scope.database_url))
 
 
+def task_chat_peers(db, actor):
+    sent = select(InspectionMessage.recipient_key).where(
+        InspectionMessage.sender_key == actor, InspectionMessage.shared_appeal_id.is_not(None))
+    received = select(InspectionMessage.sender_key).where(
+        InspectionMessage.recipient_key == actor, InspectionMessage.shared_appeal_id.is_not(None))
+    return set(db.scalars(sent.union(received)))
+
+
+def task_inspector_contacts(db, peers, base="/api/inspection"):
+    ids = [int(peer[2:]) for peer in peers if peer.startswith("i:")]
+    if not ids:
+        return []
+    return [contact(f"i:{account.id}", account.name, "Проверяющий", agency.name, account.avatar_image,
+                    base, last_seen_at=account.last_seen_at)
+            for account, agency in db.execute(select(Inspector, InspectionAgency).join(InspectionAgency).where(
+                Inspector.id.in_(ids), Inspector.active, InspectionAgency.active))]
+
+
 def inspector_contacts(db, account):
     contacts = [contact(f"o:{owner.id}", owner.name, "Владелец сервиса", None, owner.avatar_image, last_seen_at=owner.last_seen_at)
                 for owner in db.scalars(select(User).join(PlatformOwner, PlatformOwner.user_id == User.id)
@@ -131,6 +154,21 @@ def inspector_contacts(db, account):
                 name = "Администратор" if admin.id == scope.owner_user_id and admin.name == "Владелец сервиса" else admin.name
                 contacts.append(contact(key, name,
                                         "Администратор организации", org.name, admin.avatar_image, last_seen_at=admin.last_seen_at))
+    known = {key for item in contacts for key in contact_keys(item)}
+    shared = task_chat_peers(db, f"i:{account.id}") - known
+    contacts.extend(task_inspector_contacts(db, shared))
+    for peer in shared:
+        if not peer.startswith("a:"):
+            continue
+        _, org_id, account_id = peer.split(":")
+        org = db.get(Organization, org_id)
+        if not org or org.status != "ACTIVE":
+            continue
+        with inspection_tenant(db, org) as tenant:
+            admin = tenant.get(User, int(account_id))
+            if admin and admin.active and admin.role == "ADMIN_OPERATOR":
+                contacts.append(contact(peer, admin.name, "Администратор организации", org.name, admin.avatar_image,
+                                        last_seen_at=admin.last_seen_at))
     return contacts
 
 
@@ -165,14 +203,16 @@ def owner_inboxes(db, owner_id, inspector_id):
                  if org.legacy or owner_id == primary_id)
 
 
-def admin_contacts(db, org_id):
-    return [contact(f"i:{account.id}", account.name, "Проверяющий", agency.name, account.avatar_image,
+def admin_contacts(db, org_id, actor):
+    base = workspace_url("/api/inspection-admin")
+    contacts = [contact(f"i:{account.id}", account.name, "Проверяющий", agency.name, account.avatar_image,
                     workspace_url("/api/inspection-admin"), last_seen_at=account.last_seen_at)
             for account, agency in db.execute(select(Inspector, InspectionAgency).join(InspectionAgency)
                 .join(InspectionGrant, InspectionGrant.inspector_id == Inspector.id)
                 .join(Organization, Organization.id == InspectionGrant.organization_id)
                 .where(InspectionGrant.organization_id == org_id, Organization.status == "ACTIVE",
                        Inspector.active, InspectionAgency.active).order_by(Inspector.name))]
+    return contacts + task_inspector_contacts(db, task_chat_peers(db, actor) - {item["key"] for item in contacts}, base)
 
 
 def platform_contacts(db, exclude=None, base="/api/platform/inspection/chat"):
@@ -313,6 +353,17 @@ def forwarded_author(db, message):
     return (message.forwarded_name or sender_name(db, message.sender_key)) if message else "Бывший собеседник"
 
 
+def find_shared_staff_photo(db, message):
+    from app.operator_chats import shared_photo_query
+
+    org = db.get(Organization, message.photo_organization_id)
+    if not org or org.status != "ACTIVE":
+        return None
+    scope = scope_for(org)
+    with organization_scope(scope), inspection_tenant(db, org, scope) as tenant:
+        return tenant.scalar(shared_photo_query([message.photo_id]))
+
+
 def message_dict(message, actor, db, base="/api/inspection", cache=None, viewer=None, peer_key=None):
     result = {"id": message.id, "body": message.body, "created_at": message.created_at,
               "outgoing": message.sender_key == actor, "read_at": message.read_at, "client_id": message.client_id,
@@ -320,6 +371,10 @@ def message_dict(message, actor, db, base="/api/inspection", cache=None, viewer=
               "forwarded_name": message.forwarded_name or (forwarded_author(db, message) if message.forwarded_from_id else None),
               "screenshots": [f"{base}/messages/{message.id}/screenshots/{number}"
                               for number in range(1, message.screenshot_count + 1)]}
+    if message.shared_appeal_id is not None:
+        appeal = db.get(CitizenAppeal, message.shared_appeal_id)
+        if appeal:
+            result["shared_appeal"] = {"id": appeal.id, "number": f"ОБ-{appeal.id:06d}", "organization_id": appeal.organization_id}
     if message.photo_id is not None:
         available = can_view_photo(db, viewer or actor, message.photo_organization_id, message.photo_id, cache)
         photo = {"id": message.photo_id, "available": available, "organization_id": None,
@@ -332,6 +387,8 @@ def message_dict(message, actor, db, base="/api/inspection", cache=None, viewer=
                          detail_url=f"/inspection/photos/{message.photo_id}?" + urlencode({
                              "org": org.id, "tab": "messages", "with": other, "inspection_chat": other})
                          if (viewer or actor).startswith("i:") else f"/org/{org.id}/photos/{message.photo_id}")
+        elif message.photo_shared and find_shared_staff_photo(db, message):
+            photo.update(available=True, shared_preview_url=f"{base}/messages/{message.id}/photo")
         result["photo"] = photo
     return result
 
@@ -415,7 +472,13 @@ def lock_message_participants(db, actor, peer):
             raise HTTPException(404, "Собеседник недоступен")
 
 
-def send(db, actor, peer, body, contacts, base="/api/inspection", *, external_source=None, actor_aliases=(), source_aliases=()):
+def lock_message_send(db, actor, peer):
+    lock_message_participants(db, actor, peer)
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:pair, 7010))"), {"pair": "|".join(sorted((actor, peer)))})
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:actor, 7011))"), {"actor": actor})
+
+
+def send(db, actor, peer, body, contacts, base="/api/inspection", *, external_source=None, actor_aliases=(), source_aliases=(), shared_photo=False):
     validate_peer(contacts, peer)
     content, org_id, photo_id = body.body, str(body.photo_organization_id) if body.photo_organization_id else None, body.photo_id
     forward_name, reply = None, None
@@ -431,25 +494,23 @@ def send(db, actor, peer, body, contacts, base="/api/inspection", *, external_so
         if source is None:
             raise HTTPException(404, "Сообщение для ответа недоступно")
         reply = quote(source.id, sender_name(db, source.sender_key), source.body, source.photo_id or source.screenshot_count)
-    if photo_id is not None and not all(can_view_photo(db, key, org_id, photo_id) for key in (actor, peer)):
+    if photo_id is not None and not shared_photo and not all(can_view_photo(db, key, org_id, photo_id) for key in (actor, peer)):
         raise HTTPException(404, "Фотография недоступна отправителю или получателю")
     # Commit in conversation order so polling by ID cannot miss an incoming message.
-    lock_message_participants(db, actor, peer)
-    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:pair, 7010))"), {"pair": "|".join(sorted((actor, peer)))})
-    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:actor, 7011))"), {"actor": actor})
+    lock_message_send(db, actor, peer)
     existing = db.scalar(select(InspectionMessage).where(InspectionMessage.sender_key == actor,
                                                         InspectionMessage.client_id == str(body.client_id)))
     if existing:
         if (existing.recipient_key, existing.body, existing.photo_organization_id, existing.photo_id,
-                existing.forwarded_from_id, (existing.reply or {}).get("id"), existing.screenshots) != (
-                peer, content, org_id, photo_id, body.forward_message_id, body.reply_to_id, screenshots):
+                existing.forwarded_from_id, (existing.reply or {}).get("id"), existing.screenshots, existing.photo_shared) != (
+                peer, content, org_id, photo_id, body.forward_message_id, body.reply_to_id, screenshots, shared_photo):
             raise HTTPException(409, "Идентификатор сообщения уже использован")
         if not body.forward_message_id and existing.forwarded_name != forward_name:
             raise HTTPException(409, "Идентификатор сообщения уже использован")
         return message_dict(existing, actor, db, base)
     message = InspectionMessage(sender_key=actor, recipient_key=peer, client_id=str(body.client_id), body=content,
                                 photo_organization_id=org_id, photo_id=photo_id, forwarded_from_id=body.forward_message_id,
-                                forwarded_name=forward_name, reply=reply, screenshots=screenshots)
+                                forwarded_name=forward_name, reply=reply, screenshots=screenshots, photo_shared=shared_photo)
     db.add(message)
     db.commit()
     return message_dict(message, actor, db, base)
@@ -475,7 +536,9 @@ def message_photo(db, actor, contacts, message_id, owner=False, *, actor_aliases
         raise HTTPException(404, "Фотография недоступна")
     if not owner:
         source_message(db, actor, contacts, message_id, actor_aliases=actor_aliases)
-    if not can_view_photo(db, actor, message.photo_organization_id, message.photo_id):
+    if not can_view_photo(db, actor, message.photo_organization_id, message.photo_id) and not (
+        message.photo_shared and find_shared_staff_photo(db, message)
+    ):
         raise HTTPException(404, "Фотография недоступна")
     scope = scope_for(db.get(Organization, message.photo_organization_id))
     with organization_scope(scope):
@@ -494,7 +557,7 @@ def inspector_message_screenshot(message_id: int, number: int, db: Db, user: Ins
 def organization_message_screenshot(message_id: int, number: int, user: AdminUser, tenant: Db):
     actor, org = admin_identity(user)
     with workspace_control_session(tenant) as db:
-        return screenshot_response(source_message(db, actor, admin_contacts(db, org), message_id, actor_aliases=workspace_owner_alias(user, actor)), number)
+        return screenshot_response(source_message(db, actor, admin_contacts(db, org, actor), message_id, actor_aliases=workspace_owner_alias(user, actor)), number)
 
 
 @owner_router.get("/chat/messages/{message_id}/screenshots/{number}")
@@ -607,7 +670,7 @@ def organization_contacts(user: AdminUser, tenant: Db, photo_organization_id: UU
     if sum(value is not None for value in sources) > 1:
         raise HTTPException(422, "Выберите одно исходное сообщение")
     with workspace_control_session(tenant) as db:
-        contacts = admin_contacts(db, org)
+        contacts = admin_contacts(db, org, actor)
         if forward_task_message_id:
             personal_forward_source(db, user, forward_task_message_id, include_content=False)
         if forward_operator_message_id:
@@ -628,7 +691,7 @@ def organization_contacts(user: AdminUser, tenant: Db, photo_organization_id: UU
 def organization_chat_unread(user: AdminUser, tenant: Db):
     actor, org = admin_identity(user)
     with workspace_control_session(tenant) as db:
-        return {"unread": sum(item["unread"] for item in contact_previews(db, actor, admin_contacts(db, org), inboxes=lambda _: workspace_owner_alias(user, actor)))}
+        return {"unread": sum(item["unread"] for item in contact_previews(db, actor, admin_contacts(db, org, actor), inboxes=lambda _: workspace_owner_alias(user, actor)))}
 
 
 @admin_router.get("/messages")
@@ -637,15 +700,15 @@ def organization_messages(user: AdminUser, tenant: Db, peer: str = Query(max_len
                           after_id: Annotated[int | None, Query(ge=0)] = None):
     actor, org = admin_identity(user)
     with workspace_control_session(tenant) as db:
-        validate_peer(admin_contacts(db, org), peer)
+        validate_peer(admin_contacts(db, org, actor), peer)
         return messages(db, actor, peer, before_id, after_id, workspace_url("/api/inspection-admin"), actor_aliases=workspace_owner_alias(user, actor))
 
 
 @admin_router.get("/contact-avatar")
 def organization_contact_avatar(user: AdminUser, tenant: Db, peer: str = Query(max_length=100)):
-    _, org = admin_identity(user)
+    actor, org = admin_identity(user)
     with workspace_control_session(tenant) as db:
-        validate_peer(admin_contacts(db, org), peer)
+        validate_peer(admin_contacts(db, org, actor), peer)
         return contact_avatar(db, peer)
 
 
@@ -657,14 +720,14 @@ def organization_send(body: AdminMessageInput, user: AdminUser, tenant: Db, peer
         if body.forward_task_message_id:
             content, screenshots, name = personal_forward_source(db, user, body.forward_task_message_id)
             source = (content, None, None, screenshots, name)
-        return send(db, actor, peer, body, admin_contacts(db, org), workspace_url("/api/inspection-admin"), external_source=source, actor_aliases=workspace_owner_alias(user, actor))
+        return send(db, actor, peer, body, admin_contacts(db, org, actor), workspace_url("/api/inspection-admin"), external_source=source, actor_aliases=workspace_owner_alias(user, actor))
 
 
 @admin_router.post("/messages/read")
 def organization_read(body: ReadInput, user: AdminUser, tenant: Db, peer: str = Query(max_length=100)):
     actor, org = admin_identity(user)
     with workspace_control_session(tenant) as db:
-        validate_peer(admin_contacts(db, org), peer)
+        validate_peer(admin_contacts(db, org, actor), peer)
         return mark_read(db, actor, peer, body.through_id, actor_aliases=workspace_owner_alias(user, actor))
 
 
@@ -672,7 +735,7 @@ def organization_read(body: ReadInput, user: AdminUser, tenant: Db, peer: str = 
 def organization_message_photo(message_id: int, user: AdminUser, tenant: Db):
     actor, org = admin_identity(user)
     with workspace_control_session(tenant) as db:
-        return message_photo(db, actor, admin_contacts(db, org), message_id, actor_aliases=workspace_owner_alias(user, actor))
+        return message_photo(db, actor, admin_contacts(db, org, actor), message_id, actor_aliases=workspace_owner_alias(user, actor))
 
 
 def staff_owner_identity(user, db):
@@ -696,12 +759,29 @@ def staff_owner_identity(user, db):
 @admin_router.get("/owners/contacts")
 def staff_owners(user: CurrentUser, tenant: Db, photo_organization_id: UUID | None = None,
                  photo_id: Annotated[int | None, Query(gt=0)] = None,
-                 forward_message_id: Annotated[int | None, Query(gt=0)] = None):
+                 forward_message_id: Annotated[int | None, Query(gt=0)] = None, share_photo: bool = False):
     if current_organization() is None:
         return []
     with workspace_control_session(tenant) as db:
         actor, contacts = staff_owner_identity(user, db)
+        if share_photo:
+            scope = current_organization()
+            if not is_platform_owner(user) or not photo_id or str(photo_organization_id) != scope.id or forward_message_id:
+                raise HTTPException(404)
+            contacts = [item for item in contacts if item["key"].startswith(f"a:{scope.id}:")]
+            if not contacts:
+                return []
+            check_staff_photo(tenant, user, photo_id)
+            return contact_previews(db, actor, contacts)
         return contact_previews(db, actor, eligible_contacts(db, actor, contacts, photo_organization_id, photo_id, forward_message_id))
+
+
+def check_staff_photo(tenant, user, photo_id):
+    from app.operator_chats import visible_photos
+
+    photo = visible_photos(tenant, user, [photo_id]).get(photo_id)
+    if not photo or photo.is_spam:
+        raise HTTPException(404, "Фотография недоступна для пересылки")
 
 
 @admin_router.get("/owners/unread")
@@ -724,10 +804,15 @@ def staff_owner_messages(user: CurrentUser, tenant: Db, peer: str = Query(max_le
 
 
 @admin_router.post("/owners/messages", status_code=201)
-def staff_owner_send(body: MessageInput, user: CurrentUser, tenant: Db, peer: str = Query(max_length=100)):
+def staff_owner_send(body: StaffOwnerMessageInput, user: CurrentUser, tenant: Db, peer: str = Query(max_length=100)):
     with workspace_control_session(tenant) as db:
         actor, contacts = staff_owner_identity(user, db)
-        return send(db, actor, peer, body, contacts, workspace_url("/api/inspection-admin/owners"))
+        if body.share_photo:
+            scope = current_organization()
+            if not is_platform_owner(user) or not body.photo_id or str(body.photo_organization_id) != scope.id or not peer.startswith(f"a:{scope.id}:"):
+                raise HTTPException(404)
+            check_staff_photo(tenant, user, body.photo_id)
+        return send(db, actor, peer, body, contacts, workspace_url("/api/inspection-admin/owners"), shared_photo=body.share_photo)
 
 
 @admin_router.post("/owners/messages/read")

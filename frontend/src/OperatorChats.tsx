@@ -207,12 +207,14 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
       messages={messages.map(message => {
         const outgoing = 'sender_id' in message ? message.sender_id === user.id : message.outgoing;
         const photo = message.photo;
+        const task = 'shared_appeal' in message ? message.shared_appeal : undefined;
         const sharedPreview = photo && 'shared_preview_url' in photo ? photo.shared_preview_url : undefined;
         const url = photo?.available ? ('detail_url' in photo ? photo.detail_url : operatorPhotoLink(photo.id, Number(peerKey))) : null;
         const href = url?.replace(/^\/org\/[0-9a-f-]{36}(?=\/)/, '');
         return {...message, outgoing, author: outgoing ? user.name : peer?.name || 'Собеседник',
-          canForward: !photo || (photo.available && !sharedPreview), read: !!message.read_at || message.id <= readThrough || readIds.includes(message.id),
-          attachment: photo && (sharedPreview ? <a className="operator-message-photo" href={sharedPreview} target="_blank" rel="noreferrer">
+          canForward: !task && (!photo || (photo.available && !sharedPreview)), read: !!message.read_at || message.id <= readThrough || readIds.includes(message.id),
+          attachment: task ? <Link className="operator-message-photo" to={'/appeals?appeal=' + task.id}>{task.number} · Открыть обращение</Link>
+          : photo && (sharedPreview ? <a className="operator-message-photo" href={sharedPreview} target="_blank" rel="noreferrer">
             <img src={sharedPreview} loading="lazy" alt={'Фотография №' + photo.id}/><span>Фотография #{photo.id}</span>
           </a> : href ? <Link className="operator-message-photo" to={href} state={{conversation: peerKey}} aria-label={'Открыть фотографию №' + photo.id}>
             {photo.preview_url ? <img src={photo.preview_url} loading="lazy" alt={'Фотография №' + photo.id}/> : <span className="operator-message-photo-placeholder"><Camera size={30}/></span>}

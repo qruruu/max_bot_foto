@@ -96,6 +96,7 @@ it.each([true, false])('routes a workspace photo to the right chat API (inspecto
   vi.mocked(api).mockImplementation(async (path, method) => {
     if (method === 'POST') return {id: 1};
     if (path.startsWith('/operator-chats?')) return {items: [{id: 2, name: 'Олег', active: true, role: 'OPERATOR'}]};
+    if (path.startsWith('/inspection-admin/owners/contacts?')) return [];
     if (!inspectorAvailable) throw new ApiError(404, 'Фотография недоступна');
     return [{key: 'i:9', name: 'Ирина', kind: 'Проверяющий', organization_name: 'Организация'}];
   });
@@ -110,4 +111,23 @@ it.each([true, false])('routes a workspace photo to the right chat API (inspecto
   await send();
   expect(api).toHaveBeenLastCalledWith(inspectorAvailable ? '/inspection-admin/messages?peer=i%3A9' : '/operator-chats/2/messages',
     'POST', {photo_id: 85, body: '', client_id: expect.any(String), ...(inspectorAvailable ? {photo_organization_id: 'company'} : {share_photo: true})});
+});
+
+it('offers the staff chat when the owner has a separate inbox', async () => {
+  const staffKey = 'a:company:2';
+  vi.mocked(api).mockImplementation(async (path, method) => {
+    if (method === 'POST') return {id: 1};
+    if (path.startsWith('/operator-chats?')) return {items: []};
+    if (path.startsWith('/inspection-admin/owners/contacts?')) return [{key: staffKey, name: 'Олег', kind: 'Оператор'}];
+    return [];
+  });
+  await act(async () => root.render(<InspectionForward base="/inspection-admin" unified sharePhoto
+    photos={[{id: 85, organization_id: 'company', preview_url: null}, {id: 86, organization_id: 'company', preview_url: null}]}
+    onClose={() => {}} onSent={() => {}}/>));
+  await act(async () => {element.querySelector<HTMLButtonElement>('.forward-destinations button')!.click();});
+  await send();
+  for (const id of [85, 86]) {
+    expect(api).toHaveBeenCalledWith('/inspection-admin/owners/messages?peer=a%3Acompany%3A2', 'POST',
+      {photo_id: id, photo_organization_id: 'company', share_photo: true, body: '', client_id: expect.any(String)});
+  }
 });

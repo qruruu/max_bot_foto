@@ -19,7 +19,8 @@ from app.appeal_events import unanswered_comments
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS
 from app.appeal_search import appeal_search
 from app.appeal_statuses import DECISION_STATUSES, AppealStatus, is_final
-from app.auth import CurrentUser, is_platform_owner
+from app.appeal_task_sharing import AppealShareInput, save_task_shares, share_recipients
+from app.auth import AdminUser, CurrentUser, is_platform_owner
 from app.config import base_settings
 from app.domain import audit, now
 from app.models import (
@@ -290,6 +291,23 @@ def appeal_detail(appeal_id: int, user: AppealReader):
             select(AppealPhoto).where(AppealPhoto.appeal_id == appeal.id).order_by(AppealPhoto.position))]}
 
 
+@organization_router.get("/sharing/recipients")
+def organization_share_recipients(user: AdminUser, q: str = Query("", max_length=200)):
+    if current_organization() is None:
+        raise HTTPException(404)
+    with control_session() as db:
+        return share_recipients(db, q)
+
+
+@organization_router.post("/sharing/send")
+def organization_share_appeals(body: AppealShareInput, user: AdminUser):
+    from app.inspection_chats import admin_identity
+
+    actor, org = admin_identity(user)
+    with control_session() as db:
+        return save_task_shares(db, body, CitizenAppeal.organization_id == org, actor)
+
+
 def work_types_for_appeal(db, appeal):
     organization = db.get(Organization, appeal.organization_id) if appeal.organization_id else None
     if organization is None:
@@ -429,6 +447,7 @@ def appeal_photo(appeal_id: int, photo_id: UUID, user: AppealReader,
 
 def private_appeal_dict(appeal, user):
     result = appeal_dict(appeal)
+    result["can_share"] = user.role == "ADMIN_OPERATOR" and current_organization() is not None
     if user.role == "OPERATOR":
         for key in ("contact", "organization_hint", "owner_note"):
             result.pop(key, None)

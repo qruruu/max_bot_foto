@@ -13,7 +13,6 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import Field, field_validator
 from sqlalchemy import delete, func, insert, literal, select, text, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, load_only
 
@@ -31,6 +30,7 @@ from app.appeal_events import (
 )
 from app.appeal_search import appeal_search
 from app.appeal_statuses import AppealStatus, is_final
+from app.appeal_task_sharing import AppealShareInput, save_task_shares, share_recipients
 from app.auth import AdminUser, Db, digest, hasher
 from app.chat_messages import lock_chat_identity, remove_conversations
 from app.config import base_settings
@@ -809,7 +809,7 @@ def restricted_appeal(db, appeal, *, shared=False):
         "number": f"ОБ-{appeal.id:06d}", "photo_count": appeal.photo_count, "source": appeal_source(appeal),
         "can_manage": False, "can_execute": False,
         "is_final": is_final(appeal),
-        "can_share": not shared and bool(appeal.submitted_by_inspector_id),
+        "can_share": not shared,
         "can_set_task_status": not shared and bool(appeal.submitted_by_inspector_id) and not appeal.archived_at and not is_final(appeal)
             and not db.scalar(select(CitizenAppeal.id).where(CitizenAppeal.parent_id == appeal.id).limit(1)),
         "can_set_inspector_deadline": not shared and bool(appeal.submitted_by_inspector_id) and not appeal.parent_id,
@@ -821,43 +821,17 @@ def restricted_appeal(db, appeal, *, shared=False):
                    for p in photos]}
 
 
-class AppealShareInput(StrictModel):
-    appeal_ids: list[Annotated[int, Field(gt=0, le=2147483647)]] = Field(min_length=1, max_length=50)
-    inspector_id: int = Field(gt=0, le=2147483647)
-
-
 @router.get("/organizations/{organization_id}/appeals/share-recipients")
 def appeal_share_recipients(organization_id: UUID, db: Db, user: InspectorUser,
                             q: str = Query("", max_length=200)):
     authorized_organization(db, user, organization_id)
-    term = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    rows = db.execute(select(Inspector.id, Inspector.name, InspectionAgency.name).join(InspectionAgency).where(
-        Inspector.active, InspectionAgency.active, Inspector.id != user.id,
-        func.concat_ws(" ", Inspector.name, InspectionAgency.name).ilike("%" + term + "%", escape="\\"),
-    ).order_by(func.lower(Inspector.name), Inspector.id).limit(50))
-    return [{"id": id, "name": name, "agency": agency} for id, name, agency in rows]
+    return share_recipients(db, q, exclude=user.id)
 
 
 @router.post("/organizations/{organization_id}/appeals/share")
 def share_appeals(organization_id: UUID, body: AppealShareInput, db: Db, user: InspectorUser):
     authorized_organization(db, user, organization_id)
-    ids = sorted(set(body.appeal_ids))
-    allowed = list(db.scalars(select(CitizenAppeal.id).where(
-        inspector_appeal_scope(organization_id, user), CitizenAppeal.id.in_(ids),
-        CitizenAppeal.submitted_by_inspector_id.is_not(None),
-    ).order_by(CitizenAppeal.id).with_for_update(read=True)))
-    if allowed != ids:
-        raise HTTPException(404, "Задача не найдена")
-    recipient = db.scalar(select(Inspector.id).join(InspectionAgency).where(
-        Inspector.id == body.inspector_id, Inspector.id != user.id, Inspector.active, InspectionAgency.active,
-    ).with_for_update(read=True))
-    if not recipient:
-        raise HTTPException(404, "Проверяющий недоступен")
-    db.execute(pg_insert(InspectorAppealShare).values(
-        [{"appeal_id": id, "inspector_id": recipient} for id in ids]
-    ).on_conflict_do_nothing())
-    db.commit()
-    return {"ok": True}
+    return save_task_shares(db, body, inspector_appeal_scope(organization_id, user), f"i:{user.id}", exclude=user.id)
 
 
 def shared_appeal_query(user):
@@ -888,7 +862,8 @@ def shared_appeals(db: Db, user: InspectorUser, page: int = Query(1, ge=1),
 
 @router.get("/shared-appeals/{appeal_id}")
 def shared_appeal_detail(appeal_id: int, db: Db, user: InspectorUser):
-    return restricted_appeal(db, find_shared_appeal(db, user, appeal_id), shared=True)
+    return {**restricted_appeal(db, find_shared_appeal(db, user, appeal_id), shared=True),
+            "yandex_maps_api_key": base_settings().yandex_maps_api_key}
 
 
 @router.get("/shared-appeals/{appeal_id}/photos/{photo_id}")
