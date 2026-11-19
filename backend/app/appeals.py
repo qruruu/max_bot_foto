@@ -319,7 +319,7 @@ def organization_share_recipients(user: AppealReader, tenant: Db, q: str = Query
 
 @organization_router.post("/sharing/send")
 def organization_share_appeals(body: AppealShareInput, user: AppealReader, tenant: Db):
-    from app.inspection_chats import staff_owner_identity, workspace_control_session
+    from app.inspection_chats import admin_identity, staff_owner_identity, workspace_control_session
 
     with workspace_control_session(tenant) as db:
         if body.recipient not in {item["key"] for item in workspace_task_targets(user, tenant, db)}:
@@ -327,26 +327,34 @@ def organization_share_appeals(body: AppealShareInput, user: AppealReader, tenan
         appeals = load_tasks(db, body, appeal_conditions(user))
         if body.recipient.isdecimal():
             return save_task_messages(tenant, body, appeals, user.id, int(body.recipient), workspace=True)
-        actor, _ = staff_owner_identity(user, db)
+        if body.recipient.startswith("i:"):
+            actor, _ = admin_identity(user)
+        else:
+            actor, _ = staff_owner_identity(user, db)
         return save_task_messages(db, body, appeals, actor, body.recipient)
 
 
 def workspace_task_targets(user, tenant, db):
-    from app.inspection_chats import staff_owner_identity
+    from app.inspection_chats import admin_contacts, staff_owner_identity
     from app.operator_chats import uses_workspace_inbox
 
     scope = current_organization()
     if scope is None:
         raise HTTPException(404)
+    inspectors = [
+        {"key": item["key"], "name": item["name"], "label": "Проверяющий"}
+        for item in admin_contacts(db, scope.id)
+    ] if user.role == "ADMIN_OPERATOR" else []
     if not uses_workspace_inbox(user):
         _, contacts = staff_owner_identity(user, db)
+        primary = db.scalar(select(Organization.owner_user_id).where(Organization.legacy).limit(1))
         return [recipient(item["key"], item["name"], "OPERATOR" if item["kind"] == "Оператор" else "ADMIN_OPERATOR")
-                for item in contacts if item["key"].startswith(f"a:{scope.id}:")]
+                for item in contacts if item["key"].startswith(f"a:{scope.id}:") or item["key"] == f"o:{primary}"] + inspectors
     roles = ("ADMIN_OPERATOR", "OPERATOR") if user.role == "ADMIN_OPERATOR" else ("ADMIN_OPERATOR",)
     excluded = set()
     if tenant is db:
         excluded = {str(id) for id in db.scalars(select(PlatformOwner.user_id)) if id != scope.owner_user_id}
-    return [item for item in staff_targets(tenant, roles=roles, exclude=user.id) if item["key"] not in excluded]
+    return [item for item in staff_targets(tenant, roles=roles, exclude=user.id) if item["key"] not in excluded] + inspectors
 
 
 @contextmanager

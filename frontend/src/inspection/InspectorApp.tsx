@@ -12,6 +12,7 @@ import SidebarNavigation from '../SidebarNavigation';
 import Settings from '../Settings';
 import DistrictMap from '../DistrictMap';
 import InspectionAppeals from './Appeals';
+import OwnerAppeals from '../appeals/OwnerAppeals';
 import { useAppealNotifications } from '../appeals/notifications';
 import { PhotoNotificationsProvider } from '../PhotoNotifications';
 import { OperatorChatBadge, OperatorChatsProvider } from '../OperatorChatsProvider';
@@ -57,7 +58,7 @@ export default function InspectorApp() {
   const pathPhoto=location.pathname.match(/^\/inspection\/photos\/([1-9]\d*)$/)?.[1];
   const requestedTab=params.get('tab');
   const tab=requestedTab==='reports'?'photos':requestedTab==='shared-appeals'||requestedTab==='shared-appeal'
-    ? 'messages' : requestedTab || 'photos';
+    ? (params.has('appeal')?'shared-appeal':'messages') : requestedTab || 'photos';
   const org=params.get('org') || '',photoId=Number(pathPhoto||params.get('photo'));
   const viewingPhoto=!!org&&Number.isSafeInteger(photoId)&&photoId>0;
   const page=photoListPage(params.get('page')),orgInfo=organizations.find(o=>o.id===org);
@@ -147,7 +148,7 @@ export default function InspectorApp() {
   }
   if(loading)return <div className="full-loading">Открываем кабинет проверяющего…</div>;
   if(!user)return <Login unified onLogin={signedIn} initialError={error}/>;
-  const independent=['messages','accounts','settings'].includes(tab);
+  const independent=['messages','accounts','settings','shared-appeal'].includes(tab);
   const choosingOrganization = !org && !independent;
   const title=tab==='accounts'?'Аккаунты':!org&&!independent?'Организации':tabs.find(t=>t.id===tab)?.label || 'Фотографии';
   function sectionLink(section:string,extra:Record<string,string>={}) {
@@ -188,7 +189,7 @@ export default function InspectorApp() {
         {notice&&<div className="organization-notice" role="status">{notice}<button className="text-button" aria-label="Закрыть уведомление" onClick={()=>setNotice('')}>×</button></div>}
         {tab !== 'appeals' && appeals.notice > 0 && <div className="organization-notice" role="status">Новых обращений: {appeals.notice}. <Link to={sectionLink('appeals', {org: appeals.organizationId || appealOrganization})} onClick={appeals.dismiss}>Открыть обращения</Link><button onClick={appeals.dismiss} aria-label="Закрыть уведомление об обращениях">×</button></div>}
         <div hidden={viewingPhoto}>
-        {tab!=='settings'&&(!org||!['districts','appeals'].includes(tab))&&<header className="page-header"><div><h1>{title}</h1>
+        {tab!=='settings'&&tab!=='shared-appeal'&&(!org||!['districts','appeals'].includes(tab))&&<header className="page-header"><div><h1>{title}</h1>
           {choosingOrganization && <p>Выберите организацию или подключите новую по QR.</p>}</div>
           <div className="inspection-actions"><button type="button" aria-label="Обновить" title="Обновить" disabled={busy||dataLoading} onClick={()=>{setRevision(v=>v+1);void loadOrganizations().catch(e=>setError(e.message));}}><RefreshCw size={17}/></button>
             {choosingOrganization && <button type="button" className="primary" disabled={busy} onClick={()=>setScanner(v=>!v)}><QrCode size={18}/>Добавить по QR</button>}</div></header>}
@@ -196,6 +197,7 @@ export default function InspectorApp() {
         {scanner&&<QRScanner onScan={token=>void redeem(token)} onClose={()=>setScanner(false)}/>}
         {tab==='settings'?<Settings authBase="/inspection" selectedSection={params.get('section')||'profile'} sectionLink={section=>sectionLink('settings',{section})}/>:
         tab==='messages'?<InspectionChats active={!viewingPhoto} revision={revision} timezone={meta.timezone} openPhotoLink={url=>{openedHere.current=true;rememberPhotoPosition();navigate(url);}}/>:
+        tab==='shared-appeal'?<OwnerAppeals endpoint="/inspection/shared-appeals" readOnly sharedOnly refreshKey={revision}/>:
 
         tab==='accounts'&&user.can_create_accounts?<InspectionAccounts/>:
         !org?<><div className="organization-grid">{organizations.map(o=><article key={o.id} className="panel organization-card"><Building2 size={25}/><h2>{o.name}</h2><p>{o.city}</p><button className="primary" onClick={()=>setParams({org:o.id,tab:'photos'})}>Открыть<ChevronRight size={17}/></button></article>)}</div>

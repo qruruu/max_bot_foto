@@ -47,6 +47,7 @@ from app.inspection_auth import InspectorUser, inspector_dict, lock_inspector
 from app.media import media_path
 from app.models import (
     AppealAttachment,
+    AppealFile,
     AppealPhoto,
     CitizenAppeal,
     District,
@@ -846,6 +847,51 @@ def share_appeals(organization_id: UUID, body: AppealShareInput, db: Db, user: I
         raise HTTPException(404, "Администратор недоступен")
     appeals = load_tasks(db, body, [inspector_appeal_scope(organization_id, user)])
     return save_task_messages(db, body, appeals, f"i:{user.id}", body.recipient)
+
+
+def find_inspector_shared_appeal(db, user, appeal_id):
+    message = select(InspectionMessage.id).where(
+        InspectionMessage.recipient_key == f"i:{user.id}", InspectionMessage.shared_appeal_id == CitizenAppeal.id,
+        InspectionMessage.sender_key.startswith(func.concat("a:", CitizenAppeal.organization_id, ":"))
+        | InspectionMessage.sender_key.startswith("o:"),
+    ).exists()
+    appeal = db.scalar(select(CitizenAppeal).join(Organization).join(
+        InspectionGrant, InspectionGrant.organization_id == Organization.id).where(
+        CitizenAppeal.id == appeal_id, Organization.status == "ACTIVE", InspectionGrant.inspector_id == user.id, message,
+    ))
+    if not appeal:
+        raise HTTPException(404, "Обращение недоступно")
+    return appeal
+
+
+@router.get("/shared-appeals/{appeal_id}")
+def inspector_shared_detail(appeal_id: int, db: Db, user: InspectorUser):
+    appeal = find_inspector_shared_appeal(db, user, appeal_id)
+    return {**restricted_appeal(db, appeal, shared_root="/api/inspection/shared-appeals"),
+            "yandex_maps_api_key": base_settings().yandex_maps_api_key}
+
+
+@router.get("/shared-appeals/{appeal_id}/photos/{photo_id}")
+def inspector_shared_photo(appeal_id: int, photo_id: UUID, db: Db, user: InspectorUser,
+                           variant: Literal["stamped", "preview", "original"] = "stamped"):
+    return appeal_photo_response(db, find_inspector_shared_appeal(db, user, appeal_id), photo_id, variant)
+
+
+@router.get("/shared-appeals/{appeal_id}/attachments/{photo_id}")
+def inspector_shared_attachment(appeal_id: int, photo_id: UUID, db: Db, user: InspectorUser,
+                                variant: Literal["content", "preview"] = "content"):
+    return published_attachment_response(db, find_inspector_shared_appeal(db, user, appeal_id), photo_id, variant)
+
+
+@router.get("/shared-appeals/{appeal_id}/files/{file_id}")
+def inspector_shared_file(appeal_id: int, file_id: UUID, db: Db, user: InspectorUser):
+    from app.appeal_files import file_response
+
+    appeal = find_inspector_shared_appeal(db, user, appeal_id)
+    if not db.scalar(select(AppealFile.id).where(AppealFile.id == str(file_id),
+                     AppealFile.appeal_id == appeal.id, AppealFile.event_id.is_(None))):
+        raise HTTPException(404)
+    return file_response(db, appeal, file_id)
 
 
 @router.get("/organizations/{organization_id}/appeals/notifications")

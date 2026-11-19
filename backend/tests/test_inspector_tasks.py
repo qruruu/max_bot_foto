@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from test_appeal_images import frame
 from test_appeal_workflow import inspector_metadata, metadata, multipart, submit
 from test_appeal_workflow import workflow as workflow
+from test_inspections import grant
 from test_inspections import inspection as inspection
 from test_organizations import companies as companies
 
@@ -62,6 +63,22 @@ def test_task_forwarding_uses_workplace_chats_and_role_boundaries(workflow):
     targets = owner.get(staff_api + "/sharing/recipients").json()
     staff_key = str(operator_ids[0])
     assert any(item["key"] == staff_key and item["label"] == "Оператор" for item in targets)
+    inspector_id = inspectors[0].get("/api/inspection/me").json()["id"]
+    other_inspector = inspectors[1].get("/api/inspection/me").json()["id"]
+    inspector_key = f"i:{inspector_id}"
+    assert any(item["key"] == inspector_key and item["label"] == "Проверяющий" for item in targets)
+    assert f"i:{other_inspector}" not in {item["key"] for item in targets}
+    assert inspectors[0].get(f"/api/inspection/shared-appeals/{task_id}").status_code == 404
+    to_inspector = {**data, "recipient": inspector_key, "client_id": str(uuid4())}
+    rejected = owner.post(staff_api + "/sharing/send", json={**to_inspector, "recipient": f"i:{other_inspector}"})
+    assert rejected.status_code == 404
+    sent_to_inspector = owner.post(staff_api + "/sharing/send", json=to_inspector)
+    assert sent_to_inspector.status_code == 200, sent_to_inspector.text
+    shared = inspectors[0].get(f"/api/inspection/shared-appeals/{task_id}")
+    assert shared.status_code == 200 and not shared.json()["can_share"]
+    assert inspectors[0].get(shared.json()["photos"][0]["preview_url"]).status_code == 200
+    grant(owner, inspectors[1], scope)
+    assert inspectors[1].get(f"/api/inspection/shared-appeals/{task_id}").status_code == 404
     operation = {"appeal_ids": [task_id], "recipient": staff_key, "client_id": str(uuid4())}
     assert owner.post(scopes[1].prefix + "/api/appeals/sharing/send", json=operation).status_code == 404
     assert operator.get(f"{staff_api}/shared-view/{task_id}").status_code == 404

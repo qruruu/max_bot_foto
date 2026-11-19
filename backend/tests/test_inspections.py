@@ -829,6 +829,10 @@ def test_second_owner_workspace_cannot_read_primary_chats_and_can_write_to_prima
         assert f"o:{primary}" in {item["key"] for item in contacts}
         assert f"o:{developer_id}" not in {item["key"] for item in contacts}
         staff_key = f"a:{scope.id}:{staff_id}"
+        targets = second.get(scope.prefix + "/api/appeals/sharing/recipients").json()
+        assert {(item["key"], item["label"]) for item in targets} == {
+            (f"o:{primary}", "Администратор"), (staff_key, "Оператор"),
+        }
         assert second.get(direct + "/messages", params={"peer": staff_key}).json()["items"] == []
         with organization_scope(scope), Session(engine()) as tenant:
             tenant.get(User, staff_id).allowed_chat_ids = []
