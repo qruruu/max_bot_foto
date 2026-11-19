@@ -89,7 +89,7 @@ export default function usePhotoBatchActions(scope: string, inspectionOrg?: stri
       inspectionBase={base} close={() => setDestination(null)} sent={sent}/>}
     {destination?.kind === 'chat' && <ForwardPhotos photos={destination.photos.map(photo => ({
       ...photo, organization_id: inspectionOrg || (admin ? meta.organization?.id : undefined),
-    }))} base={admin ? '/inspection-admin' : undefined} unified={admin} onClose={() => setDestination(null)} onSent={sent}/>}
+    }))} base={admin ? '/inspection-admin' : undefined} unified={admin} sharePhoto={!base && user.role === 'ADMIN_OPERATOR'} onClose={() => setDestination(null)} onSent={sent}/>}
   </>;
   function toolbar(canSelectAll: boolean) {
     if (!selecting) return null;

@@ -207,11 +207,14 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
       messages={messages.map(message => {
         const outgoing = 'sender_id' in message ? message.sender_id === user.id : message.outgoing;
         const photo = message.photo;
+        const sharedPreview = photo && 'shared_preview_url' in photo ? photo.shared_preview_url : undefined;
         const url = photo?.available ? ('detail_url' in photo ? photo.detail_url : operatorPhotoLink(photo.id, Number(peerKey))) : null;
         const href = url?.replace(/^\/org\/[0-9a-f-]{36}(?=\/)/, '');
         return {...message, outgoing, author: outgoing ? user.name : peer?.name || 'Собеседник',
-          canForward: !photo || photo.available, read: !!message.read_at || message.id <= readThrough || readIds.includes(message.id),
-          attachment: photo && (href ? <Link className="operator-message-photo" to={href} state={{conversation: peerKey}} aria-label={'Открыть фотографию №' + photo.id}>
+          canForward: !photo || (photo.available && !sharedPreview), read: !!message.read_at || message.id <= readThrough || readIds.includes(message.id),
+          attachment: photo && (sharedPreview ? <a className="operator-message-photo" href={sharedPreview} target="_blank" rel="noreferrer">
+            <img src={sharedPreview} loading="lazy" alt={'Фотография №' + photo.id}/><span>Фотография #{photo.id}</span>
+          </a> : href ? <Link className="operator-message-photo" to={href} state={{conversation: peerKey}} aria-label={'Открыть фотографию №' + photo.id}>
             {photo.preview_url ? <img src={photo.preview_url} loading="lazy" alt={'Фотография №' + photo.id}/> : <span className="operator-message-photo-placeholder"><Camera size={30}/></span>}
             <span>Фотография #{photo.id}<small>Открыть карточку</small></span>
           </Link> : <div className="operator-message-photo-unavailable">Фотография #{photo.id} недоступна</div>)};

@@ -2,7 +2,7 @@ import LinkedText from '../LinkedText';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { Archive, ArchiveRestore, ArrowLeft, ArrowUpRight, Building2, CalendarDays, Camera, ChevronDown, ChevronLeft, ChevronRight, Copy, FilterX, Inbox, LockKeyhole, MapPin, Maximize2, MessageCircle, Plus, RefreshCw, Search, Settings, UserRound, Users, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, ArrowUpRight, Building2, CalendarDays, Camera, ChevronDown, ChevronLeft, ChevronRight, Copy, FilterX, Inbox, LockKeyhole, MapPin, Maximize2, MessageCircle, Plus, RefreshCw, Search, Send, Settings, UserRound, Users, X } from 'lucide-react';
 import { api, query as urlQuery } from '../api';
 import AppealActions from './AppealActions';
 import AppealModal from './AppealModal';
@@ -11,6 +11,7 @@ import type { ResponsePhotoDraft } from './ResponsePhotoDraft';
 import AdminTaskForm from './AdminTaskForm';
 import type { WorkflowAppeal } from './AppealActions';
 import AppealDiscussion from './AppealDiscussion';
+import AppealForward, { AppealForwardMenu, MAX_SHARED_TASKS, type AppealMenuTarget } from './AppealForward';
 import AppealLocation from './AppealLocation';
 import AppealStatistics from './AppealStatistics';
 import AppealSourceFilter from './AppealSourceFilter';
@@ -26,7 +27,7 @@ type Appeal = {id: number; number: string; city: string; address: string; place:
   organization_id: string | null; organization_name: string; work_type_name: string;
   organization_hint: string; contact: string; photo_count: number; status: Status; owner_note: string; version: number;
   created_at: string; updated_at: string; preview_url: string; source?: AppealSource; submitted_by_inspector_name?: string; unanswered_comments?: number;
-  parent_id?: number | null; inspector_due_date?: string | null; child_count?: number; due_date?: string | null; operator_name?: string; overdue?: boolean};
+  parent_id?: number | null; inspector_due_date?: string | null; child_count?: number; due_date?: string | null; operator_name?: string; overdue?: boolean; can_share?: boolean};
 type Photo = {id: string; url: string; preview_url: string; original_url: string; captured_at: string; latitude: number; longitude: number; accuracy: number};
 type Detail = Appeal & WorkflowAppeal & {photos: Photo[]; cancelled_by_inspector?: boolean; latitude?: number; longitude?: number};
 type Page = {items: Appeal[]; total: number; page: number; page_size: number; categories: Record<string, string>; public_url: string; yandex_maps_api_key?: string; can_manage?: boolean; can_execute?: boolean; filter_options?: AppealFilterOptions};
@@ -34,8 +35,8 @@ type WorkType = {code: string; name: string};
 const statuses = appealStatuses;
 const moment = (value: string) => new Date(value).toLocaleString('ru-RU', {dateStyle: 'short', timeStyle: 'short'});
 
-export default function OwnerAppeals({organization = false, endpoint: customEndpoint, readOnly = false, canAttachPhotos = false, refreshKey = 0, onCreate, composer}: {
-  organization?: boolean; endpoint?: string; readOnly?: boolean; canAttachPhotos?: boolean; refreshKey?: number; onCreate?: () => void; composer?: ReactNode;
+export default function OwnerAppeals({organization = false, endpoint: customEndpoint, readOnly = false, sharedOnly = false, canAttachPhotos = false, refreshKey = 0, onCreate, composer}: {
+  organization?: boolean; endpoint?: string; readOnly?: boolean; sharedOnly?: boolean; canAttachPhotos?: boolean; refreshKey?: number; onCreate?: () => void; composer?: ReactNode;
 }) {
   const endpoint = customEndpoint || (organization ? '/appeals' : '/platform/appeals');
   const [sharingOpen, setSharingOpen] = useState(false);
@@ -52,6 +53,10 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
   const detailHeading = useRef<HTMLHeadingElement>(null);
   const focusedCard = useRef<number | null>(null);
   const [copyStatus, setCopyStatus] = useState('');
+  const [taskMenu, setTaskMenu] = useState<AppealMenuTarget | null>(null);
+  const [selectedTasks, setSelectedTasks] = useState<number[]>([]);
+  const [forwardTasks, setForwardTasks] = useState<number[]>([]);
+  const [forwardStatus, setForwardStatus] = useState('');
   const [nextStatus, setNextStatus] = useState<Status>('NEW'), [note, setNote] = useState('');
   const [editDueDate, setEditDueDate] = useState('');
   const [subject, setSubject] = useState(''), [description, setDescription] = useState('');
@@ -217,7 +222,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
   const filterCount = [status, categoryFilter, operatorFilter, deadlineFilter !== 'any', source !== 'all'].filter(Boolean).length;
   const canCreateTask = organization && !readOnly && data?.can_manage === true;
   const manageTask = !!detail && !readOnly && detail.can_manage !== false && !detail.can_execute;
-  const canDiscussWithInspector = !!detail?.submitted_by_inspector_name && !detail.can_execute && (readOnly || manageTask);
+  const canDiscussWithInspector = !sharedOnly && !!detail?.submitted_by_inspector_name && !detail.can_execute && (readOnly || manageTask);
   const showWork = !readOnly || canDiscussWithInspector;
   const inspectionTask = readOnly && !!detail?.submitted_by_inspector_name;
   const inspectorChatTitle = readOnly ? 'Чат с администраторами' : 'Чат с проверяющим';
@@ -264,8 +269,12 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
     try {await navigator.clipboard.writeText(window.location.href); setCopyStatus('Ссылка скопирована');}
     catch {setCopyStatus('Скопируйте ссылку из адресной строки');}
   }
+  function toggleTask(id: number) {
+    setSelectedTasks(current => current.includes(id) ? current.filter(value => value !== id)
+      : current.length < MAX_SHARED_TASKS ? [...current, id] : current);
+  }
   return <section className={`owner-appeals${readOnly ? ' inspector-task-view' : ''}`}>
-    {selected === null && <header className="page-header"><h1>{showStatistics ? 'Статистика обращений' : 'Обращения'}</h1>
+    {selected === null && <header className="page-header"><h1>{sharedOnly ? 'Пересланные задачи' : showStatistics ? 'Статистика обращений' : 'Обращения'}</h1>
       <div className="appeal-header-actions">
       {!showStatistics && data?.public_url && <button type="button" aria-label="Страница для жителей" aria-expanded={sharingOpen} aria-controls="appeal-public-sharing"
         onClick={() => setSharingOpen(open => !open)}><Users size={16}/><span className="appeal-header-label">Страница для жителей</span><span className="appeal-header-short">Для жителей</span></button>}
@@ -281,12 +290,21 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
         window.dispatchEvent(new Event('appeals-changed'));
       }}/>}
     {composer}
+    {forwardStatus && <p className="hint" role="status">{forwardStatus}</p>}
+    {!!forwardTasks.length && <AppealForward endpoint={endpoint} ids={forwardTasks} close={() => setForwardTasks([])}
+      sent={() => {setForwardStatus(forwardTasks.length === 1 ? 'Задача переслана' : 'Задачи пересланы'); setForwardTasks([]); setSelectedTasks([]);}}/>}
+    {taskMenu && <AppealForwardMenu target={taskMenu} selecting={selectedTasks.length > 0} close={() => setTaskMenu(null)}
+      select={() => {if (!selectedTasks.includes(taskMenu.id)) toggleTask(taskMenu.id);}}
+      cancel={() => setSelectedTasks([])} forward={() => {setForwardStatus(''); setForwardTasks(selectedTasks.length ? selectedTasks : [taskMenu.id]);}}/>}
     {error && <p className="error" role="alert">{error}</p>}
     {selected !== null ? <>
       <header className="appeal-detail-header">
         <button className="owner-appeal-back" aria-label={readOnly ? 'К списку' : 'Все обращения'} title={readOnly ? 'К списку' : 'Все обращения'}
           disabled={busy} onClick={() => closeTask()}><ArrowLeft size={16}/><span className="appeal-action-text">{readOnly ? 'К списку' : 'Все обращения'}</span></button>
-        {detail?.id === selected && <><h1 ref={detailHeading} tabIndex={-1}><span>{detail.number}</span>{appealTitle(detail)}</h1><button type="button" className="appeal-copy-link" aria-label="Скопировать ссылку на обращение" title="Скопировать ссылку" onClick={() => void copyTaskLink()}><Copy size={16}/></button><AppealBadges status={detail.status} messages={data?.items.find(item => item.id === detail.id)?.unanswered_comments ?? detail.unanswered_comments}/>
+        {detail?.id === selected && <><h1 ref={detailHeading} tabIndex={-1}><span>{detail.number}</span>{appealTitle(detail)}</h1><button type="button" className="appeal-copy-link" aria-label="Скопировать ссылку на обращение" title="Скопировать ссылку" onClick={() => void copyTaskLink()}><Copy size={16}/></button>
+          {detail.can_share && <button type="button" className="appeal-copy-link" aria-label="Переслать задачу" title="Переслать задачу"
+            onClick={() => {setForwardStatus(''); setForwardTasks([detail.id]);}}><Send size={16}/></button>}
+          <AppealBadges status={detail.status} messages={data?.items.find(item => item.id === detail.id)?.unanswered_comments ?? detail.unanswered_comments}/>
           <div className="owner-appeal-header-actions">
             {manageDetail && <button disabled={busy} aria-label="Редактировать" title="Редактировать" onClick={() => {
               setNextStatus(detail.status); setNote(detail.owner_note); setWorkType(detail.category);
@@ -357,7 +375,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
         <Users className="appeal-public-icon" size={36}/><div className="appeal-public-copy"><h2>Страница для жителей</h2><p>Откройте форму подачи обращений для жителей. Скопируйте ссылку или поделитесь в социальных сетях.</p></div>
         <div className="owner-signal-share"><a className="button primary" href={data.public_url} target="_blank" rel="noreferrer"><ArrowUpRight size={17}/>Открыть форму</a><SignalShare url={data.public_url}/></div>
       </section></div>}
-      <div className="appeal-folder-tabs" role="tablist" aria-label="Раздел обращений">{[false, true].map(value => <button key={String(value)} role="tab" aria-selected={!showStatistics && archived === value} onClick={() => {setShowStatistics(false); setArchived(value); setPage(1); setStatus('');}}>{value ? 'Архив' : 'Рабочий список'}{data && archived === value && <span className="appeal-folder-count">{data.total}</span>}</button>)}<button role="tab" aria-selected={showStatistics} onClick={() => setShowStatistics(true)}>Статистика</button></div>
+      {!sharedOnly && <div className="appeal-folder-tabs" role="tablist" aria-label="Раздел обращений">{[false, true].map(value => <button key={String(value)} role="tab" aria-selected={!showStatistics && archived === value} onClick={() => {setShowStatistics(false); setArchived(value); setPage(1); setStatus('');}}>{value ? 'Архив' : 'Рабочий список'}{data && archived === value && <span className="appeal-folder-count">{data.total}</span>}</button>)}<button role="tab" aria-selected={showStatistics} onClick={() => setShowStatistics(true)}>Статистика</button></div>}
       {showStatistics ? <AppealStatistics key={endpoint} endpoint={endpoint} includeAdmin={!readOnly} showAssignments={!readOnly && !operatorList} source={source} onSourceChange={setSource}/> : <>
       <div className="owner-appeal-toolbar">
         <form className="owner-appeal-search" role="search" onSubmit={event => {event.preventDefault(); setQuery(search.trim()); setPage(1);}}>
@@ -371,14 +389,26 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
         </div>
       </div>
       <div className="appeal-list-filters">
-        <AppealSourceFilter includeAdmin={!readOnly} value={source} onChange={value => {setSource(value); setPage(1);}}/>
+        {!sharedOnly && <AppealSourceFilter includeAdmin={!readOnly} value={source} onChange={value => {setSource(value); setPage(1);}}/>}
         <label>Состояние<select name="status" value={status} onChange={event => {setStatus(event.target.value); setPage(1);}}><option value="">Все обращения</option>{Object.entries(statuses).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-        <label>Вид работ<select value={categoryFilter} onChange={event => {setCategoryFilter(event.target.value); setPage(1);}}><option value="">Все виды</option>{filterOptions?.work_types.map(w => <option key={w.code} value={w.code}>{w.name}</option>)}</select></label>
+        {!sharedOnly && <label>Вид работ<select value={categoryFilter} onChange={event => {setCategoryFilter(event.target.value); setPage(1);}}><option value="">Все виды</option>{filterOptions?.work_types.map(w => <option key={w.code} value={w.code}>{w.name}</option>)}</select></label>}
         {!readOnly && !operatorList && <label>Исполнитель<select value={operatorFilter} onChange={event => {setOperatorFilter(event.target.value); setPage(1);}}><option value="">Все исполнители</option>{filterOptions?.operators.map(o => <option key={o.value} value={o.value}>{o.name}</option>)}</select></label>}
         {!readOnly && <label>Срок исполнения<select value={deadlineFilter} onChange={event => {setDeadlineFilter(event.target.value); setPage(1);}}><option value="any">Любой срок</option><option value="none">Не установлен</option><option value="overdue">Просрочено</option><option value="today">Сегодня</option><option value="week">Ближайшие 7 дней</option></select></label>}
       </div>
       <div className={'appeal-list-columns' + (operatorList ? ' appeal-operator-row' : '')} aria-hidden="true"><span>Обращение</span><span>Вид работ</span><span>{readOnly ? 'Срок задачи' : 'Срок исполнения'}</span>{!operatorList && <span>{readOnly ? 'Кому передано' : 'Исполнитель'}</span>}<span>Состояние</span><span/></div>
-      {!data ? !error && <p className="loading">Загружаем обращения…</p> : !data.items.length ? <div className="panel empty"><Inbox size={32}/><h3>{query ? 'Ничего не найдено' : 'Обращений пока нет'}</h3><p>{query ? 'Попробуйте другие слова, адрес, номер или дату.' : 'Новые анкеты жителей появятся здесь.'}</p></div> : <div className="owner-appeal-list">{data.items.map(item => <button className={'panel owner-appeal-card owner-appeal-card-open' + (operatorList ? ' appeal-operator-row' : '')} key={item.id} id={'appeal-row-' + item.id} onClick={() => openTask(item.id)}>
+      {!data ? !error && <p className="loading">Загружаем обращения…</p> : !data.items.length ? <div className="panel empty"><Inbox size={32}/><h3>{query ? 'Ничего не найдено' : sharedOnly ? 'Пересланных задач пока нет' : 'Обращений пока нет'}</h3>{!sharedOnly && <p>{query ? 'Попробуйте другие слова, адрес, номер или дату.' : 'Новые анкеты жителей появятся здесь.'}</p>}</div> : <div className="owner-appeal-list">{data.items.map(item => <button className={'panel owner-appeal-card owner-appeal-card-open' + (operatorList ? ' appeal-operator-row' : '') + (selectedTasks.includes(item.id) ? ' is-selected' : '')} key={item.id} id={'appeal-row-' + item.id}
+        aria-pressed={item.can_share && selectedTasks.length ? selectedTasks.includes(item.id) : undefined}
+        aria-haspopup={item.can_share ? 'menu' : undefined}
+        onContextMenu={item.can_share ? event => {
+          event.preventDefault(); setTaskMenu({id: item.id, anchor: event.currentTarget, x: event.clientX, y: event.clientY});
+        } : undefined}
+        onKeyDown={item.can_share ? event => {
+          if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+          event.preventDefault();
+          const bounds = event.currentTarget.getBoundingClientRect();
+          setTaskMenu({id: item.id, anchor: event.currentTarget, x: bounds.left + 12, y: bounds.top + 12});
+        } : undefined}
+        onClick={() => item.can_share && selectedTasks.length ? toggleTask(item.id) : openTask(item.id)}>
         <span className="appeal-list-main">
         <span className="appeal-list-photo">{item.preview_url ? <img src={item.preview_url} alt="" loading="lazy"/> : <Camera size={26}/>}</span>
         <span className="appeal-list-copy"><span className="owner-appeal-card-top"><strong>{item.number}</strong><span className="appeal-list-title">{appealTitle(item)}</span></span>

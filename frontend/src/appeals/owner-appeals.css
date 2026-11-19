@@ -183,6 +183,8 @@
 :root[data-theme=dark] .appeal-status-ASSIGNED { --appeal-state-bg:#60b7f5; --appeal-state-fg:#101c29; }
 :root[data-theme=dark] .owner-appeals :is(.panel,.owner-appeal-card) { background:var(--appeal-card); }
 :root[data-theme=dark] .owner-appeals .owner-appeal-card:hover { background:var(--surface-soft); }
+.owner-appeals .owner-appeal-card.is-selected,
+:root[data-theme=dark] .owner-appeals .owner-appeal-card.is-selected { border-color:var(--appeal-link); background:var(--accent-surface,#edf4ec); }
 :root[data-theme=dark] .owner-appeals .primary { background:#087cff; border-color:#087cff; }
 :root[data-theme=dark] .owner-appeals .primary:hover { background:#006be0; }
 :root[data-theme=dark] .owner-appeals .appeal-description-toggle { background:transparent; }

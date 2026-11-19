@@ -99,9 +99,9 @@ it.each([true, false])('routes a workspace photo to the right chat API (inspecto
     if (!inspectorAvailable) throw new ApiError(404, 'Фотография недоступна');
     return [{key: 'i:9', name: 'Ирина', kind: 'Проверяющий', organization_name: 'Организация'}];
   });
-  await act(async () => root.render(<InspectionForward base="/inspection-admin" unified
+  await act(async () => root.render(<InspectionForward base="/inspection-admin" unified sharePhoto
     photo={{id: 85, organization_id: 'company', preview_url: null}} onClose={() => {}} onSent={() => {}}/>));
-  expect(api).toHaveBeenCalledWith('/operator-chats?photo_id=85', 'GET', undefined, expect.any(AbortSignal));
+  expect(api).toHaveBeenCalledWith('/operator-chats?photo_id=85&share_photo=true', 'GET', undefined, expect.any(AbortSignal));
   expect(api).toHaveBeenCalledWith('/inspection-admin/contacts?photo_organization_id=company&photo_id=85', 'GET', undefined, expect.any(AbortSignal));
   const recipients = [...element.querySelectorAll<HTMLButtonElement>('.forward-destinations button')];
   expect(recipients).toHaveLength(inspectorAvailable ? 2 : 1);
@@ -109,5 +109,5 @@ it.each([true, false])('routes a workspace photo to the right chat API (inspecto
   await act(async () => recipients.find(item => item.textContent?.includes(inspectorAvailable ? 'Ирина' : 'Олег'))!.click());
   await send();
   expect(api).toHaveBeenLastCalledWith(inspectorAvailable ? '/inspection-admin/messages?peer=i%3A9' : '/operator-chats/2/messages',
-    'POST', {photo_id: 85, body: '', client_id: expect.any(String), ...(inspectorAvailable ? {photo_organization_id: 'company'} : {})});
+    'POST', {photo_id: 85, body: '', client_id: expect.any(String), ...(inspectorAvailable ? {photo_organization_id: 'company'} : {share_photo: true})});
 });

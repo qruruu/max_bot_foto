@@ -368,6 +368,7 @@ export function PhotoList({review=false,spam=false}:{review?:boolean;spam?:boole
   {destination?.kind === 'task' && <TaskPhotoSend ids={destination.photos.map(photo => photo.id)} close={() => setDestination(null)} sent={sent}/>}
   {destination?.kind === 'chat' && <ForwardPhotos photos={destination.photos.map(photo => ({...photo, organization_id: user.role === 'ADMIN_OPERATOR' ? meta.organization?.id : undefined}))}
     base={user.role === 'ADMIN_OPERATOR' && canSendToTask ? '/inspection-admin' : undefined}
+    sharePhoto={user.role === 'ADMIN_OPERATOR'}
     unified={user.role === 'ADMIN_OPERATOR' && canSendToTask} onClose={() => setDestination(null)} onSent={sent}/>}
   {data ? <section className="panel photo-panel">
     <div className="section-title"><h2>{dayTitle || (review?'Очередь проверки':spam?'Спам':archiveTitle||'Все фотографии')} <span className="count-pill appeal-count">{data.total}</span></h2></div>

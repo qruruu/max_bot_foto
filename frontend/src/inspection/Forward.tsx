@@ -47,7 +47,7 @@ async function taskRecipients(base: string, appeal: AppealForward, search: strin
   return personal.flat();
 }
 
-async function personalRecipients(base: string, messages: PersonalMessage[], photo: ForwardPhoto | undefined, unified: boolean, signal: AbortSignal) {
+async function personalRecipients(base: string, messages: PersonalMessage[], photo: ForwardPhoto | undefined, unified: boolean, sharePhoto: boolean, signal: AbortSignal) {
   const operatorSource = messages.length ? operatorMessage(messages[0]) : !photo?.organization_id;
   // One text message establishes the same eligible contacts as the other text messages in this conversation.
   const filters = messages.filter(message => message.photo);
@@ -55,6 +55,7 @@ async function personalRecipients(base: string, messages: PersonalMessage[], pho
   async function recipients(operatorTarget: boolean) {
     if (photo) return loadRecipients(base, operatorTarget, new URLSearchParams({
       ...(!operatorTarget && photo.organization_id ? {photo_organization_id: photo.organization_id} : {}), photo_id: String(photo.id),
+      ...(operatorTarget && sharePhoto ? {share_photo: 'true'} : {}),
     }), signal);
     const field = forwardField(operatorSource, operatorTarget);
     const [first, ...others] = await Promise.all(filters.map(message => loadRecipients(base, operatorTarget, new URLSearchParams({[field]: String(message.id)}), signal)));
@@ -70,9 +71,9 @@ async function personalRecipients(base: string, messages: PersonalMessage[], pho
   return lists.flat().sort((a, b) => (b.recent || '').localeCompare(a.recent || '') || a.name.localeCompare(b.name, 'ru'));
 }
 
-export default function InspectionForward({base: endpoint, photo, photos, message, operatorMessage: operator, messages, appeal, unified = false, onClose, onSent, onTask}: {
+export default function InspectionForward({base: endpoint, photo, photos, message, operatorMessage: operator, messages, appeal, unified = false, sharePhoto = false, onClose, onSent, onTask}: {
   base?: string; photo?: ForwardPhoto; photos?: ForwardPhoto[]; message?: Message; operatorMessage?: OperatorMessage; messages?: PersonalMessage[];
-  appeal?: AppealForward; unified?: boolean; onTask?: () => void; onClose: () => void; onSent: (peer: Destination, count?: number) => void;
+  appeal?: AppealForward; unified?: boolean; sharePhoto?: boolean; onTask?: () => void; onClose: () => void; onSent: (peer: Destination, count?: number) => void;
 }) {
   const base = endpoint || (appeal?.personal ? '/inspection-admin' : '/inspection');
   const personal = messages || (message ? [message] : operator ? [operator] : []);
@@ -104,13 +105,13 @@ export default function InspectionForward({base: endpoint, photo, photos, messag
     const controller = new AbortController();
     setLoading(true); setError('');
     const request = appeal ? taskRecipients(base, appeal, remoteSearch, controller.signal)
-      : Promise.all((photos || [photo]).map(item => personalRecipients(base, personal, item, unified, controller.signal)))
+      : Promise.all((photos || [photo]).map(item => personalRecipients(base, personal, item, unified, sharePhoto, controller.signal)))
         .then(([firstList, ...others]) => firstList.filter(item => others.every(list => list.some(peer => peer.key === item.key))));
     request.then(value => {if (!controller.signal.aborted) setContacts(value);})
       .catch(error => {if (!controller.signal.aborted) setError(error.message);})
       .finally(() => {if (!controller.signal.aborted) setLoading(false);});
     return () => controller.abort();
-  }, [base, sourceKey, photoKey, photo?.organization_id, appeal?.endpoint, appeal?.channel, appeal?.personal, remoteSearch, unified]);
+  }, [base, sourceKey, photoKey, photo?.organization_id, appeal?.endpoint, appeal?.channel, appeal?.personal, remoteSearch, unified, sharePhoto]);
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null, overflow = document.body.style.overflow;
@@ -144,7 +145,8 @@ export default function InspectionForward({base: endpoint, photo, photos, messag
         await api(path, 'POST', {client_id: current.ids[index],
           ...(source ? {[taskTarget ? 'forward_message_id' : appeal ? 'forward_task_message_id' : forwardField(operatorMessage(personal[sourceIndex]), operatorTarget)]: source.id,
             ...(taskTarget && appeal.channel ? {channel: appeal.channel} : {})}
-            : {body: text, photo_id: attachment.id, ...(!operatorTarget && attachment.organization_id ? {photo_organization_id: attachment.organization_id} : {})})});
+            : {body: text, photo_id: attachment.id, ...(operatorTarget && sharePhoto ? {share_photo: true} : {}),
+              ...(!operatorTarget && attachment.organization_id ? {photo_organization_id: attachment.organization_id} : {})})});
         current.completed++;
         setProgress(current.completed);
       }

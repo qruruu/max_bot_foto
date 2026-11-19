@@ -3,7 +3,7 @@ import type { ChatContent } from './chatContent';
 export type OperatorMessage = ChatContent & {
   id: number; sender_id: number; recipient_id: number; client_id: string;
   body: string; created_at: string; read_at: string | null;
-  photo?: {id: number; available: boolean; preview_url: string | null} | null;
+  photo?: {id: number; available: boolean; preview_url: string | null; shared_preview_url?: string} | null;
 };
 export type OperatorContact = {
   id: number; name: string; role: string; active: boolean; avatar_url: string | null;

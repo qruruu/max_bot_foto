@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { usePresenceHeartbeat } from '../UserPresence';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { Building2, Camera, ChevronRight, Layers, LogOut, Map, MapPin, MessageSquare, QrCode, RefreshCw, Users } from 'lucide-react';
+import { Building2, Camera, ChevronRight, Layers, LogOut, Map, MapPin, MessageSquare, QrCode, RefreshCw, Send, Users } from 'lucide-react';
 import { api } from '../api';
 import Login, { signInDestination } from '../Login';
 import type { Meta, User } from '../types';
@@ -12,6 +12,7 @@ import SidebarNavigation from '../SidebarNavigation';
 import Settings from '../Settings';
 import DistrictMap from '../DistrictMap';
 import InspectionAppeals from './Appeals';
+import OwnerAppeals from '../appeals/OwnerAppeals';
 import { useAppealNotifications } from '../appeals/notifications';
 import { PhotoNotificationsProvider } from '../PhotoNotifications';
 import { OperatorChatBadge, OperatorChatsProvider } from '../OperatorChatsProvider';
@@ -33,9 +34,10 @@ import './inspection.css';
 
 const tabs=[{id:'photos',label:'Фотографии',Icon:Camera},
   {id:'photo-map',label:'Карта фотографий',Icon:MapPin},{id:'districts',label:'Микрорайоны',Icon:Map},
-  {id:'appeals',label:'Обращения',Icon:MessageSquare},{id:'messages',label:'Чаты',Icon:MessageSquare}];
-const menuOrder=['/inspectors','/photos','/photo-map','/districts','/appeals','/messages','/users'];
-const menuKeys:Record<string,string>={photos:'/photos','photo-map':'/photo-map',districts:'/districts',appeals:'/appeals',messages:'/messages',accounts:'/users'};
+  {id:'appeals',label:'Обращения',Icon:MessageSquare},{id:'shared-appeals',label:'Пересланные задачи',Icon:Send},
+  {id:'messages',label:'Чаты',Icon:MessageSquare}];
+const menuOrder=['/inspectors','/photos','/photo-map','/districts','/appeals','/shared-appeals','/messages','/users'];
+const menuKeys:Record<string,string>={photos:'/photos','photo-map':'/photo-map',districts:'/districts',appeals:'/appeals','shared-appeals':'/shared-appeals',messages:'/messages',accounts:'/users'};
 const emptyMeta:InspectionMeta={districts:[],work_types:[],today:new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Yekaterinburg',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),timezone:'Asia/Yekaterinburg',yandex_maps_api_key:''};
 
 export default function InspectorApp() {
@@ -143,7 +145,7 @@ export default function InspectorApp() {
   }
   if(loading)return <div className="full-loading">Открываем кабинет проверяющего…</div>;
   if(!user)return <Login unified onLogin={signedIn} initialError={error}/>;
-  const independent=['messages','accounts','settings'].includes(tab);
+  const independent=['messages','accounts','settings','shared-appeals'].includes(tab);
   const choosingOrganization = !org && !independent;
   const title=tab==='accounts'?'Аккаунты':!org&&!independent?'Организации':tabs.find(t=>t.id===tab)?.label || 'Фотографии';
   function sectionLink(section:string,extra:Record<string,string>={}) {
@@ -153,7 +155,7 @@ export default function InspectorApp() {
     return '/inspection?'+next;
   }
   const links=[{to:'/inspectors',label:'Организации',Icon:Building2,href:'/inspection',active:!org&&!independent},
-    ...tabs.filter(t=>org||t.id==='messages').map(t=>({to:menuKeys[t.id],label:t.label,Icon:t.Icon,href:sectionLink(t.id),active:tab===t.id,badge:t.id==='messages'?<OperatorChatBadge/>:t.id==='appeals' && appeals.count ? <span className="count-pill appeal-count">{appeals.count}</span>:undefined})),
+    ...tabs.filter(t=>org||t.id==='messages'||t.id==='shared-appeals').map(t=>({to:menuKeys[t.id],label:t.label,Icon:t.Icon,href:sectionLink(t.id),active:tab===t.id,badge:t.id==='messages'?<OperatorChatBadge/>:t.id==='appeals' && appeals.count ? <span className="count-pill appeal-count">{appeals.count}</span>:undefined})),
     ...(user.can_create_accounts?[{to:'/users',label:'Аккаунты',Icon:Users,href:sectionLink('accounts'),active:tab==='accounts'}]:[])];
   const appMeta:Meta={...meta,permission_catalog:[],statuses:['ACCEPTED'],chats:[],operators:[],organization:orgInfo||null};
   const notificationOrg=org||organizations[0]?.id;
@@ -184,7 +186,7 @@ export default function InspectorApp() {
         {notice&&<div className="organization-notice" role="status">{notice}<button className="text-button" aria-label="Закрыть уведомление" onClick={()=>setNotice('')}>×</button></div>}
         {tab !== 'appeals' && appeals.notice > 0 && <div className="organization-notice" role="status">Новых обращений: {appeals.notice}. <Link to={sectionLink('appeals', {org: appeals.organizationId || appealOrganization})} onClick={appeals.dismiss}>Открыть обращения</Link><button onClick={appeals.dismiss} aria-label="Закрыть уведомление об обращениях">×</button></div>}
         <div hidden={viewingPhoto}>
-        {tab!=='settings'&&(!org||!['districts','appeals'].includes(tab))&&<header className="page-header"><div><h1>{title}</h1>
+        {tab!=='settings'&&tab!=='shared-appeals'&&(!org||!['districts','appeals'].includes(tab))&&<header className="page-header"><div><h1>{title}</h1>
           {choosingOrganization && <p>Выберите организацию или подключите новую по QR.</p>}</div>
           <div className="inspection-actions"><button type="button" aria-label="Обновить" title="Обновить" disabled={busy||dataLoading} onClick={()=>{setRevision(v=>v+1);void loadOrganizations().catch(e=>setError(e.message));}}><RefreshCw size={17}/></button>
             {choosingOrganization && <button type="button" className="primary" disabled={busy} onClick={()=>setScanner(v=>!v)}><QrCode size={18}/>Добавить по QR</button>}</div></header>}
@@ -192,6 +194,7 @@ export default function InspectorApp() {
         {scanner&&<QRScanner onScan={token=>void redeem(token)} onClose={()=>setScanner(false)}/>}
         {tab==='settings'?<Settings authBase="/inspection" selectedSection={params.get('section')||'profile'} sectionLink={section=>sectionLink('settings',{section})}/>:
         tab==='messages'?<InspectionChats active={!viewingPhoto} revision={revision} timezone={meta.timezone} openPhotoLink={url=>{openedHere.current=true;rememberPhotoPosition();navigate(url);}}/>:
+        tab==='shared-appeals'?<OwnerAppeals endpoint="/inspection/shared-appeals" readOnly sharedOnly refreshKey={revision}/>:
         tab==='accounts'&&user.can_create_accounts?<InspectionAccounts/>:
         !org?<><div className="organization-grid">{organizations.map(o=><article key={o.id} className="panel organization-card"><Building2 size={25}/><h2>{o.name}</h2><p>{o.city}</p><button className="primary" onClick={()=>setParams({org:o.id,tab:'photos'})}>Открыть<ChevronRight size={17}/></button></article>)}</div>
           {!organizations.length&&<p className="empty">Нет доступных организаций. Отсканируйте новый QR организации.</p>}</>:

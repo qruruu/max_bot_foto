@@ -43,6 +43,43 @@ async function clickButton(text: string) {
   await act(async () => {button.click(); await tick();});
 }
 
+it('selects tasks from the context menu and forwards them to the chosen inspector', async () => {
+  const endpoint = '/inspection/organizations/company/appeals';
+  const fallback = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async (path, method, body, signal) => {
+    if (path.startsWith(endpoint + '?page=')) return {items: [{...row, can_share: true}, {...row, id: 43, can_share: true}],
+      total: 2, page: 1, page_size: 20};
+    if (path.startsWith(endpoint + '/share-recipients?')) return [{id: 7, name: 'Ирина', agency: 'Другая организация'}];
+    return fallback(path, method, body, signal);
+  });
+  await act(async () => {root.render(<MemoryRouter><OwnerAppeals endpoint={endpoint} readOnly/></MemoryRouter>); await tick();});
+  const [first, second] = element.querySelectorAll<HTMLButtonElement>('.owner-appeal-card-open');
+  const menu = () => first.dispatchEvent(new MouseEvent('contextmenu', {bubbles: true, cancelable: true}));
+  const choose = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('[role=menuitem]')]
+    .find(item => item.textContent === text)!.click();
+  await act(async () => {menu();});
+  await act(async () => {choose('Выбрать');});
+  await act(async () => {second.click();});
+  expect(element.querySelectorAll('.owner-appeal-card[aria-pressed=true]')).toHaveLength(2);
+  await act(async () => {menu();});
+  await act(async () => {choose('Переслать'); await tick(); await tick();});
+  await act(async () => {element.querySelector<HTMLButtonElement>('dialog .forward-destinations button')!.click();});
+  await clickButton('Переслать');
+  expect(api).toHaveBeenCalledWith(endpoint + '/share', 'POST', {appeal_ids: [42, 43], inspector_id: 7});
+  expect(element.textContent).toContain('Задачи пересланы');
+});
+
+it('opens only the request tab in the shared task view', async () => {
+  Object.assign(current, {submitted_by_inspector_name: 'Ирина', can_manage: false});
+  await act(async () => {
+    root.render(<MemoryRouter initialEntries={['/inspection?tab=shared-appeals&appeal=42']}>
+      <OwnerAppeals endpoint="/inspection/shared-appeals" sharedOnly readOnly/>
+    </MemoryRouter>); await tick();
+  });
+  expect([...element.querySelectorAll('[role=tab]')].map(tab => tab.textContent)).toEqual(['О задаче']);
+  expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('/events'))).toBe(false);
+});
+
 it('keeps message notifications after opening and clears them after a reply without losing the drafted administrator answer', async () => {
   await act(async () => {root.render(<MemoryRouter><OwnerAppeals organization endpoint="/appeals"/></MemoryRouter>); await tick();});
   expect(element.textContent).toContain('Новые сообщения: 2'); expect(element.querySelector('img')?.getAttribute('src')).toBe('/preview');

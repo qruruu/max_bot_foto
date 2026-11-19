@@ -39,6 +39,6 @@ describe('forwarded photos', () => {
   it('preserves attachments and their availability when merging polling with pagination', () => {
     const current = {...message(1), photo: {id: 48, available: true, preview_url: '/api/photos/48/preview'}};
     const updated = {...current, photo: {...current.photo, available: false, preview_url: null}};
-    expect(mergeMessages([current], [updated, message(2)])[0].photo).toEqual(updated.photo);
+    expect(mergeMessages<OperatorMessage>([current], [updated, message(2)])[0].photo).toEqual(updated.photo);
   });
 });
