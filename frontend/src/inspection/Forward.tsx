@@ -111,9 +111,17 @@ export default function InspectionForward({base: endpoint, photo, photos, messag
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true); setError('');
-    const request = appeal ? taskRecipients(base, appeal, remoteSearch, controller.signal)
-      : Promise.all((photos || [photo]).map(item => personalRecipients(base, personal, item, unified, sharePhoto, controller.signal)))
-        .then(([firstList, ...others]) => firstList.filter(item => others.every(list => list.some(peer => peer.key === item.key))));
+    async function loadPersonal() {
+      const [first, ...remaining] = photos || [photo];
+      let allowed = await personalRecipients(base, personal, first, unified, sharePhoto, controller.signal);
+      for (const item of remaining) {
+        if (controller.signal.aborted || !allowed.length) break;
+        const keys = new Set((await personalRecipients(base, personal, item, unified, sharePhoto, controller.signal)).map(peer => peer.key));
+        allowed = allowed.filter(peer => keys.has(peer.key));
+      }
+      return allowed;
+    }
+    const request = appeal ? taskRecipients(base, appeal, remoteSearch, controller.signal) : loadPersonal();
     request.then(value => {if (!controller.signal.aborted) setContacts(value);})
       .catch(error => {if (!controller.signal.aborted) setError(error.message);})
       .finally(() => {if (!controller.signal.aborted) setLoading(false);});

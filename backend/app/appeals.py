@@ -1,6 +1,7 @@
 """Organization appeal inbox, receipt recovery and authenticated access boundaries."""
 
 import secrets
+from contextlib import contextmanager
 from datetime import date, timedelta
 from hashlib import sha256
 from typing import Annotated, Literal
@@ -11,6 +12,7 @@ from pydantic import AwareDatetime, Field, model_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import load_only
 
 from app import appeal_reporting as reporting
 from app.appeal_archive import archived_condition, is_archived
@@ -19,16 +21,26 @@ from app.appeal_events import unanswered_comments
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS
 from app.appeal_search import appeal_search
 from app.appeal_statuses import DECISION_STATUSES, AppealStatus, is_final
-from app.appeal_task_sharing import AppealShareInput, save_task_shares, share_recipients
-from app.auth import AdminUser, CurrentUser, is_platform_owner
+from app.appeal_task_sharing import (
+    AppealShareInput,
+    load_tasks,
+    recipient,
+    save_task_messages,
+    search_targets,
+    staff_targets,
+)
+from app.auth import CurrentUser, Db, is_platform_owner
 from app.config import base_settings
 from app.domain import audit, now
 from app.models import (
     AppealCaptureSession,
+    AppealFile,
     AppealPhoto,
     AppealRateLimit,
     Audit,
     CitizenAppeal,
+    InspectionMessage,
+    OperatorMessage,
     Organization,
     PlatformOwner,
 )
@@ -230,10 +242,12 @@ def photo_dict(photo):
 
 @owner_router.get("")
 @organization_router.get("")
-def list_appeals(user: AppealReader, status: AppealStatus | None = None, page: int = Query(default=1, ge=1), archived: bool = False,
+def list_appeals(user: AppealReader, tenant: Db, status: AppealStatus | None = None, page: int = Query(default=1, ge=1), archived: bool = False,
                  q: str = Query(default="", max_length=200), category: str = Query(default="", max_length=60),
                  operator: str = Query(default="", max_length=100), deadline: reporting.DeadlineFilter = 'any', source: reporting.SourceFilter = 'all'):
-    with control_session() as db:
+    from app.inspection_chats import workspace_control_session
+
+    with workspace_control_session(tenant) as db:
         conditions = appeal_conditions(user) + ([CitizenAppeal.status == status] if status else [])
         personal = archived_condition(user)
         conditions.append(personal if archived else ~personal)
@@ -277,8 +291,10 @@ def appeal_notifications(user: AppealReader):
 
 @owner_router.get("/{appeal_id}")
 @organization_router.get("/{appeal_id}")
-def appeal_detail(appeal_id: int, user: AppealReader):
-    with control_session() as db:
+def appeal_detail(appeal_id: int, user: AppealReader, tenant: Db):
+    from app.inspection_chats import workspace_control_session
+
+    with workspace_control_session(tenant) as db:
         from app.appeal_workflow import can_archive_appeal, cancelled_by_inspector, workflow_detail
         appeal = find_appeal(db, appeal_id, user=user)
         return {**private_appeal_dict(appeal, user), "personal_archived": is_archived(db, appeal, user), "unanswered_comments": unanswered_comments(db, [appeal.id], user).get(appeal.id, 0),
@@ -287,25 +303,116 @@ def appeal_detail(appeal_id: int, user: AppealReader):
                 "can_manage": user.role == "ADMIN_OPERATOR", "can_execute": user.role == "OPERATOR",
                 "can_archive": can_archive_appeal(db, appeal),
                 "cancelled_by_inspector": user.role == "ADMIN_OPERATOR" and cancelled_by_inspector(db, appeal),
-                "photos": [photo_dict(photo) for photo in db.scalars(
-            select(AppealPhoto).where(AppealPhoto.appeal_id == appeal.id).order_by(AppealPhoto.position))]}
+                "photos": [photo_dict(photo) for photo in db.scalars(select(AppealPhoto).options(load_only(
+            AppealPhoto.id, AppealPhoto.appeal_id, AppealPhoto.captured_at, AppealPhoto.latitude,
+            AppealPhoto.longitude, AppealPhoto.accuracy, AppealPhoto.width, AppealPhoto.height,
+        )).where(AppealPhoto.appeal_id == appeal.id).order_by(AppealPhoto.position))]}
 
 
 @organization_router.get("/sharing/recipients")
-def organization_share_recipients(user: AdminUser, q: str = Query("", max_length=200)):
-    if current_organization() is None:
-        raise HTTPException(404)
-    with control_session() as db:
-        return share_recipients(db, q)
+def organization_share_recipients(user: AppealReader, tenant: Db, q: str = Query("", max_length=200)):
+    from app.inspection_chats import workspace_control_session
+
+    with workspace_control_session(tenant) as db:
+        return search_targets(workspace_task_targets(user, tenant, db), q)
 
 
 @organization_router.post("/sharing/send")
-def organization_share_appeals(body: AppealShareInput, user: AdminUser):
-    from app.inspection_chats import admin_identity
+def organization_share_appeals(body: AppealShareInput, user: AppealReader, tenant: Db):
+    from app.inspection_chats import staff_owner_identity, workspace_control_session
 
-    actor, org = admin_identity(user)
-    with control_session() as db:
-        return save_task_shares(db, body, CitizenAppeal.organization_id == org, actor)
+    with workspace_control_session(tenant) as db:
+        if body.recipient not in {item["key"] for item in workspace_task_targets(user, tenant, db)}:
+            raise HTTPException(404, "Получатель недоступен")
+        appeals = load_tasks(db, body, appeal_conditions(user))
+        if body.recipient.isdecimal():
+            return save_task_messages(tenant, body, appeals, user.id, int(body.recipient), workspace=True)
+        actor, _ = staff_owner_identity(user, db)
+        return save_task_messages(db, body, appeals, actor, body.recipient)
+
+
+def workspace_task_targets(user, tenant, db):
+    from app.inspection_chats import staff_owner_identity
+    from app.operator_chats import uses_workspace_inbox
+
+    scope = current_organization()
+    if scope is None:
+        raise HTTPException(404)
+    if not uses_workspace_inbox(user):
+        _, contacts = staff_owner_identity(user, db)
+        return [recipient(item["key"], item["name"], "OPERATOR" if item["kind"] == "Оператор" else "ADMIN_OPERATOR")
+                for item in contacts if item["key"].startswith(f"a:{scope.id}:")]
+    roles = ("ADMIN_OPERATOR", "OPERATOR") if user.role == "ADMIN_OPERATOR" else ("ADMIN_OPERATOR",)
+    excluded = set()
+    if tenant is db:
+        excluded = {str(id) for id in db.scalars(select(PlatformOwner.user_id)) if id != scope.owner_user_id}
+    return [item for item in staff_targets(tenant, roles=roles, exclude=user.id) if item["key"] not in excluded]
+
+
+@contextmanager
+def shared_workspace_appeal(appeal_id, user, tenant):
+    from app.inspection_chats import workspace_control_session
+    from app.operator_chats import uses_workspace_inbox
+
+    scope = current_organization()
+    if scope is None:
+        raise HTTPException(404)
+    with workspace_control_session(tenant) as db:
+        identities = []
+        if uses_workspace_inbox(user):
+            identities.append(f"a:{scope.id}:{user.id}")
+        if is_platform_owner(user):
+            identities.append(f"o:{user._platform_user_id}")
+            if tenant is db and not uses_workspace_inbox(user):
+                identities.append(f"a:{scope.id}:{user._platform_user_id}")
+        direct = uses_workspace_inbox(user) and tenant.scalar(select(OperatorMessage.id).where(
+            OperatorMessage.recipient_id == user.id, OperatorMessage.shared_appeal_id == appeal_id).limit(1))
+        inspection = db.scalar(select(InspectionMessage.id).where(
+            InspectionMessage.recipient_key.in_(identities), InspectionMessage.shared_appeal_id == appeal_id).limit(1))
+        if not (direct or inspection):
+            raise HTTPException(404, "Обращение недоступно")
+        appeal = db.scalar(select(CitizenAppeal).where(CitizenAppeal.id == appeal_id, CitizenAppeal.organization_id == scope.id))
+        if appeal is None:
+            raise HTTPException(404, "Обращение недоступно")
+        yield db, appeal
+
+
+@organization_router.get("/shared-view/{appeal_id}")
+def workspace_shared_detail(appeal_id: int, user: AppealReader, tenant: Db):
+    from app.inspections import restricted_appeal
+
+    with shared_workspace_appeal(appeal_id, user, tenant) as (db, appeal):
+        return {**restricted_appeal(db, appeal, shared_root=private_url("/shared-view")),
+                "yandex_maps_api_key": base_settings().yandex_maps_api_key}
+
+
+@organization_router.get("/shared-view/{appeal_id}/photos/{photo_id}")
+def workspace_shared_photo(appeal_id: int, photo_id: UUID, user: AppealReader, tenant: Db,
+                           variant: Literal["stamped", "preview", "original"] = "stamped"):
+    from app.inspections import appeal_photo_response
+
+    with shared_workspace_appeal(appeal_id, user, tenant) as (db, appeal):
+        return appeal_photo_response(db, appeal, photo_id, variant)
+
+
+@organization_router.get("/shared-view/{appeal_id}/attachments/{photo_id}")
+def workspace_shared_attachment(appeal_id: int, photo_id: UUID, user: AppealReader, tenant: Db,
+                                 variant: Literal["content", "preview"] = "content"):
+    from app.inspections import published_attachment_response
+
+    with shared_workspace_appeal(appeal_id, user, tenant) as (db, appeal):
+        return published_attachment_response(db, appeal, photo_id, variant)
+
+
+@organization_router.get("/shared-view/{appeal_id}/files/{file_id}")
+def workspace_shared_file(appeal_id: int, file_id: UUID, user: AppealReader, tenant: Db):
+    from app.appeal_files import file_response
+
+    with shared_workspace_appeal(appeal_id, user, tenant) as (db, appeal):
+        if not db.scalar(select(AppealFile.id).where(AppealFile.id == str(file_id),
+                         AppealFile.appeal_id == appeal.id, AppealFile.event_id.is_(None))):
+            raise HTTPException(404)
+        return file_response(db, appeal, file_id)
 
 
 def work_types_for_appeal(db, appeal):
@@ -433,21 +540,25 @@ def edit_appeal(appeal_id: int, body: OwnerEdit, user: AppealReader):
 
 @owner_router.get("/{appeal_id}/photos/{photo_id}")
 @organization_router.get("/{appeal_id}/photos/{photo_id}")
-def appeal_photo(appeal_id: int, photo_id: UUID, user: AppealReader,
+def appeal_photo(appeal_id: int, photo_id: UUID, user: AppealReader, tenant: Db,
                  variant: Literal["stamped", "preview", "original"] = "stamped"):
-    with control_session() as db:
+    from app.inspection_chats import workspace_control_session
+
+    with workspace_control_session(tenant) as db:
         find_appeal(db, appeal_id, user=user)
-        photo = db.get(AppealPhoto, str(photo_id))
-        if not photo or photo.appeal_id != appeal_id:
+        photo = db.execute(select(getattr(AppealPhoto, variant), AppealPhoto.position).where(
+            AppealPhoto.id == str(photo_id), AppealPhoto.appeal_id == appeal_id)).one_or_none()
+        if photo is None:
             raise HTTPException(404, "Фотография не найдена")
-        return Response(getattr(photo, variant), media_type="image/jpeg", headers={
+        content, position = photo
+        return Response(content, media_type="image/jpeg", headers={
             "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
-            "Content-Disposition": f'inline; filename="appeal-{appeal_id}-{photo.position + 1}-{variant}.jpg"'})
+            "Content-Disposition": f'inline; filename="appeal-{appeal_id}-{position + 1}-{variant}.jpg"'})
 
 
 def private_appeal_dict(appeal, user):
     result = appeal_dict(appeal)
-    result["can_share"] = user.role == "ADMIN_OPERATOR" and current_organization() is not None
+    result["can_share"] = current_organization() is not None
     if user.role == "OPERATOR":
         for key in ("contact", "organization_hint", "owner_note"):
             result.pop(key, None)

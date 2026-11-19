@@ -119,6 +119,8 @@ def message_dict(message, photos=None, shared=None):
     return {
         "id": message.id, "sender_id": message.sender_id, "recipient_id": message.recipient_id,
         "client_id": message.client_id, "body": message.body,
+        **({"shared_appeal": {"id": message.shared_appeal_id, "number": f"ОБ-{message.shared_appeal_id:06d}"}}
+           if message.shared_appeal_id else {}),
         "reply": message.reply, "forwarded": bool(message.forwarded_from_id or message.forwarded_name),
         "forwarded_name": message.forwarded_name,
         "screenshots": [workspace_url(f"/api/operator-chats/messages/{message.id}/screenshots/{number}")
@@ -296,6 +298,16 @@ def messages(
     }
 
 
+def lock_operator_send(db, user_id, peer_id):
+    # Serialize each pair until commit, so an ID cursor cannot skip a late-committing message.
+    pair_key = (min(user_id, peer_id) << 32) | max(user_id, peer_id)
+    db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": pair_key})
+    db.execute(text("SELECT pg_advisory_xact_lock(:sender)"), {"sender": -user_id})
+    accounts = list(db.scalars(select(User).where(User.id.in_([user_id, peer_id]))
+                               .order_by(User.id).with_for_update(read=True).execution_options(populate_existing=True)))
+    if len(accounts) != 2 or any(not account.active for account in accounts):
+        raise HTTPException(409, "Аккаунт отключён. Отправка сообщений недоступна.")
+
 @router.post("/{peer_id}/messages", status_code=201)
 def send_message(peer_id: int, body: MessageInput, db: Db, user: CurrentUser):
     require_workspace_inbox(user)
@@ -321,14 +333,7 @@ def send_message(peer_id: int, body: MessageInput, db: Db, user: CurrentUser):
             raise HTTPException(404, "Сообщение для ответа недоступно")
         reply = quote(source.id, db.get(User, source.sender_id).name, source.body,
                       source.photo_id or source.screenshot_count)
-    # Serialize each pair until commit, so an ID cursor cannot skip a late-committing message.
-    pair_key = (min(user.id, peer_id) << 32) | max(user.id, peer_id)
-    db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": pair_key})
-    db.execute(text("SELECT pg_advisory_xact_lock(:sender)"), {"sender": -user.id})
-    accounts = list(db.scalars(select(User).where(User.id.in_([user.id, peer_id]))
-                               .order_by(User.id).with_for_update(read=True).execution_options(populate_existing=True)))
-    if len(accounts) != 2 or any(not account.active for account in accounts):
-        raise HTTPException(409, "Аккаунт отключён. Отправка сообщений недоступна.")
+    lock_operator_send(db, user.id, peer_id)
     existing = db.scalar(select(OperatorMessage).where(
         OperatorMessage.sender_id == user.id, OperatorMessage.client_id == str(body.client_id),
     ))

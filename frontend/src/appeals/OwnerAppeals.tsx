@@ -249,7 +249,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
   }
   function closeTask() {
     if (location.state?.appealFromList) {navigate(-1); return;}
-    if (sharedOnly) {navigate('/inspection?' + new URLSearchParams({tab: 'messages', with: params.get('with') || ''}), {replace: true}); return;}
+    if (sharedOnly) {navigate('/messages?' + new URLSearchParams({with: params.get('with') || ''}), {replace: true}); return;}
     const next = new URLSearchParams(params);
     next.delete('appeal');
     setParams(next, {replace: true});

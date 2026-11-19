@@ -599,6 +599,7 @@ class OperatorMessage(ChatMessageContent, Base):
     body: Mapped[str] = mapped_column(Text)
     photo_id: Mapped[int | None] = mapped_column(ForeignKey("photos.id", name="fk_operator_messages_photo"))
     photo_shared: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    shared_appeal_id: Mapped[int | None] = mapped_column(Integer)
     forwarded_from_id: Mapped[int | None] = mapped_column(ForeignKey("operator_messages.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -609,6 +610,8 @@ class OperatorMessage(ChatMessageContent, Base):
         UniqueConstraint("sender_id", "client_id", name="uq_operator_message_client"),
         Index("ix_operator_messages_pair", "sender_id", "recipient_id", "id"),
         Index("ix_operator_messages_unread", "recipient_id", "read_at", "sender_id"),
+        Index("ix_operator_shared_appeal", "recipient_id", "shared_appeal_id",
+              postgresql_where=text("shared_appeal_id IS NOT NULL")),
     )
 
 

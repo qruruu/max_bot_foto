@@ -30,7 +30,13 @@ from app.appeal_events import (
 )
 from app.appeal_search import appeal_search
 from app.appeal_statuses import AppealStatus, is_final
-from app.appeal_task_sharing import AppealShareInput, save_task_shares, share_recipients
+from app.appeal_task_sharing import (
+    AppealShareInput,
+    load_tasks,
+    save_task_messages,
+    search_targets,
+    staff_targets,
+)
 from app.auth import AdminUser, Db, digest, hasher
 from app.chat_messages import lock_chat_identity, remove_conversations
 from app.config import base_settings
@@ -41,7 +47,6 @@ from app.inspection_auth import InspectorUser, inspector_dict, lock_inspector
 from app.media import media_path
 from app.models import (
     AppealAttachment,
-    AppealFile,
     AppealPhoto,
     CitizenAppeal,
     District,
@@ -51,7 +56,6 @@ from app.models import (
     InspectionQR,
     InspectionSession,
     Inspector,
-    InspectorAppealShare,
     Organization,
     OrganizationLogin,
     Photo,
@@ -795,13 +799,14 @@ def appeal_statistics(organization_id: UUID, db: Db, user: InspectorUser, start:
     return reporting.statistics(db, [inspector_appeal_scope(organization_id, user)], start, end, category, source=source, show_assignments=False)
 
 
-def restricted_appeal(db, appeal, *, shared=False):
+def restricted_appeal(db, appeal, *, shared_root=None):
     from app.appeal_workflow import workflow_detail
     from app.appeals import appeal_source
     photos = list(db.scalars(select(AppealPhoto).options(load_only(
         AppealPhoto.id, AppealPhoto.captured_at, AppealPhoto.latitude, AppealPhoto.longitude, AppealPhoto.accuracy,
     )).where(AppealPhoto.appeal_id == appeal.id).order_by(AppealPhoto.position)))
-    root = "/api/inspection/shared-appeals" if shared else f"/api/inspection/organizations/{appeal.organization_id}/appeals"
+    shared = shared_root is not None
+    root = shared_root or f"/api/inspection/organizations/{appeal.organization_id}/appeals"
     return {key: getattr(appeal, key) for key in ("id", "organization_id", "organization_name", "city", "address", "place",
             "subject", "description", "work_type_name", "category", "status", "version", "created_at", "updated_at", "latitude", "longitude",
             "public_response", "resolved_at", "is_public", "submitted_by_inspector_id", "submitted_by_inspector_name", "archived_at")} | workflow_detail(db, appeal,
@@ -824,69 +829,23 @@ def restricted_appeal(db, appeal, *, shared=False):
 @router.get("/organizations/{organization_id}/appeals/share-recipients")
 def appeal_share_recipients(organization_id: UUID, db: Db, user: InspectorUser,
                             q: str = Query("", max_length=200)):
-    authorized_organization(db, user, organization_id)
-    return share_recipients(db, q, exclude=user.id)
+    return search_targets(inspection_task_targets(db, user, organization_id), q)
+
+
+def inspection_task_targets(db, user, organization_id):
+    from app.inspection_chats import inspection_tenant
+
+    org = authorized_organization(db, user, organization_id)
+    with inspection_tenant(db, org) as tenant:
+        return staff_targets(tenant, roles=("ADMIN_OPERATOR",), prefix=f"a:{org.id}:")
 
 
 @router.post("/organizations/{organization_id}/appeals/share")
 def share_appeals(organization_id: UUID, body: AppealShareInput, db: Db, user: InspectorUser):
-    authorized_organization(db, user, organization_id)
-    return save_task_shares(db, body, inspector_appeal_scope(organization_id, user), f"i:{user.id}", exclude=user.id)
-
-
-def shared_appeal_query(user):
-    return select(CitizenAppeal).join(InspectorAppealShare).join(Organization).where(
-        InspectorAppealShare.inspector_id == user.id, Organization.status == "ACTIVE",
-    )
-
-
-def find_shared_appeal(db, user, appeal_id):
-    appeal = db.scalar(shared_appeal_query(user).where(CitizenAppeal.id == appeal_id))
-    if not appeal:
-        raise HTTPException(404, "Задача не найдена")
-    return appeal
-
-
-@router.get("/shared-appeals")
-def shared_appeals(db: Db, user: InspectorUser, page: int = Query(1, ge=1),
-                   status: AppealStatus | None = None, q: str = Query("", max_length=200),
-                   category: str = Query("", max_length=60)):
-    query = shared_appeal_query(user).where(*appeal_search(q), *reporting.filters(category))
-    if status:
-        query = query.where(CitizenAppeal.status == status)
-    rows = db.scalars(query.order_by(CitizenAppeal.id.desc()).offset((page - 1) * 20).limit(20))
-    return {"total": db.scalar(select(func.count()).select_from(query.with_only_columns(CitizenAppeal.id).subquery())),
-            "page": page, "page_size": 20, "yandex_maps_api_key": base_settings().yandex_maps_api_key,
-            "items": [restricted_appeal(db, appeal, shared=True) for appeal in rows]}
-
-
-@router.get("/shared-appeals/{appeal_id}")
-def shared_appeal_detail(appeal_id: int, db: Db, user: InspectorUser):
-    return {**restricted_appeal(db, find_shared_appeal(db, user, appeal_id), shared=True),
-            "yandex_maps_api_key": base_settings().yandex_maps_api_key}
-
-
-@router.get("/shared-appeals/{appeal_id}/photos/{photo_id}")
-def shared_appeal_photo(appeal_id: int, photo_id: UUID, db: Db, user: InspectorUser,
-                        variant: Literal["stamped", "preview", "original"] = "stamped"):
-    appeal = find_shared_appeal(db, user, appeal_id)
-    return appeal_photo_response(db, appeal, photo_id, variant)
-
-
-@router.get("/shared-appeals/{appeal_id}/attachments/{photo_id}")
-def shared_appeal_attachment(appeal_id: int, photo_id: UUID, db: Db, user: InspectorUser,
-                              variant: Literal["content", "preview"] = "content"):
-    return published_attachment_response(db, find_shared_appeal(db, user, appeal_id), photo_id, variant)
-
-
-@router.get("/shared-appeals/{appeal_id}/files/{file_id}")
-def shared_appeal_file(appeal_id: int, file_id: UUID, db: Db, user: InspectorUser):
-    from app.appeal_files import file_response
-    appeal = find_shared_appeal(db, user, appeal_id)
-    if not db.scalar(select(AppealFile.id).where(AppealFile.id == str(file_id), AppealFile.appeal_id == appeal.id,
-                                                 AppealFile.event_id.is_(None))):
-        raise HTTPException(404)
-    return file_response(db, appeal, file_id)
+    if body.recipient not in {item["key"] for item in inspection_task_targets(db, user, organization_id)}:
+        raise HTTPException(404, "Администратор недоступен")
+    appeals = load_tasks(db, body, [inspector_appeal_scope(organization_id, user)])
+    return save_task_messages(db, body, appeals, f"i:{user.id}", body.recipient)
 
 
 @router.get("/organizations/{organization_id}/appeals/notifications")

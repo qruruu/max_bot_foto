@@ -43,13 +43,13 @@ async function clickButton(text: string) {
   await act(async () => {button.click(); await tick();});
 }
 
-it('selects tasks from the context menu and forwards them to the chosen inspector', async () => {
+it('selects tasks from the context menu and forwards them to the chosen administrator', async () => {
   const endpoint = '/inspection/organizations/company/appeals';
   const fallback = vi.mocked(api).getMockImplementation()!;
   vi.mocked(api).mockImplementation(async (path, method, body, signal) => {
     if (path.startsWith(endpoint + '?page=')) return {items: [{...row, can_share: true}, {...row, id: 43, can_share: true}],
       total: 2, page: 1, page_size: 20};
-    if (path.startsWith(endpoint + '/share-recipients?')) return [{id: 7, name: 'Ирина', agency: 'Другая организация'}];
+    if (path.startsWith(endpoint + '/share-recipients?')) return [{key: 'a:company:7', name: 'Ирина', label: 'Администратор'}];
     return fallback(path, method, body, signal);
   });
   await act(async () => {root.render(<MemoryRouter><OwnerAppeals endpoint={endpoint} readOnly/></MemoryRouter>); await tick();});
@@ -65,15 +65,15 @@ it('selects tasks from the context menu and forwards them to the chosen inspecto
   await act(async () => {choose('Переслать'); await tick(); await tick();});
   await act(async () => {element.querySelector<HTMLButtonElement>('dialog .forward-destinations button')!.click();});
   await clickButton('Переслать');
-  expect(api).toHaveBeenCalledWith(endpoint + '/share', 'POST', {appeal_ids: [42, 43], inspector_id: 7, client_id: expect.any(String)});
+  expect(api).toHaveBeenCalledWith(endpoint + '/share', 'POST', {appeal_ids: [42, 43], recipient: 'a:company:7', client_id: expect.any(String)});
   expect(element.textContent).toContain('Задачи пересланы');
 });
 
 it('opens only the request tab in the shared task view', async () => {
   Object.assign(current, {submitted_by_inspector_name: 'Ирина', can_manage: false});
   await act(async () => {
-    root.render(<MemoryRouter initialEntries={['/inspection?tab=shared-appeals&appeal=42']}>
-      <OwnerAppeals endpoint="/inspection/shared-appeals" sharedOnly readOnly/>
+    root.render(<MemoryRouter initialEntries={['/appeals/shared?appeal=42']}>
+      <OwnerAppeals endpoint="/appeals/shared-view" sharedOnly readOnly/>
     </MemoryRouter>); await tick();
   });
   expect([...element.querySelectorAll('[role=tab]')].map(tab => tab.textContent)).toEqual(['О задаче']);

@@ -5,7 +5,7 @@ import { api } from '../api';
 import AppealModal from './AppealModal';
 
 export const MAX_SHARED_TASKS = 50;
-type Recipient = {id: number; name: string; agency: string};
+type Recipient = {key: string; name: string; label: string};
 export type AppealMenuTarget = {id: number; anchor: HTMLButtonElement; x: number; y: number};
 
 export function AppealForwardMenu({target, selecting, close, select, cancel, forward}: {
@@ -55,7 +55,7 @@ export default function AppealForward({endpoint, ids, close, sent}: {
   const [recipient, setRecipient] = useState<Recipient | null>(null);
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const sending = useRef(false);
-  const attempt = useRef<{recipient: number; key: string} | null>(null);
+  const attempt = useRef<{recipient: string; key: string} | null>(null);
   const organization = endpoint === '/appeals';
   useEffect(() => {
     const controller = new AbortController();
@@ -74,9 +74,9 @@ export default function AppealForward({endpoint, ids, close, sent}: {
       if (!recipient || sending.current) return;
       sending.current = true; setBusy(true); setError('');
       try {
-        if (attempt.current?.recipient !== recipient.id) attempt.current = {recipient: recipient.id, key: crypto.randomUUID()};
+        if (attempt.current?.recipient !== recipient.key) attempt.current = {recipient: recipient.key, key: crypto.randomUUID()};
         await api(endpoint + (organization ? '/sharing/send' : '/share'), 'POST', {
-          appeal_ids: ids, inspector_id: recipient.id, client_id: attempt.current.key,
+          appeal_ids: ids, recipient: recipient.key, client_id: attempt.current.key,
         });
         sent();
       } catch (error) {setError((error as Error).message);}
@@ -87,11 +87,11 @@ export default function AppealForward({endpoint, ids, close, sent}: {
         onChange={event => {setRecipient(null); setSearch(event.target.value);}}/></label>
       {error && <p className="error" role="alert">{error}</p>}
       <div className="forward-destinations" role="group" aria-label="Получатели" aria-busy={loading}>
-        {loading ? <p role="status">Загружаем…</p> : recipients.map(item => <button type="button" key={item.id}
-          disabled={busy} aria-pressed={recipient?.id === item.id} onClick={() => setRecipient(item)}>
-          <span className="forward-recipient"><strong>{item.name}</strong><small>{item.agency}</small></span>
+        {loading ? <p role="status">Загружаем…</p> : recipients.map(item => <button type="button" key={item.key}
+          disabled={busy} aria-pressed={recipient?.key === item.key} onClick={() => setRecipient(item)}>
+          <span className="forward-recipient"><strong>{item.name}</strong><small>{item.label}</small></span>
         </button>)}
-        {!loading && !recipients.length && !error && <p>Проверяющие не найдены.</p>}
+        {!loading && !recipients.length && !error && <p>Нет доступных получателей.</p>}
       </div>
       <button className="primary" disabled={busy || loading || !recipient}><Send size={16}/>{busy ? 'Отправляем…' : 'Переслать'}</button>
     </form>

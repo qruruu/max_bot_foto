@@ -12,11 +12,9 @@ from sqlalchemy.orm import Session
 from test_appeal_images import frame
 from test_appeal_workflow import inspector_metadata, metadata, multipart, submit
 from test_appeal_workflow import workflow as workflow
-from test_inspections import PASSWORD, grant
 from test_inspections import inspection as inspection
 from test_organizations import companies as companies
 
-from app.api import app
 from app.appeal_files import prepare_document
 from app.appeal_reporting import today
 from app.appeals_public import app as public_app
@@ -35,64 +33,58 @@ def office_file(member):
 
 
 @pytest.mark.integration
-def test_other_agency_only_sees_explicitly_shared_task_request(workflow):
-    owner, scopes, _, _, addresses, inspectors = workflow
+def test_task_forwarding_uses_workplace_chats_and_role_boundaries(workflow):
+    owner, scopes, operators, operator_ids, addresses, inspectors = workflow
     scope = scopes[0]
+    operator = operators[0]
     endpoint = f"/api/inspection/organizations/{scope.id}/appeals"
     body = {**inspector_metadata(scope, addresses[0]), "subject": "Обработка ПГМ"}
     task = multipart(inspectors[0], endpoint, body)
     assert task.status_code == 201, task.text
-    id = task.json()["id"]
-    assert inspectors[0].post(f"{endpoint}/{id}/comments", json={
-        "client_id": str(uuid4()), "comment": "Внутреннее обсуждение",
-    }).status_code == 201
-    agency = owner.post("/api/platform/inspection/agencies", json={"name": "Другая организация"}).json()
-    account = owner.post(f'/api/platform/inspection/agencies/{agency["id"]}/accounts', json={
-        "login": "external-inspector", "name": "Внешний проверяющий", "password": PASSWORD,
-    }).json()
-    shared = "/api/inspection/shared-appeals"
-    with TestClient(app) as recipient:
-        assert recipient.post("/api/auth/login", json={"login": "external-inspector", "password": PASSWORD}).status_code == 200
-        recipient.headers["X-CSRF-Token"] = recipient.cookies["inspection_csrf"]
-        assert recipient.get(shared + f"/{id}").status_code == 404
-        assert account["id"] in {item["id"] for item in inspectors[0].get(endpoint + "/share-recipients").json()}
-        payload = {"appeal_ids": [id], "inspector_id": account["id"], "client_id": str(uuid4())}
-        for _ in range(2):
-            response = inspectors[0].post(endpoint + "/share", json=payload)
-            assert response.status_code == 200, response.text
-        assert recipient.get(shared).json()["total"] == 1
-        sender = next(item for item in recipient.get("/api/inspection/contacts").json() if item["key"].startswith("i:"))
-        received = recipient.get("/api/inspection/messages", params={"peer": sender["key"]}).json()["items"]
-        assert len(received) == 1 and received[0]["shared_appeal"]["id"] == id
-        detail = recipient.get(shared + f"/{id}").json()
-        assert detail["id"] == id and detail["subject"] == body["subject"] and not detail["can_share"]
-        assert not detail["can_set_task_status"] and not detail["can_set_inspector_deadline"]
-        media = detail["photos"][0]["preview_url"]
-        assert recipient.get(media).status_code == 200
-        assert inspectors[1].get(media).status_code == 404
-        grant(owner, recipient, scope)
-        assert recipient.get(endpoint).json()["items"] == []
-        assert recipient.get(endpoint + f"/{id}").status_code == 404
-        assert recipient.get(endpoint + f"/{id}/events").status_code == 404
-        assert recipient.post(endpoint + "/share", json=payload).status_code == 404
-
-        with TestClient(public_app) as citizen:
-            result = submit(citizen, metadata(scope, addresses[0]))
-            assert result.status_code == 201, result.text
-        citizen_id = int(result.json()["number"].split("-")[-1])
-        admin_api = scope.prefix + "/api/appeals"
-        assert owner.get(f"{admin_api}/{citizen_id}").json()["can_share"]
-        assert inspectors[0].get(f"{endpoint}/{citizen_id}").json()["can_share"]
-        citizen_share = {**payload, "client_id": str(uuid4()), "appeal_ids": [citizen_id]}
-        denied = owner.post(scopes[1].prefix + "/api/appeals/sharing/send", json=citizen_share)
-        assert denied.status_code == 404
-        sent = owner.post(admin_api + "/sharing/send", json=citizen_share)
+    task_id = task.json()["id"]
+    inspect_targets = inspectors[0].get(endpoint + "/share-recipients").json()
+    admin_key = f"a:{scope.id}:{scope.owner_user_id}"
+    assert admin_key in {item["key"] for item in inspect_targets}
+    assert all(item["key"].startswith(f"a:{scope.id}:") and item["label"] == "Администратор" for item in inspect_targets)
+    data = {"appeal_ids": [task_id], "recipient": admin_key, "client_id": str(uuid4())}
+    for peer in ("i:2", f"a:{scopes[1].id}:{scopes[1].owner_user_id}"):
+        assert inspectors[0].post(endpoint + "/share", json={**data, "recipient": peer}).status_code == 404
+    for _ in range(2):
+        sent = inspectors[0].post(endpoint + "/share", json=data)
         assert sent.status_code == 200, sent.text
-        assert recipient.get(shared + f"/{citizen_id}").json()["source"] == "signal"
-        assert "contact" not in recipient.get(shared + f"/{citizen_id}").json()
-        admin_peer = next(item["key"] for item in recipient.get("/api/inspection/contacts").json() if item["unread"])
-        admin_messages = recipient.get("/api/inspection/messages", params={"peer": admin_peer}).json()["items"]
-        assert any(item.get("shared_appeal", {}).get("id") == citizen_id for item in admin_messages)
+    contacts = inspectors[0].get("/api/inspection/contacts").json()
+    admin = next(item for item in contacts if admin_key in [item["key"], *item.get("aliases", [])])
+    sent_items = inspectors[0].get("/api/inspection/messages", params={"peer": admin["key"]}).json()["items"]
+    assert len(sent_items) == 1 and sent_items[0]["shared_appeal"]["id"] == task_id
+
+    staff_api = scope.prefix + "/api/appeals"
+    assert owner.get(f"{staff_api}/{task_id}").json()["can_share"]
+    targets = owner.get(staff_api + "/sharing/recipients").json()
+    staff_key = str(operator_ids[0])
+    assert any(item["key"] == staff_key and item["label"] == "Оператор" for item in targets)
+    operation = {"appeal_ids": [task_id], "recipient": staff_key, "client_id": str(uuid4())}
+    assert owner.post(scopes[1].prefix + "/api/appeals/sharing/send", json=operation).status_code == 404
+    assert operator.get(f"{staff_api}/shared-view/{task_id}").status_code == 404
+    sent = owner.post(staff_api + "/sharing/send", json=operation)
+    assert sent.status_code == 200, sent.text
+    detail = operator.get(f"{staff_api}/shared-view/{task_id}").json()
+    assert detail["id"] == task_id and detail["subject"] == body["subject"]
+    assert not detail["can_share"] and not detail["can_set_task_status"] and "contact" not in detail
+    assert operator.get(detail["photos"][0]["preview_url"]).status_code == 200
+    assert operators[1].get(detail["photos"][0]["preview_url"]).status_code in (401, 404)
+    assert operator.get(f"{staff_api}/{task_id}/events").status_code == 404
+    staff_chat = scope.prefix + f"/api/operator-chats/{scope.owner_user_id}/messages"
+    assert operator.get(staff_chat).json()["items"][0]["shared_appeal"]["id"] == task_id
+
+    to_admin = {**operation, "recipient": str(scope.owner_user_id), "client_id": str(uuid4())}
+    assert operator.post(staff_api + "/sharing/send", json=to_admin).status_code == 404
+    assign = owner.post(f"{staff_api}/{task_id}/assign", json={"operator_id": operator_ids[0], "expected_version": 1})
+    assert assign.status_code == 200, assign.text
+    assert operator.get(f"{staff_api}/{task_id}").json()["can_share"]
+    targets = operator.get(staff_api + "/sharing/recipients").json()
+    assert targets and all(item["label"] == "Администратор" for item in targets)
+    sent = operator.post(staff_api + "/sharing/send", json=to_admin)
+    assert sent.status_code == 200, sent.text
 
 
 @pytest.mark.parametrize('name,content', [('a.pdf', b'%PDF-1.7\nexample'),

@@ -72,16 +72,34 @@ export function StatusBadge({ value }: { value: string }) { return <span classNa
 export default function App() {
   const sidebar = useSidebar();
   const [user,setUser] = useState<User|null>(null), [meta,setMeta] = useState<Meta|null>(null), [loading,setLoading] = useState(true), [error,setError] = useState(''), [toast,setToast] = useState('');
+  const [authAttempt, retryAuth] = useState(0);
   usePresenceHeartbeat(!!user);
   const appeals = useAppealNotifications(!!user && !!meta?.organization, user?.id);
   const navigate = useNavigate();
   const {pathname} = useLocation();
   async function refresh() { setMeta(await api<Meta>('/meta')); }
-  useEffect(()=>{api<User>('/auth/me').then(setUser).catch(e=>{if(e.status!==401)setError(e.message);}).finally(()=>setLoading(false)); const handler=()=>{setUser(null);setMeta(null);}; window.addEventListener('session-expired',handler);return()=>window.removeEventListener('session-expired',handler);},[]);
+  useEffect(() => {
+    const request = new AbortController();
+    const timeout = window.setTimeout(() => request.abort(), 15_000);
+    let disposed = false;
+    setError(''); setLoading(true);
+    api<User>('/auth/me', 'GET', undefined, request.signal)
+      .then(account => {if (!disposed) setUser(account);})
+      .catch(error => {
+        if (!disposed && error.status !== 401) setError(request.signal.aborted ? 'Сервис долго не отвечает. Повторите попытку.' : error.message);
+      })
+      .finally(() => {window.clearTimeout(timeout); if (!disposed) setLoading(false);});
+    return () => {disposed = true; window.clearTimeout(timeout); request.abort();};
+  }, [authAttempt]);
+  useEffect(() => {
+    const expired = () => {setUser(null); setMeta(null);};
+    window.addEventListener('session-expired', expired);
+    return () => window.removeEventListener('session-expired', expired);
+  }, []);
   useEffect(()=>{if(user)refresh().catch(e=>setError(e.message));},[user]);
   useEffect(()=>{if(toast){const t=setTimeout(()=>setToast(''),5000);return()=>clearTimeout(t);}},[toast]);
   if(loading)return <div className="full-loading">Открываем рабочее пространство…</div>;
-  if(!user&&workspacePrefix())return <SignInRedirect/>;
+  if(!user&&workspacePrefix())return error ? <div className="full-loading"><ErrorBox error={error}/><button onClick={() => retryAuth(value => value + 1)}>Повторить</button></div> : <SignInRedirect/>;
   if(!user)return <Login initialError={error} onLogin={u=>{setUser(u);setError('');}}/>;
   if(!meta)return <div className="full-loading"><ErrorBox error={error}/>{error?<button onClick={()=>refresh().then(()=>setError('')).catch(e=>setError(e.message))}>Повторить</button>:'Загружаем справочники…'}</div>;
   const admin=user.role==='ADMIN_OPERATOR';
@@ -148,6 +166,7 @@ export default function App() {
           <Route path="/photos/:id" element={protectedPage('photos_view',<PhotoDetail/>)}/>
           <Route path="/districts" element={protectedPage('districts_view',<DistrictMap/>)}/>
           <Route path="/appeals" element={meta.organization ? <Suspense fallback={<p className="loading">Открываем обращения…</p>}><OwnerAppeals organization canAttachPhotos={hasPermission(user,'photos_view')}/></Suspense> : denied}/>
+          <Route path="/appeals/shared" element={meta.organization ? <Suspense fallback={<p className="loading">Открываем обращение…</p>}><OwnerAppeals endpoint="/appeals/shared-view" readOnly sharedOnly/></Suspense> : denied}/>
           <Route path="/inspectors" element={admin && meta.organization ? <LegacyInspectorLink/> : denied}/>
           <Route path="/messages" element={<OperatorChats includeInspectors={admin && !!meta.organization}/>}/>
           <Route path="/chats" element={protectedPage('chats_manage',<Administration key="chats" page="chats"/>)}/>

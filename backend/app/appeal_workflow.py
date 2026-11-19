@@ -181,7 +181,8 @@ def latest_task(db, appeal_id):
 
 def workflow_detail(db, appeal, url, *, private, operator_id=None, show_assignments=True, shared=False):
     tasks = list(db.scalars(select(AppealTask).where(AppealTask.appeal_id == appeal.id).order_by(AppealTask.id.desc()))) if show_assignments else []
-    attachments = list(db.scalars(select(AppealAttachment).where(AppealAttachment.appeal_id == appeal.id)
+    attachments = list(db.scalars(select(AppealAttachment).options(load_only(
+        AppealAttachment.id, AppealAttachment.task_id, AppealAttachment.published)).where(AppealAttachment.appeal_id == appeal.id)
                                   .order_by(AppealAttachment.created_at, AppealAttachment.id)))
     def task_dict(task):
         result = {key: getattr(task, key) for key in (
@@ -202,7 +203,8 @@ def workflow_detail(db, appeal, url, *, private, operator_id=None, show_assignme
                 "status": row.status, "is_final": is_final(row), "inspector_due_date": row.inspector_due_date,
                 "operator_name": current.operator_name if current else "", "due_date": current.due_date if current else None,
                 "result": row.public_response if has_decision(row) else "", "operator_result": current.result_comment if current else ""}
-    return {"files": [file_dict(file, url) for file in db.scalars(select(AppealFile).where(
+    return {"files": [file_dict(file, url) for file in db.scalars(select(AppealFile).options(load_only(
+                AppealFile.id, AppealFile.appeal_id, AppealFile.name, AppealFile.media_type)).where(
                 AppealFile.appeal_id == appeal.id, AppealFile.event_id.is_(None)))],
             "parent": relation(parent) if parent and operator_id is None and not shared else None,
             "parent_id": None if shared else appeal.parent_id,
@@ -916,13 +918,17 @@ def comment(appeal_id: int, body: CommentInput, user: AppealReader):
 
 @owner_router.get("/{appeal_id}/attachments/{photo_id}")
 @organization_router.get("/{appeal_id}/attachments/{photo_id}")
-def attachment(appeal_id: int, photo_id: UUID, user: AppealReader, variant: Literal["content", "preview"] = "content"):
-    with control_session() as db:
+def attachment(appeal_id: int, photo_id: UUID, user: AppealReader, tenant: Db,
+               variant: Literal["content", "preview"] = "content"):
+    from app.inspection_chats import workspace_control_session
+
+    with workspace_control_session(tenant) as db:
         find_appeal(db, appeal_id, user=user)
-        photo = db.get(AppealAttachment, str(photo_id))
-        if not photo or photo.appeal_id != appeal_id:
+        content = db.scalar(select(getattr(AppealAttachment, variant)).where(
+            AppealAttachment.id == str(photo_id), AppealAttachment.appeal_id == appeal_id))
+        if content is None:
             raise HTTPException(404)
-        return image_response(getattr(photo, variant))
+        return image_response(content)
 
 
 def validate_due_date(value):

@@ -92,11 +92,12 @@ def test_database_connections_are_released_before_slow_file_transfer(monkeypatch
         engine.dispose()
 
 
-@pytest.mark.parametrize("prefix", [
-    "/org/00000000-0000-0000-0000-000000000000/api",
-    "/api/inspection/organizations/00000000-0000-0000-0000-000000000000",
+@pytest.mark.parametrize("path", [
+    "/org/00000000-0000-0000-0000-000000000000/api/photos/{}/preview",
+    "/api/inspection/organizations/00000000-0000-0000-0000-000000000000/photos/{}/preview",
+    "/org/00000000-0000-0000-0000-000000000000/api/appeals/1/attachments/00000000-0000-0000-0000-{:012x}",
 ])
-def test_large_map_preview_burst_leaves_worker_threads_for_active_requests(monkeypatch, tmp_path, prefix):
+def test_large_preview_burst_leaves_worker_threads_for_active_requests(monkeypatch, tmp_path, path):
     engine = create_engine(
         "sqlite://", poolclass=QueuePool, pool_size=10, max_overflow=0,
         pool_timeout=0.3, connect_args={"check_same_thread": False},
@@ -113,7 +114,7 @@ def test_large_map_preview_burst_leaves_worker_threads_for_active_requests(monke
         time.sleep(0.025)
         return True
 
-    @app.get(prefix + "/photos/{photo_id}/preview")
+    @app.get(path.split("{", 1)[0] + "{photo_id}" + path.split("}", 1)[1])
     def preview(db: Db, _allowed: Annotated[bool, Depends(authorized)]):
         db.execute(text("SELECT 1"))
         return FileResponse(image)
@@ -127,7 +128,7 @@ def test_large_map_preview_burst_leaves_worker_threads_for_active_requests(monke
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             previews = asyncio.gather(*(
-                client.get(f"{prefix}/photos/{photo_id}/preview")
+                client.get(path.format(photo_id))
                 for photo_id in range(1, 81)
             ))
             await asyncio.sleep(0.05)
