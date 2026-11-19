@@ -439,6 +439,31 @@ def test_photo_sharing_and_forwarding_preserve_each_recipients_own_access(inspec
     assert client.post(endpoint, params={"peer": owner_peer}, json={"client_id": str(uuid4()), "photo_id": 10}).status_code == 422
 
 
+def test_workspace_admin_can_share_photos_in_a_local_operator_chat(inspection):
+    owner, scopes, operators, _, _, _ = inspection
+    scope = scopes[0]
+    seed_photos(scope)
+    with organization_scope(scope), Session(engine()) as db:
+        peer = db.scalar(select(User).where(User.login == "same-login"))
+        peer.allowed_chat_ids = []
+        peer_id = peer.id
+        db.commit()
+    endpoint = scope.prefix + "/api/operator-chats"
+    contacts = owner.get(endpoint, params={"photo_id": 10, "share_photo": True})
+    assert contacts.status_code == 200, contacts.text
+    assert peer_id in {item["id"] for item in contacts.json()["items"]}
+    sent = owner.post(f"{endpoint}/{peer_id}/messages", json={
+        "client_id": str(uuid4()), "photo_id": 10, "share_photo": True,
+    })
+    assert sent.status_code == 201, sent.text
+    response = operators[0].get(f"{endpoint}/{scope.owner_user_id}/messages")
+    assert response.status_code == 200, response.text
+    preview = response.json()["items"][0]["photo"]["shared_preview_url"]
+    assert preview.startswith(scope.prefix + "/api/operator-chats/")
+    assert operators[0].get(preview).content == b"safe preview"
+    assert operators[1].get(preview).status_code in (401, 404)
+
+
 def test_organization_admin_can_forward_only_to_its_authorized_inspectors(inspection):
     owner, scopes, admins, _, accounts, clients = inspection
     scope, admin, client = scopes[0], admins[0], clients[0]

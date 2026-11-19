@@ -16,7 +16,7 @@ from app.organization_context import current_organization
 from app.security_telemetry import identify
 from app.session_details import client_address
 
-INSPECTION_MENU = ["/inspectors", "/photos", "/photo-map", "/districts", "/appeals", "/messages", "/users"]
+INSPECTION_MENU = ["/inspectors", "/photos", "/photo-map", "/districts", "/appeals", "/shared-appeals", "/messages", "/users"]
 
 
 def lock_inspector(db, id):

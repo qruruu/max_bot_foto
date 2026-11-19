@@ -6,6 +6,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi.responses import FileResponse
 from pydantic import Field, model_validator
 from sqlalchemy import and_, case, func, or_, select, text, update
 from sqlalchemy.orm import load_only
@@ -15,6 +16,7 @@ from app.auth import CurrentUser, Db, admin_user, is_platform_owner
 from app.chat_access import chat_condition
 from app.chat_messages import Screenshots, prepare_screenshots, quote, screenshot_response
 from app.domain import now
+from app.media import media_path
 from app.models import OperatorMessage, Photo, PlatformOwner, User
 from app.organization_context import current_organization, workspace_url
 from app.organization_registry import control_session
@@ -29,6 +31,7 @@ class MessageInput(StrictModel):
     body: str = Field(default="", max_length=4000)
     client_id: UUID
     photo_id: int | None = Field(default=None, gt=0)
+    share_photo: bool = False
 
     screenshots: Screenshots = Field(default_factory=list)
     reply_to_id: int | None = Field(default=None, gt=0)
@@ -42,6 +45,8 @@ class MessageInput(StrictModel):
         if sum(value is not None for value in forwards) > 1:
             raise ValueError("Выберите одно исходное сообщение")
         forward = any(forwards)
+        if self.share_photo and not self.photo_id:
+            raise ValueError("Выберите фотографию")
         if forward and (self.body or self.photo_id or self.screenshots or self.reply_to_id):
             raise ValueError("Пересылаемое сообщение нельзя изменять")
         if not (self.body or self.photo_id or self.screenshots or forward):
@@ -89,7 +94,7 @@ def visible_photos(db, user, ids):
     ids = {id for id in ids if id is not None}
     if not ids or not has_permission(user, Permission.PHOTOS_VIEW):
         return {}
-    stmt = select(Photo).options(load_only(Photo.id, Photo.sha256)).where(
+    stmt = select(Photo).options(load_only(Photo.id, Photo.sha256, Photo.is_spam)).where(
         Photo.id.in_(ids), Photo.preview_removed_at.is_(None), chat_condition(user), active_cohort_condition(),
     )
     if not has_permission(user, Permission.SPAM_VIEW):
@@ -97,8 +102,20 @@ def visible_photos(db, user, ids):
     return {photo.id: photo for photo in db.scalars(stmt)}
 
 
-def message_dict(message, photos=None):
+def shared_photo_query(ids):
+    return select(Photo).options(load_only(Photo.id, Photo.sha256)).where(
+        Photo.id.in_(ids), Photo.preview_removed_at.is_(None), Photo.is_spam.is_(False), active_cohort_condition(),
+    )
+
+
+def shared_photos(db, messages):
+    ids = {message.photo_id for message in messages if message and message.photo_shared and message.photo_id}
+    return {photo.id: photo for photo in db.scalars(shared_photo_query(ids))} if ids else {}
+
+
+def message_dict(message, photos=None, shared=None):
     photo = (photos or {}).get(message.photo_id)
+    attachment = (shared or {}).get(message.photo_id) if message.photo_shared and not photo else None
     return {
         "id": message.id, "sender_id": message.sender_id, "recipient_id": message.recipient_id,
         "client_id": message.client_id, "body": message.body,
@@ -107,8 +124,10 @@ def message_dict(message, photos=None):
         "screenshots": [workspace_url(f"/api/operator-chats/messages/{message.id}/screenshots/{number}")
                         for number in range(1, message.screenshot_count + 1)],
         "photo": {
-            "id": message.photo_id, "available": photo is not None,
+            "id": message.photo_id, "available": photo is not None or attachment is not None,
             "preview_url": workspace_url(f"/api/photos/{photo.id}/preview") if photo is not None and photo.sha256 else None,
+            **({"shared_preview_url": workspace_url(f"/api/operator-chats/messages/{message.id}/photo")}
+               if attachment is not None and attachment.sha256 else {}),
         } if message.photo_id is not None else None,
         "created_at": message.created_at.replace(tzinfo=UTC) if message.created_at.tzinfo is None
         else message.created_at,
@@ -148,11 +167,15 @@ def message_screenshot(message_id: int, number: int, db: Db, user: CurrentUser):
 def contacts(db: Db, user: CurrentUser, photo_id: Annotated[int | None, Query(gt=0)] = None,
              forward_message_id: Annotated[int | None, Query(gt=0)] = None,
              forward_inspection_message_id: Annotated[int | None, Query(gt=0)] = None,
-             forward_task_message_id: Annotated[int | None, Query(gt=0)] = None):
+             forward_task_message_id: Annotated[int | None, Query(gt=0)] = None, share_photo: bool = False):
     if not uses_workspace_inbox(user):
         return {"items": [], "unread": 0}
     if sum(value is not None for value in (photo_id, forward_message_id, forward_inspection_message_id, forward_task_message_id)) > 1:
         raise HTTPException(422, "Выберите сообщение или фотографию")
+    if share_photo:
+        admin_user(user)
+        if not photo_id:
+            raise HTTPException(422, "Выберите фотографию")
     if forward_task_message_id:
         with control_session() as control:
             personal_forward_source(control, user, forward_task_message_id, include_content=False)
@@ -167,8 +190,12 @@ def contacts(db: Db, user: CurrentUser, photo_id: Annotated[int | None, Query(gt
             return {"items": []}
     if forward_message_id:
         photo_id = source_message(db, user, forward_message_id).photo_id
-    if photo_id is not None and photo_id not in visible_photos(db, user, [photo_id]):
-        raise HTTPException(404, "Фотография недоступна для пересылки")
+    share_with_staff = False
+    if photo_id is not None:
+        photo = visible_photos(db, user, [photo_id]).get(photo_id)
+        if photo is None:
+            raise HTTPException(404, "Фотография недоступна для пересылки")
+        share_with_staff = share_photo and not photo.is_spam
     peer_id = case(
         (OperatorMessage.sender_id == user.id, OperatorMessage.recipient_id),
         else_=OperatorMessage.sender_id,
@@ -188,6 +215,7 @@ def contacts(db: Db, user: CurrentUser, photo_id: Annotated[int | None, Query(gt
         .order_by(threads.c.last_id.desc().nullslast(), func.lower(User.name), User.id)
     ).all()
     photos = visible_photos(db, user, [latest.photo_id for _, latest, _ in rows if latest])
+    shared = shared_photos(db, [latest for _, latest, _ in rows])
     items = []
     owner_ids = set()
     org = current_organization()
@@ -199,14 +227,14 @@ def contacts(db: Db, user: CurrentUser, photo_id: Annotated[int | None, Query(gt
     for peer, latest, unread in rows:
         if peer.id in owner_ids and latest is None:
             continue
-        if photo_id is not None and (not peer.active or photo_id not in visible_photos(db, peer, [photo_id])):
+        if photo_id is not None and (not peer.active or (not share_with_staff and photo_id not in visible_photos(db, peer, [photo_id]))):
             continue
         avatar = workspace_url(f"/api/operator-chats/avatars/{peer.id}?v={hashlib.sha256(peer.avatar_image).hexdigest()[:16]}") \
             if peer.active and peer.avatar_image else None
         items.append({
             "id": peer.id, "name": peer.name, "role": peer.role, "active": peer.active,
             "avatar_url": avatar, "unread": unread or 0, "last_seen_at": peer.last_seen_at,
-            "last_message": {**message_dict(latest, photos), "body": latest.body[:140]} if latest else None,
+            "last_message": {**message_dict(latest, photos, shared), "body": latest.body[:140]} if latest else None,
         })
     return {"items": items, "unread": sum(item["unread"] for item in items)}
 
@@ -259,8 +287,9 @@ def messages(
         OperatorMessage.read_at.is_not(None),
     )) or 0
     photos = visible_photos(db, user, [message.photo_id for message in rows])
+    shared = shared_photos(db, rows)
     return {
-        "items": [message_dict(message, photos) for message in rows],
+        "items": [message_dict(message, photos, shared) for message in rows],
         "has_older": more if after_id is None else False,
         "has_newer": more if after_id is not None else False,
         "peer_read_through_id": read_through,
@@ -270,6 +299,8 @@ def messages(
 @router.post("/{peer_id}/messages", status_code=201)
 def send_message(peer_id: int, body: MessageInput, db: Db, user: CurrentUser):
     require_workspace_inbox(user)
+    if body.share_photo:
+        admin_user(user)
     peer = peer_user(db, user.id, peer_id, sending=True)
     content, photo_id = body.body, body.photo_id
     forward_name, reply = None, None
@@ -310,19 +341,34 @@ def send_message(peer_id: int, body: MessageInput, db: Db, user: CurrentUser):
             raise HTTPException(409, "Идентификатор сообщения уже использован")
         return message_dict(existing, visible_photos(db, user, [existing.photo_id]))
     photos = visible_photos(db, user, [photo_id])
+    photo_shared = False
     if photo_id is not None:
         if photo_id not in photos:
             raise HTTPException(404, "Фотография недоступна для пересылки")
-        if photo_id not in visible_photos(db, peer, [photo_id]):
+        photo_shared = body.share_photo and not photos[photo_id].is_spam
+        if not photo_shared and photo_id not in visible_photos(db, peer, [photo_id]):
             raise HTTPException(422, "У этого оператора нет доступа к фотографии. Выберите другого оператора.")
     message = OperatorMessage(
         sender_id=user.id, recipient_id=peer_id, body=content, client_id=str(body.client_id), photo_id=photo_id,
+        photo_shared=photo_shared,
         forwarded_from_id=body.forward_message_id, forwarded_name=forward_name, reply=reply, screenshots=screenshots,
     )
     db.add(message)
     db.commit()
     db.refresh(message)
     return message_dict(message, photos)
+
+
+@router.get("/messages/{message_id}/photo")
+def message_photo(message_id: int, db: Db, user: CurrentUser):
+    message = source_message(db, user, message_id)
+    photo = db.scalar(shared_photo_query([message.photo_id])) if message.photo_shared else None
+    if photo is None or not photo.sha256:
+        raise HTTPException(404, "Фотография недоступна")
+    path = media_path(photo.id, preview=True)
+    if not path.is_file():
+        raise HTTPException(404, "Превью пока недоступно")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
 
 
 @router.post("/{peer_id}/read")

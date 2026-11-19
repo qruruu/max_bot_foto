@@ -164,6 +164,13 @@ class CitizenAppeal(Timestamps, Base):
     )
 
 
+class InspectorAppealShare(Base):
+    __tablename__ = "inspector_appeal_shares"
+    inspector_id: Mapped[int] = mapped_column(ForeignKey("inspectors.id", ondelete="CASCADE"), primary_key=True)
+    appeal_id: Mapped[int] = mapped_column(ForeignKey("citizen_appeals.id", ondelete="CASCADE"), primary_key=True)
+    __table_args__ = (Index("ix_inspector_appeal_shares_appeal_id", "appeal_id"),)
+
+
 class PersonalAppealArchive(Base):
     __tablename__ = "personal_appeal_archives"
     appeal_id: Mapped[int] = mapped_column(ForeignKey("citizen_appeals.id", ondelete="CASCADE"), primary_key=True)
@@ -586,6 +593,7 @@ class OperatorMessage(ChatMessageContent, Base):
     client_id: Mapped[str] = mapped_column(String(36))
     body: Mapped[str] = mapped_column(Text)
     photo_id: Mapped[int | None] = mapped_column(ForeignKey("photos.id", name="fk_operator_messages_photo"))
+    photo_shared: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     forwarded_from_id: Mapped[int | None] = mapped_column(ForeignKey("operator_messages.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

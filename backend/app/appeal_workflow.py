@@ -179,7 +179,7 @@ def latest_task(db, appeal_id):
     return db.scalar(select(AppealTask).where(AppealTask.appeal_id == appeal_id).order_by(AppealTask.id.desc()).limit(1))
 
 
-def workflow_detail(db, appeal, url, *, private, operator_id=None, show_assignments=True):
+def workflow_detail(db, appeal, url, *, private, operator_id=None, show_assignments=True, shared=False):
     tasks = list(db.scalars(select(AppealTask).where(AppealTask.appeal_id == appeal.id).order_by(AppealTask.id.desc()))) if show_assignments else []
     attachments = list(db.scalars(select(AppealAttachment).where(AppealAttachment.appeal_id == appeal.id)
                                   .order_by(AppealAttachment.created_at, AppealAttachment.id)))
@@ -195,7 +195,7 @@ def workflow_detail(db, appeal, url, *, private, operator_id=None, show_assignme
     from app.appeal_files import file_dict
     from app.models import AppealFile
     parent = db.get(CitizenAppeal, appeal.parent_id) if appeal.parent_id else None
-    children = list(db.scalars(select(CitizenAppeal).where(CitizenAppeal.parent_id == appeal.id).order_by(CitizenAppeal.id))) if operator_id is None else []
+    children = list(db.scalars(select(CitizenAppeal).where(CitizenAppeal.parent_id == appeal.id).order_by(CitizenAppeal.id))) if operator_id is None and not shared else []
     def relation(row):
         current = latest_task(db, row.id) if show_assignments else None
         return {"id": row.id, "number": receipt(row.id)["number"], "subject": row.subject,
@@ -204,8 +204,8 @@ def workflow_detail(db, appeal, url, *, private, operator_id=None, show_assignme
                 "result": row.public_response if has_decision(row) else "", "operator_result": current.result_comment if current else ""}
     return {"files": [file_dict(file, url) for file in db.scalars(select(AppealFile).where(
                 AppealFile.appeal_id == appeal.id, AppealFile.event_id.is_(None)))],
-            "parent": relation(parent) if parent and operator_id is None else None,
-            "parent_id": appeal.parent_id,
+            "parent": relation(parent) if parent and operator_id is None and not shared else None,
+            "parent_id": None if shared else appeal.parent_id,
             "children": [relation(row) for row in children],
             "inspector_due_date": parent.inspector_due_date if parent else appeal.inspector_due_date,
             "task": task_dict(tasks[0]) if tasks and not children else None,

@@ -281,7 +281,7 @@ def forward_source(db, destination, message_id, user, *, inspector, channel):
     from app.appeals import find_appeal
     from app.inspections import find_inspector_appeal
     source = require_forwardable_comment(db, message_id)
-    appeal = (find_inspector_appeal(db, destination.organization_id, source.appeal_id) if inspector
+    appeal = (find_inspector_appeal(db, destination.organization_id, source.appeal_id, user) if inspector
               else find_appeal(db, source.appeal_id, user=user))
     if (not destination.organization_id or appeal.organization_id != destination.organization_id or
             channel == "inspector" and not appeal.submitted_by_inspector_id or
@@ -300,7 +300,7 @@ def forward_targets(db, appeal, message_id, user, channel, search, *, inspector=
     source, _ = forward_source(db, appeal, message_id, user, inspector=inspector, channel=channel)
     if source.id != appeal.id:
         raise HTTPException(404, "Сообщение недоступно")
-    scope = [inspector_appeal_scope(appeal.organization_id)] if inspector else appeal_conditions(user)
+    scope = [inspector_appeal_scope(appeal.organization_id, user)] if inspector else appeal_conditions(user)
     query = select(CitizenAppeal.id, CitizenAppeal.subject, CitizenAppeal.description).where(
         *scope, CitizenAppeal.organization_id == appeal.organization_id,
         CitizenAppeal.id != appeal.id, CitizenAppeal.archived_at.is_(None), *appeal_search(search))

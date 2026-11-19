@@ -12,9 +12,11 @@ from sqlalchemy.orm import Session
 from test_appeal_images import frame
 from test_appeal_workflow import inspector_metadata, metadata, multipart, submit
 from test_appeal_workflow import workflow as workflow
+from test_inspections import PASSWORD, grant
 from test_inspections import inspection as inspection
 from test_organizations import companies as companies
 
+from app.api import app
 from app.appeal_files import prepare_document
 from app.appeal_reporting import today
 from app.appeals_public import app as public_app
@@ -30,6 +32,46 @@ def office_file(member):
         archive.writestr('[Content_Types].xml', '<Types/>')
         archive.writestr(member, '<document/>')
     return result.getvalue()
+
+
+@pytest.mark.integration
+def test_other_agency_only_sees_explicitly_shared_task_request(workflow):
+    owner, scopes, _, _, addresses, inspectors = workflow
+    scope = scopes[0]
+    endpoint = f"/api/inspection/organizations/{scope.id}/appeals"
+    body = {**inspector_metadata(scope, addresses[0]), "subject": "Обработка ПГМ"}
+    task = multipart(inspectors[0], endpoint, body)
+    assert task.status_code == 201, task.text
+    id = task.json()["id"]
+    assert inspectors[0].post(f"{endpoint}/{id}/comments", json={
+        "client_id": str(uuid4()), "comment": "Внутреннее обсуждение",
+    }).status_code == 201
+    agency = owner.post("/api/platform/inspection/agencies", json={"name": "Другая организация"}).json()
+    account = owner.post(f'/api/platform/inspection/agencies/{agency["id"]}/accounts', json={
+        "login": "external-inspector", "name": "Внешний проверяющий", "password": PASSWORD,
+    }).json()
+    shared = "/api/inspection/shared-appeals"
+    with TestClient(app) as recipient:
+        assert recipient.post("/api/auth/login", json={"login": "external-inspector", "password": PASSWORD}).status_code == 200
+        recipient.headers["X-CSRF-Token"] = recipient.cookies["inspection_csrf"]
+        assert recipient.get(shared + f"/{id}").status_code == 404
+        assert account["id"] in {item["id"] for item in inspectors[0].get(endpoint + "/share-recipients").json()}
+        payload = {"appeal_ids": [id], "inspector_id": account["id"]}
+        for _ in range(2):
+            response = inspectors[0].post(endpoint + "/share", json=payload)
+            assert response.status_code == 200, response.text
+        assert recipient.get(shared).json()["total"] == 1
+        detail = recipient.get(shared + f"/{id}").json()
+        assert detail["id"] == id and detail["subject"] == body["subject"] and not detail["can_share"]
+        assert not detail["can_set_task_status"] and not detail["can_set_inspector_deadline"]
+        media = detail["photos"][0]["preview_url"]
+        assert recipient.get(media).status_code == 200
+        assert inspectors[1].get(media).status_code == 404
+        grant(owner, recipient, scope)
+        assert recipient.get(endpoint).json()["items"] == []
+        assert recipient.get(endpoint + f"/{id}").status_code == 404
+        assert recipient.get(endpoint + f"/{id}/events").status_code == 404
+        assert recipient.post(endpoint + "/share", json=payload).status_code == 404
 
 
 @pytest.mark.parametrize('name,content', [('a.pdf', b'%PDF-1.7\nexample'),

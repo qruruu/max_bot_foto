@@ -95,6 +95,26 @@ def test_sending_rechecks_recipient_access_after_selection(photo_messages):
         assert db.scalar(select(func.count()).select_from(OperatorMessage)) == 0
 
 
+def test_admin_can_share_a_photo_preview_without_granting_photo_archive_access(photo_messages, monkeypatch, tmp_path):
+    client, _ = photo_messages
+    preview = tmp_path / "preview.jpg"
+    preview.write_bytes(b"test preview")
+    monkeypatch.setattr("app.operator_chats.media_path", lambda *args, **kwargs: preview)
+    recipients = client.get("/api/operator-chats?photo_id=20&share_photo=true").json()["items"]
+    assert {item["id"] for item in recipients} == {2, 3, 4}
+    payload = {"photo_id": 20, "share_photo": True, "client_id": str(uuid4())}
+    result = client.post("/api/operator-chats/2/messages", json=payload)
+    assert result.status_code == 201, result.text
+    assert client.post("/api/operator-chats/2/messages", json=payload).json()["id"] == result.json()["id"]
+    actor(client, 2)
+    attachment = client.get("/api/operator-chats/1/messages").json()["items"][0]["photo"]
+    assert attachment["available"] and client.get(attachment["shared_preview_url"]).content == b"test preview"
+    assert client.get("/api/photos/20").status_code == 404
+    assert client.post("/api/operator-chats/3/messages", json={**payload, "photo_id": 10}).status_code == 403
+    actor(client, 3)
+    assert client.get(attachment["shared_preview_url"]).status_code == 404
+
+
 @pytest.mark.parametrize('photo_id', [20, 40, 60, 999])
 def test_sender_cannot_forward_a_photo_outside_own_access(photo_messages, photo_id):
     client, engine = photo_messages
