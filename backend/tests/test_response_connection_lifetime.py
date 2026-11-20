@@ -1,7 +1,6 @@
 """Slow image responses must not starve login/health checks of DB connections."""
 
 import asyncio
-import time
 from typing import Annotated
 
 import anyio
@@ -100,23 +99,27 @@ def test_database_connections_are_released_before_slow_file_transfer(monkeypatch
 def test_large_preview_burst_leaves_worker_threads_for_active_requests(monkeypatch, tmp_path, path):
     engine = create_engine(
         "sqlite://", poolclass=QueuePool, pool_size=10, max_overflow=0,
-        pool_timeout=0.3, connect_args={"check_same_thread": False},
+        pool_timeout=3, connect_args={"check_same_thread": False},
     )
     monkeypatch.setattr("app.db.engine", lambda: engine)
     app = FastAPI()
     app.add_middleware(PreviewAdmission)
     image = tmp_path / "preview.jpg"
     image.write_bytes(b"authorized preview")
+    admitted, release = asyncio.Event(), asyncio.Event()
+    preview_count = 0
 
     def authorized(db: Db):
         db.execute(text("SELECT 1"))
-        # Concurrent auth checks hold their connections until the next sync handler runs.
-        time.sleep(0.025)
         return True
 
     @app.get(path.split("{", 1)[0] + "{photo_id}" + path.split("}", 1)[1])
-    def preview(db: Db, _allowed: Annotated[bool, Depends(authorized)]):
-        db.execute(text("SELECT 1"))
+    async def preview(_allowed: Annotated[bool, Depends(authorized)]):
+        nonlocal preview_count
+        preview_count += 1
+        if preview_count == 6:
+            admitted.set()
+        await release.wait()
         return FileResponse(image)
 
     @app.get("/api/health")
@@ -131,12 +134,16 @@ def test_large_preview_burst_leaves_worker_threads_for_active_requests(monkeypat
                 client.get(path.format(photo_id))
                 for photo_id in range(1, 81)
             ))
-            await asyncio.sleep(0.05)
             try:
-                response = await asyncio.wait_for(client.get("/api/health"), timeout=1)
+                await asyncio.wait_for(admitted.wait(), timeout=10)
+                assert engine.pool.checkedout() == 6
+                response = await asyncio.wait_for(client.get("/api/health"), timeout=10)
                 assert response.json() == {"ok": True}
+                assert preview_count == 6
+                assert not previews.done()
             finally:
-                responses = await asyncio.wait_for(previews, timeout=4)
+                release.set()
+                responses = await asyncio.wait_for(previews, timeout=15)
             assert all(response.status_code == 200 and response.content == b"authorized preview"
                        for response in responses)
         assert engine.pool.checkedout() == 0
