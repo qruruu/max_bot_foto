@@ -7,8 +7,8 @@ import { MAX_PHOTOS } from './appeals/TaskImageInput';
 
 export type PhotoMenuTarget = {photo: Pick<Photo, 'id' | 'preview_url'>; x: number; y: number; row: HTMLElement};
 
-export default function PhotoContextMenu({target, count, canSelect, selectLabel = 'Выбрать', selecting, canSendToTask, downloading, download, downloadLabel, close, select, cancel, forward}: {
-  target: Pick<PhotoMenuTarget, 'x' | 'y' | 'row'>; count: number; canSelect: boolean; selectLabel?: string;
+export default function PhotoContextMenu({target, count, canSelect, selecting, canSendToTask, downloading, download, downloadLabel, close, select, cancel, forward}: {
+  target: Pick<PhotoMenuTarget, 'x' | 'y' | 'row'>; count: number; canSelect: boolean;
   selecting: boolean; canSendToTask?: boolean;
   downloading: boolean; download: () => void; downloadLabel?: string;
   close: () => void; select: () => void; cancel: () => void; forward?: (destination: 'chat' | 'task') => void;
@@ -55,7 +55,7 @@ export default function PhotoContextMenu({target, count, canSelect, selectLabel 
       const index = items.indexOf(document.activeElement as HTMLElement);
       items[(index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
     }}>
-    {canSelect && <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(select)}><ListChecks size={16}/>{selectLabel}</button>}
+    {canSelect && <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(select)}><ListChecks size={16}/>Выбрать</button>}
     {selecting && <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(cancel)}><X size={16}/>Отменить выбор</button>}
     {forward && count <= MAX_PHOTOS && <button type="button" role="menuitem" tabIndex={-1} disabled={!count} onClick={() => run(() => forward('chat'))}><Share2 size={16}/>Переслать в чат</button>}
     {forward && count <= MAX_PHOTOS && canSendToTask && <button type="button" role="menuitem" tabIndex={-1} disabled={!count} onClick={() => run(() => forward('task'))}><Share2 size={16}/>Переслать в задачу</button>}

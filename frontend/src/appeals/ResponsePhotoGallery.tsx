@@ -7,8 +7,9 @@ import '../operator-chats.css';
 
 type Menu = {id: string; x: number; y: number; row: HTMLAnchorElement};
 
-export default function ResponsePhotoGallery({photos = [], path}: {photos?: ResultPhoto[]; path: string}) {
-  const [selected, setSelected] = useState<string[]>([]);
+export default function ResponsePhotoGallery({photos = [], path, selected, setSelected}: {
+  photos?: ResultPhoto[]; path: string; selected: string[]; setSelected: (ids: string[]) => void;
+}) {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState('');
@@ -17,7 +18,8 @@ export default function ResponsePhotoGallery({photos = [], path}: {photos?: Resu
   useEffect(() => () => transfer.current?.abort(), []);
 
   const picked = photos.filter(photo => selected.includes(photo.id)).map(photo => photo.id);
-  const ids = picked.length ? picked : menu ? [menu.id] : [];
+  const selecting = picked.length > 0;
+  const ids = selecting ? picked : menu ? [menu.id] : [];
 
   async function download() {
     if (!ids.length || transfer.current) return;
@@ -57,6 +59,12 @@ export default function ResponsePhotoGallery({photos = [], path}: {photos?: Resu
       return <a key={photo.id} className="appeal-response-photo" data-selected={marked}
         href={photo.url} target="_blank" rel="noreferrer" aria-haspopup="menu"
         aria-label={`Фотография ответа ${index + 1}${marked ? ', выбрана' : ''}`}
+        onClick={event => {
+          if (!selecting) return;
+          event.preventDefault();
+          close();
+          setSelected(marked ? picked.filter(id => id !== photo.id) : [...picked, photo.id]);
+        }}
         onContextMenu={event => {
           event.preventDefault();
           setMenu({id: photo.id, x: event.clientX, y: event.clientY, row: event.currentTarget});
@@ -73,10 +81,9 @@ export default function ResponsePhotoGallery({photos = [], path}: {photos?: Resu
     })}</div>
     {error && <p className="error" role="alert">{error}</p>}
     {menu && photos.some(photo => photo.id === menu.id) && <PhotoContextMenu target={menu} count={ids.length}
-      canSelect selectLabel={picked.includes(menu.id) ? 'Снять выделение' : 'Выбрать'}
-      selecting={picked.length > 0} downloading={downloading} close={close}
+      canSelect={!selecting} selecting={selecting} downloading={downloading} close={close}
       downloadLabel={picked.length === 1 ? 'Скачать выбранную фотографию' : undefined}
-      select={() => setSelected(picked.includes(menu.id) ? picked.filter(id => id !== menu.id) : [...picked, menu.id])}
+      select={() => setSelected([menu.id])}
       cancel={() => setSelected([])} download={() => void download()}/>}
   </>;
 }

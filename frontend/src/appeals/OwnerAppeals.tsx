@@ -68,12 +68,13 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
   const [showStatistics, setShowStatistics] = useState(false), [categoryFilter, setCategoryFilter] = useState(''), [operatorFilter, setOperatorFilter] = useState(''), [deadlineFilter, setDeadlineFilter] = useState('any');
   const [source, setSource] = useState<AppealSource>('all');
   const [filterOptions, setFilterOptions] = useState<AppealFilterOptions | null>(null);
+  const [selectedResponsePhotos, setSelectedResponsePhotos] = useState<string[]>([]);
   const [detailTab, setDetailTab] = useState<'request' | 'inspector' | 'executor'>('request');
   const [unread, setUnread] = useState({inspector:0, executor:0});
   useEffect(() => {setUnread({inspector:0, executor:0});}, [selected, endpoint]);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
   const [requestedTab, setRequestedTab] = useState<typeof detailTab>(() => params.get('tab') === 'inspector' ? 'inspector' : params.get('tab') === 'executor' ? 'executor' : 'request');
-  useEffect(() => {setDetailTab(requestedTab); setRequestedTab('request'); setDescriptionOpen(false); setEditing(false); setCopyStatus('');}, [selected, endpoint]);
+  useEffect(() => {setDetailTab(requestedTab); setRequestedTab('request'); setDescriptionOpen(false); setEditing(false); setCopyStatus(''); setSelectedResponsePhotos([]);}, [selected, endpoint]);
   const [search, setSearch] = useState(''), [query, setQuery] = useState('');
   const active = useRef(true);
   useEffect(() => {active.current = true; return () => {active.current = false;};}, []);
@@ -136,6 +137,10 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
     }, 10_000) : undefined;
     return () => {controller.abort(); window.clearInterval(timer);};
   }, [selected, revision, endpoint, refreshKey, readOnly]);
+
+  const appealPath = endpoint + '/' + selected;
+  const responsePhotos = detail?.id === selected && <ResponsePhotoGallery key={appealPath} path={appealPath}
+    photos={detail.response_photos} selected={selectedResponsePhotos} setSelected={setSelectedResponsePhotos}/>;
 
   const canEditDeadline = !!detail?.task && !isFinalAppeal(detail)
     && ['ASSIGNED', 'IN_PROGRESS'].includes(detail.task.status) && ['ASSIGNED', 'IN_PROGRESS'].includes(nextStatus);
@@ -355,7 +360,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
                 <div><dt><CalendarDays size={18}/>Получено:</dt><dd>{moment(detail.created_at)}{detail.personal_archived && <small>В моём архиве</small>}</dd></div>
               </dl>
             </section>
-            {detail.public_response && hasAppealDecision(detail) && <section className="panel"><h3>Итоговый ответ администратора</h3><p className="owner-appeal-text"><LinkedText>{detail.public_response}</LinkedText></p><ResponsePhotoGallery key={endpoint + "/" + detail.id} path={endpoint + "/" + detail.id} photos={detail.response_photos}/></section>}
+            {detail.public_response && hasAppealDecision(detail) && <section className="panel"><h3>Итоговый ответ администратора</h3><p className="owner-appeal-text"><LinkedText>{detail.public_response}</LinkedText></p>{responsePhotos}</section>}
             {!!detail.files?.length && <section className="panel"><h3>Документы задачи</h3>{detail.files.map(file => <p key={file.id}><a href={file.url}>{file.name}</a></p>)}</section>}
             {(detail.parent || !!detail.children?.length) && <section className="panel"><h3>Связанные задачи</h3>{detail.parent && <button onClick={() => openTask(detail.parent!.id)}>Родительская задача {detail.parent.number}</button>}{detail.children?.map(child => <div className="appeal-task" key={child.id}><button onClick={() => openTask(child.id)}>{child.number} · {child.subject}</button><p>{appealStatuses[child.status]}{!readOnly && ' · ' + (child.operator_name || 'Без исполнителя')}{child.due_date ? ' · до ' + new Date(child.due_date + 'T00:00:00').toLocaleDateString('ru-RU') : ''}</p>{(child.result || child.operator_result) && <p className="owner-appeal-text"><LinkedText>{child.result || child.operator_result}</LinkedText></p>}</div>)}</section>}
             {processingSummary}
@@ -372,7 +377,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
           </div>
         </div>
         {showWork && <div id="appeal-panel-work" role="tabpanel" aria-labelledby={'appeal-tab-' + (detailTab === 'inspector' ? 'inspector' : 'executor')} hidden={detailTab === 'request'}>
-          <AppealActions key={detail.id} appeal={detail} taskContext={taskContext} chooseGeneral={canAttachPhotos && responseDraft ? chooseGeneral : undefined}
+          <AppealActions key={detail.id} appeal={detail} responsePhotos={responsePhotos} taskContext={taskContext} chooseGeneral={canAttachPhotos && responseDraft ? chooseGeneral : undefined}
             resumedDraft={resumedDraft} consumeDraft={() => {if (responseDraft) responseDraft.current = null;}} workspace={detailTab === 'executor' ? 'executor' : 'inspector'} endpoint={endpoint} readOnly={readOnly} openTask={openTask} changed={() => setRevision(value => value + 1)}
             inspectorDiscussion={canDiscussWithInspector ? <AppealDiscussion key={detail.id + ':inspector'} endpoint={endpoint + '/' + detail.id} channel="inspector" attachFromArchive={canAttachPhotos ? () => attachFromArchive('inspector') : undefined} forwardToContacts={organization && manageTask} visibleTab={detailTab === 'inspector'} onUnreadChange={count => setUnread(current => current.inspector === count ? current : {...current, inspector:count})} title={inspectorChatTitle} openTask={id => openTask(id, detailTab)} archived={!!detail.archived_at}/> : undefined}
             discussion={!readOnly && detail.children?.length ? <section className="panel"><h3>Переписка по подзадачам</h3><p className="hint">Откройте нужную подзадачу слева. У каждого исполнителя своя переписка, срок и результат.</p></section> : !readOnly ? <AppealDiscussion key={detail.id + ':executor'} endpoint={endpoint + '/' + detail.id} channel="executor" attachFromArchive={canAttachPhotos && detail.task ? () => attachFromArchive('executor') : undefined} forwardToContacts={organization && manageTask} visibleTab={detailTab === 'executor'} onUnreadChange={count => setUnread(current => current.executor === count ? current : {...current, executor:count})} title={detail.can_execute ? 'Чат с администратором' : 'Чат с исполнителем'} openTask={id => openTask(id, detailTab)} readonlyReason={!detail.task ? 'Переписка откроется после назначения исполнителя. Для подзадач откройте нужную карточку.' : undefined} archived={!!detail.archived_at || (!!detail.submitted_by_inspector_name && !detail.task)}/> : undefined}/>

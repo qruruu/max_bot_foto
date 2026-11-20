@@ -105,27 +105,62 @@ it('downloads only the marked response photos from the shared task context menu'
     }));
     const choose = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('[role=menuitem]')]
       .find(item => item.textContent === label)!.click();
+    const leftClick = (index: number) => photos[index].querySelector('img')!.dispatchEvent(
+      new MouseEvent('click', {button: 0, bubbles: true, cancelable: true}));
+    const markedPhotos = () => [...element.querySelectorAll('.appeal-response-photo[data-selected=true]')]
+      .map(photo => photo.getAttribute('href'));
     expect(photos).toHaveLength(3);
     expect(element.querySelector('.appeal-evidence button')).toBeNull();
-    for (const index of [0, 1, 2]) {
-      await act(async () => {openMenu(index);});
-      await act(async () => {choose('Выбрать');});
+    await act(async () => {openMenu(0);});
+    await act(async () => {choose('Выбрать');});
+    for (const index of [1, 2, 1]) {
+      await act(async () => {expect(leftClick(index)).toBe(false);});
     }
-    await act(async () => {openMenu(1);});
-    await act(async () => {choose('Снять выделение');});
-    expect([...element.querySelectorAll('.appeal-response-photo[data-selected=true]')]
-      .map(photo => photo.getAttribute('href'))).toEqual(['/first', '/third']);
+    expect(markedPhotos()).toEqual(['/first', '/third']);
     await act(async () => {openMenu(2);});
     await act(async () => {choose('Скачать выбранные фотографии');});
     expect(fetchDownload).toHaveBeenCalledWith(
       '/api/appeals/shared-view/42/response-photos/download?photo_id=first&photo_id=third', expect.anything());
     expect(filenames).toEqual(['response.zip']);
+    for (const index of [0, 2]) {
+      await act(async () => {expect(leftClick(index)).toBe(false);});
+    }
+    expect(markedPhotos()).toEqual([]);
+    await act(async () => {expect(leftClick(1)).toBe(true);});
+    expect(markedPhotos()).toEqual([]);
+    await act(async () => {openMenu(0);});
+    await act(async () => {choose('Выбрать');});
+    await act(async () => {openMenu(1);});
+    await act(async () => {choose('Отменить выбор');});
+    expect(markedPhotos()).toEqual([]);
   } finally {
     vi.unstubAllGlobals();
     save.mockRestore();
     createUrl.mockRestore();
     revokeUrl.mockRestore();
   }
+});
+
+it('keeps the photo selection within an appeal and clears it on exit', async () => {
+  Object.assign(current, {status: 'RESOLVED', is_final: true, public_response: 'Работа выполнена',
+    response_photos: [{id: 'first', url: '/first', preview_url: '/preview/first'}]});
+  await act(async () => {
+    root.render(<MemoryRouter initialEntries={['/appeals?appeal=42']}><OwnerAppeals organization/></MemoryRouter>);
+    await tick();
+  });
+  const marked = (panel: string) => element.querySelector('#appeal-panel-' + panel + ' [data-selected=true]');
+  await act(async () => {
+    element.querySelector('#appeal-panel-request .appeal-response-photo')!
+      .dispatchEvent(new MouseEvent('contextmenu', {bubbles: true, cancelable: true}));
+  });
+  await act(async () => {document.querySelector<HTMLButtonElement>('[role=menuitem]')!.click();});
+  expect(marked('request')).not.toBeNull();
+  await act(async () => {element.querySelector<HTMLButtonElement>('#appeal-tab-executor')!.click();});
+  expect(marked('work')).not.toBeNull();
+  await clickButton('Все обращения');
+  await act(async () => {element.querySelector<HTMLButtonElement>('.owner-appeal-card-open')!.click(); await tick();});
+  expect(element.querySelector('.appeal-response-photo')).not.toBeNull();
+  expect(marked('request')).toBeNull();
 });
 
 it('keeps message notifications after opening and clears them after a reply without losing the drafted administrator answer', async () => {

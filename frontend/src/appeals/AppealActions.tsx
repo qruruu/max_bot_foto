@@ -3,7 +3,6 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '../api';
 import AppealModal from './AppealModal';
-import ResponsePhotoGallery from './ResponsePhotoGallery';
 import ClosePhotoPicker from './ClosePhotoPicker';
 import type { ClosePhoto, ResponsePhotoDraft } from './ResponsePhotoDraft';
 import { appealDecisions, appealStatuses, hasAppealDecision, isFinalAppeal } from './statuses';
@@ -21,9 +20,9 @@ export type WorkflowAppeal = {id: number; status: string; version: number; can_m
   parent?: TaskRelation | null; children?: TaskRelation[];
   task?: AppealTask | null; task_history?: AppealTask[]; public_response?: string; response_photos?: ResultPhoto[]};
 
-export default function AppealActions({appeal, endpoint, readOnly, changed, discussion, inspectorDiscussion, openTask, workspace = 'inspector', taskContext, chooseGeneral, resumedDraft, consumeDraft}: {
+export default function AppealActions({appeal, endpoint, readOnly, changed, discussion, inspectorDiscussion, openTask, workspace = 'inspector', taskContext, chooseGeneral, resumedDraft, consumeDraft, responsePhotos}: {
   appeal: WorkflowAppeal; endpoint: string; readOnly: boolean; changed: () => void; discussion?: ReactNode; inspectorDiscussion?: ReactNode; openTask?: (id: number) => void; workspace?: 'inspector' | 'executor'; taskContext?: ReactNode; chooseGeneral?: (draft: ResponsePhotoDraft) => void;
-  resumedDraft?: ResponsePhotoDraft; consumeDraft?: () => void;
+  resumedDraft?: ResponsePhotoDraft; consumeDraft?: () => void; responsePhotos?: ReactNode;
 }) {
   const answerId = useId();
   const [operators, setOperators] = useState<{id: number; name: string}[]>([]), [operator, setOperator] = useState('');
@@ -166,7 +165,7 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
     {manage && !!appeal.task_history?.length && <details><summary>История назначений ({appeal.task_history.length})</summary>{appeal.task_history.map(task => <section className="appeal-task" key={task.id}><strong>{task.operator_name} · {appealStatuses[task.status]}</strong>{task.due_date && <p>Срок: {new Date(task.due_date + 'T00:00:00').toLocaleDateString('ru-RU')}</p>}<p className="owner-appeal-text"><LinkedText>{task.instruction}</LinkedText></p><p className="owner-appeal-text"><LinkedText>{task.result_comment}</LinkedText></p></section>)}</details>}
   </>;
   const decisions = <>
-    {appeal.public_response && hasAppealDecision(appeal) && <section className="appeal-task"><h3>{appeal.is_public === false ? 'Ответ организации в «Метке»' : 'Ответ организации на стене'}</h3><p className="owner-appeal-text"><LinkedText>{appeal.public_response}</LinkedText></p><ResponsePhotoGallery key={endpoint + "/" + appeal.id} path={endpoint + "/" + appeal.id} photos={appeal.response_photos}/></section>}
+    {appeal.public_response && hasAppealDecision(appeal) && <section className="appeal-task"><h3>{appeal.is_public === false ? 'Ответ организации в «Метке»' : 'Ответ организации на стене'}</h3><p className="owner-appeal-text"><LinkedText>{appeal.public_response}</LinkedText></p>{responsePhotos}</section>}
   </>;
   return <div className="appeal-workflow">
     {manage && inspectorDiscussion ? <>
