@@ -6,6 +6,7 @@ import { Archive, ArchiveRestore, ArrowLeft, ArrowUpRight, Building2, CalendarDa
 import { api, query as urlQuery } from '../api';
 import AppealActions from './AppealActions';
 import AppealModal from './AppealModal';
+import ResponsePhotoGallery from './ResponsePhotoGallery';
 import { useResponsePhotoDraft } from './ResponsePhotoDraft';
 import type { ResponsePhotoDraft } from './ResponsePhotoDraft';
 import AdminTaskForm from './AdminTaskForm';
@@ -354,7 +355,7 @@ export default function OwnerAppeals({organization = false, endpoint: customEndp
                 <div><dt><CalendarDays size={18}/>Получено:</dt><dd>{moment(detail.created_at)}{detail.personal_archived && <small>В моём архиве</small>}</dd></div>
               </dl>
             </section>
-            {detail.public_response && hasAppealDecision(detail) && <section className="panel"><h3>Итоговый ответ администратора</h3><p className="owner-appeal-text"><LinkedText>{detail.public_response}</LinkedText></p><div className="appeal-evidence">{detail.response_photos?.map(photo => <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Результат рассмотрения"/></a>)}</div></section>}
+            {detail.public_response && hasAppealDecision(detail) && <section className="panel"><h3>Итоговый ответ администратора</h3><p className="owner-appeal-text"><LinkedText>{detail.public_response}</LinkedText></p><ResponsePhotoGallery key={endpoint + "/" + detail.id} path={endpoint + "/" + detail.id} photos={detail.response_photos}/></section>}
             {!!detail.files?.length && <section className="panel"><h3>Документы задачи</h3>{detail.files.map(file => <p key={file.id}><a href={file.url}>{file.name}</a></p>)}</section>}
             {(detail.parent || !!detail.children?.length) && <section className="panel"><h3>Связанные задачи</h3>{detail.parent && <button onClick={() => openTask(detail.parent!.id)}>Родительская задача {detail.parent.number}</button>}{detail.children?.map(child => <div className="appeal-task" key={child.id}><button onClick={() => openTask(child.id)}>{child.number} · {child.subject}</button><p>{appealStatuses[child.status]}{!readOnly && ' · ' + (child.operator_name || 'Без исполнителя')}{child.due_date ? ' · до ' + new Date(child.due_date + 'T00:00:00').toLocaleDateString('ru-RU') : ''}</p>{(child.result || child.operator_result) && <p className="owner-appeal-text"><LinkedText>{child.result || child.operator_result}</LinkedText></p>}</div>)}</section>}
             {processingSummary}

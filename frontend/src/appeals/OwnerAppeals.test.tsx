@@ -80,6 +80,54 @@ it('opens only the request tab in the shared task view', async () => {
   expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('/events'))).toBe(false);
 });
 
+it('downloads only the marked response photos from the shared task context menu', async () => {
+  Object.assign(current, {status: 'RESOLVED', is_final: true, public_response: 'Работа выполнена',
+    response_photos: ['first', 'second', 'third'].map(id => ({id, url: '/' + id, preview_url: '/preview/' + id}))});
+  const fetchDownload = vi.fn(async () => new Response('photos', {
+    headers: {'Content-Disposition': 'attachment; filename="response.zip"'},
+  }));
+  const filenames: string[] = [];
+  const save = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+    filenames.push(this.download);
+  });
+  const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:response');
+  const revokeUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  vi.stubGlobal('fetch', fetchDownload);
+  try {
+    await act(async () => {
+      root.render(<MemoryRouter initialEntries={['/appeals/shared?appeal=42']}>
+        <OwnerAppeals endpoint="/appeals/shared-view" sharedOnly readOnly/>
+      </MemoryRouter>); await tick();
+    });
+    const photos = element.querySelectorAll('.appeal-response-photo');
+    const openMenu = (index: number) => photos[index].dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true,
+    }));
+    const choose = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('[role=menuitem]')]
+      .find(item => item.textContent === label)!.click();
+    expect(photos).toHaveLength(3);
+    expect(element.querySelector('.appeal-evidence button')).toBeNull();
+    for (const index of [0, 1, 2]) {
+      await act(async () => {openMenu(index);});
+      await act(async () => {choose('Выбрать');});
+    }
+    await act(async () => {openMenu(1);});
+    await act(async () => {choose('Снять выделение');});
+    expect([...element.querySelectorAll('.appeal-response-photo[data-selected=true]')]
+      .map(photo => photo.getAttribute('href'))).toEqual(['/first', '/third']);
+    await act(async () => {openMenu(2);});
+    await act(async () => {choose('Скачать выбранные фотографии');});
+    expect(fetchDownload).toHaveBeenCalledWith(
+      '/api/appeals/shared-view/42/response-photos/download?photo_id=first&photo_id=third', expect.anything());
+    expect(filenames).toEqual(['response.zip']);
+  } finally {
+    vi.unstubAllGlobals();
+    save.mockRestore();
+    createUrl.mockRestore();
+    revokeUrl.mockRestore();
+  }
+});
+
 it('keeps message notifications after opening and clears them after a reply without losing the drafted administrator answer', async () => {
   await act(async () => {root.render(<MemoryRouter><OwnerAppeals organization endpoint="/appeals"/></MemoryRouter>); await tick();});
   expect(element.textContent).toContain('Новые сообщения: 2'); expect(element.querySelector('img')?.getAttribute('src')).toBe('/preview');

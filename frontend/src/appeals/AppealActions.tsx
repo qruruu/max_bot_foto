@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '../api';
 import AppealModal from './AppealModal';
+import ResponsePhotoGallery from './ResponsePhotoGallery';
 import ClosePhotoPicker from './ClosePhotoPicker';
 import type { ClosePhoto, ResponsePhotoDraft } from './ResponsePhotoDraft';
 import { appealDecisions, appealStatuses, hasAppealDecision, isFinalAppeal } from './statuses';
@@ -165,7 +166,7 @@ export default function AppealActions({appeal, endpoint, readOnly, changed, disc
     {manage && !!appeal.task_history?.length && <details><summary>История назначений ({appeal.task_history.length})</summary>{appeal.task_history.map(task => <section className="appeal-task" key={task.id}><strong>{task.operator_name} · {appealStatuses[task.status]}</strong>{task.due_date && <p>Срок: {new Date(task.due_date + 'T00:00:00').toLocaleDateString('ru-RU')}</p>}<p className="owner-appeal-text"><LinkedText>{task.instruction}</LinkedText></p><p className="owner-appeal-text"><LinkedText>{task.result_comment}</LinkedText></p></section>)}</details>}
   </>;
   const decisions = <>
-    {appeal.public_response && hasAppealDecision(appeal) && <section className="appeal-task"><h3>{appeal.is_public === false ? 'Ответ организации в «Метке»' : 'Ответ организации на стене'}</h3><p className="owner-appeal-text"><LinkedText>{appeal.public_response}</LinkedText></p><div className="appeal-evidence">{appeal.response_photos?.map(photo => <a href={photo.url} key={photo.id} target="_blank" rel="noreferrer"><img src={photo.preview_url} alt="Результат рассмотрения"/></a>)}</div></section>}
+    {appeal.public_response && hasAppealDecision(appeal) && <section className="appeal-task"><h3>{appeal.is_public === false ? 'Ответ организации в «Метке»' : 'Ответ организации на стене'}</h3><p className="owner-appeal-text"><LinkedText>{appeal.public_response}</LinkedText></p><ResponsePhotoGallery key={endpoint + "/" + appeal.id} path={endpoint + "/" + appeal.id} photos={appeal.response_photos}/></section>}
   </>;
   return <div className="appeal-workflow">
     {manage && inspectorDiscussion ? <>

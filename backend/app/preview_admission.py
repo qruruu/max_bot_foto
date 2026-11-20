@@ -1,4 +1,4 @@
-"""Queue gallery previews before they occupy a database connection or worker thread."""
+"""Queue gallery media requests before they occupy a database connection or worker thread."""
 
 import re
 from asyncio import Semaphore
@@ -7,8 +7,8 @@ PREVIEW_PATH = re.compile(
     r"(?:(?:/org/[0-9a-f-]{36})?/api|/api/inspection/organizations/[0-9a-f-]{36})"
     r"/photos/[0-9]+/preview"
     r"|(?:(?:/org/[0-9a-f-]{36})?/api(?:/platform)?|/api/inspection/organizations/[0-9a-f-]{36})"
-    r"/appeals/(?:shared-view/)?[0-9]+/(?:photos|attachments)/[0-9a-f-]{36}"
-    r"|/api/inspection/shared-appeals/[0-9]+/(?:photos|attachments)/[0-9a-f-]{36}"
+    r"/appeals/(?:shared-view/)?[0-9]+/(?:(?:photos|attachments)/[0-9a-f-]{36}|response-photos/download)"
+    r"|/api/inspection/shared-appeals/[0-9]+/(?:(?:photos|attachments)/[0-9a-f-]{36}|response-photos/download)"
 )
 
 

@@ -32,6 +32,7 @@ from app.appeal_events import (
     record_event,
 )
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS, prepare_upload
+from app.appeal_photo_download import ResponsePhotoIds, response_photo_download
 from app.appeal_search import appeal_search
 from app.appeal_statuses import CloseStatus, has_decision, is_final
 from app.appeals import (
@@ -929,6 +930,16 @@ def attachment(appeal_id: int, photo_id: UUID, user: AppealReader, tenant: Db,
         if content is None:
             raise HTTPException(404)
         return image_response(content)
+
+
+@owner_router.get("/{appeal_id}/response-photos/download")
+@organization_router.get("/{appeal_id}/response-photos/download")
+def download_response_photos(appeal_id: int, photo_id: ResponsePhotoIds, user: AppealReader, tenant: Db):
+    from app.inspection_chats import workspace_control_session
+
+    with workspace_control_session(tenant) as db:
+        find_appeal(db, appeal_id, user=user)
+        return response_photo_download(db, appeal_id, photo_id)
 
 
 def validate_due_date(value):

@@ -3,7 +3,6 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import PhotoContextMenu from './PhotoContextMenu';
-import type { Photo } from './types';
 
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -21,7 +20,7 @@ afterEach(async () => {
 
 async function render(count: number, canSendToTask = true) {
   await act(async () => root.render(<PhotoContextMenu
-    target={{photo: {id: 99, preview_url: null} as Photo, row: document.createElement('tr'), x: 0, y: 0}}
+    target={{row: document.createElement('tr'), x: 0, y: 0}}
     count={count} canSelect selecting canSendToTask={canSendToTask} downloading={false} download={download}
     close={() => {}} select={() => {}} cancel={() => {}} forward={forward}/>));
 }

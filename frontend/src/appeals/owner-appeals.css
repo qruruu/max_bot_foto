@@ -137,6 +137,13 @@
 .appeal-work-right .appeal-task>.primary { width:100%; margin-top:8px; min-height:38px; }
 .appeal-evidence { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; }
 .appeal-evidence img { width:95px; height:80px; object-fit:cover; border-radius:5px; }
+.appeal-response-photo { position:relative; display:block; border-radius:5px; }
+.appeal-response-photo img { display:block; }
+.appeal-response-photo[data-selected="true"] { outline:2px solid var(--focus, var(--green)); }
+.appeal-response-photo-check {
+  position:absolute; right:4px; top:4px; display:grid; place-items:center;
+  width:20px; height:20px; border-radius:50%; background:var(--primary, #2563eb); color:#fff;
+}
 .appeal-result-selection { display:flex; gap:10px; flex-wrap:wrap; }
 .appeal-result-selection>strong { width:100%; font-size:11px; }
 .appeal-result-selection label { display:flex; align-items:center; gap:5px; }

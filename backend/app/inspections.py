@@ -28,6 +28,7 @@ from app.appeal_events import (
     record_event,
     unanswered_comments,
 )
+from app.appeal_photo_download import ResponsePhotoIds, response_photo_download
 from app.appeal_search import appeal_search
 from app.appeal_statuses import AppealStatus, is_final
 from app.appeal_task_sharing import (
@@ -895,6 +896,12 @@ def inspector_shared_attachment(appeal_id: int, photo_id: UUID, db: Db, user: In
     return published_attachment_response(db, find_inspector_shared_appeal(db, user, appeal_id), photo_id, variant)
 
 
+@router.get("/shared-appeals/{appeal_id}/response-photos/download")
+def inspector_shared_response_download(appeal_id: int, photo_id: ResponsePhotoIds, db: Db, user: InspectorUser):
+    appeal = find_inspector_shared_appeal(db, user, appeal_id)
+    return response_photo_download(db, appeal.id, photo_id)
+
+
 @router.get("/shared-appeals/{appeal_id}/files/{file_id}")
 def inspector_shared_file(appeal_id: int, file_id: UUID, db: Db, user: InspectorUser):
     from app.appeal_files import file_response
@@ -974,6 +981,14 @@ def appeal_attachment(organization_id: UUID, appeal_id: int, photo_id: UUID, db:
     authorized_organization(db, user, organization_id)
     appeal = find_inspector_appeal(db, organization_id, appeal_id, user)
     return published_attachment_response(db, appeal, photo_id, variant)
+
+
+@router.get("/organizations/{organization_id}/appeals/{appeal_id}/response-photos/download")
+def inspector_response_download(organization_id: UUID, appeal_id: int, photo_id: ResponsePhotoIds,
+                                db: Db, user: InspectorUser):
+    authorized_organization(db, user, organization_id)
+    appeal = find_inspector_appeal(db, organization_id, appeal_id, user)
+    return response_photo_download(db, appeal.id, photo_id)
 
 
 def published_attachment_response(db, appeal, photo_id, variant):

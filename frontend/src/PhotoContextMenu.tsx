@@ -7,10 +7,11 @@ import { MAX_PHOTOS } from './appeals/TaskImageInput';
 
 export type PhotoMenuTarget = {photo: Pick<Photo, 'id' | 'preview_url'>; x: number; y: number; row: HTMLElement};
 
-export default function PhotoContextMenu({target, count, canSelect, selecting, canSendToTask, downloading, download, close, select, cancel, forward}: {
-  target: PhotoMenuTarget; count: number; canSelect: boolean; selecting: boolean; canSendToTask: boolean;
-  downloading: boolean; download: () => void;
-  close: () => void; select: () => void; cancel: () => void; forward: (destination: 'chat' | 'task') => void;
+export default function PhotoContextMenu({target, count, canSelect, selectLabel = 'Выбрать', selecting, canSendToTask, downloading, download, downloadLabel, close, select, cancel, forward}: {
+  target: Pick<PhotoMenuTarget, 'x' | 'y' | 'row'>; count: number; canSelect: boolean; selectLabel?: string;
+  selecting: boolean; canSendToTask?: boolean;
+  downloading: boolean; download: () => void; downloadLabel?: string;
+  close: () => void; select: () => void; cancel: () => void; forward?: (destination: 'chat' | 'task') => void;
 }) {
   const menu = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -54,11 +55,11 @@ export default function PhotoContextMenu({target, count, canSelect, selecting, c
       const index = items.indexOf(document.activeElement as HTMLElement);
       items[(index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
     }}>
-    {canSelect && <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(select)}><ListChecks size={16}/>Выбрать</button>}
+    {canSelect && <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(select)}><ListChecks size={16}/>{selectLabel}</button>}
     {selecting && <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(cancel)}><X size={16}/>Отменить выбор</button>}
-    {count <= MAX_PHOTOS && <button type="button" role="menuitem" tabIndex={-1} disabled={!count} onClick={() => run(() => forward('chat'))}><Share2 size={16}/>Переслать в чат</button>}
-    {count <= MAX_PHOTOS && canSendToTask && <button type="button" role="menuitem" tabIndex={-1} disabled={!count} onClick={() => run(() => forward('task'))}><Share2 size={16}/>Переслать в задачу</button>}
+    {forward && count <= MAX_PHOTOS && <button type="button" role="menuitem" tabIndex={-1} disabled={!count} onClick={() => run(() => forward('chat'))}><Share2 size={16}/>Переслать в чат</button>}
+    {forward && count <= MAX_PHOTOS && canSendToTask && <button type="button" role="menuitem" tabIndex={-1} disabled={!count} onClick={() => run(() => forward('task'))}><Share2 size={16}/>Переслать в задачу</button>}
     <button type="button" role="menuitem" tabIndex={-1} disabled={!count || downloading || count > MAX_DOWNLOAD_PHOTOS}
-      onClick={() => run(download)}><Download size={16}/>{count > 1 ? 'Скачать выбранные фотографии' : 'Скачать изображение'}</button>
+      onClick={() => run(download)}><Download size={16}/>{downloadLabel ?? (count > 1 ? 'Скачать выбранные фотографии' : 'Скачать изображение')}</button>
   </div>, document.body);
 }

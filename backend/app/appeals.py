@@ -19,6 +19,7 @@ from app.appeal_archive import archived_condition, is_archived
 from app.appeal_catalog import organization_catalog, public_organizations
 from app.appeal_events import unanswered_comments
 from app.appeal_images import MAX_PHOTO_BYTES, MAX_PHOTOS
+from app.appeal_photo_download import ResponsePhotoIds, response_photo_download
 from app.appeal_search import appeal_search
 from app.appeal_statuses import DECISION_STATUSES, AppealStatus, is_final
 from app.appeal_task_sharing import (
@@ -411,6 +412,12 @@ def workspace_shared_attachment(appeal_id: int, photo_id: UUID, user: AppealRead
 
     with shared_workspace_appeal(appeal_id, user, tenant) as (db, appeal):
         return published_attachment_response(db, appeal, photo_id, variant)
+
+
+@organization_router.get("/shared-view/{appeal_id}/response-photos/download")
+def workspace_shared_response_download(appeal_id: int, photo_id: ResponsePhotoIds, user: AppealReader, tenant: Db):
+    with shared_workspace_appeal(appeal_id, user, tenant) as (db, appeal):
+        return response_photo_download(db, appeal.id, photo_id)
 
 
 @organization_router.get("/shared-view/{appeal_id}/files/{file_id}")

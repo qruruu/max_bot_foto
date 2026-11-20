@@ -21,7 +21,7 @@ from app.appeal_reporting import today
 from app.appeals_public import app as public_app
 from app.auth import hasher
 from app.db import engine
-from app.models import InspectionAgency, InspectionGrant, Inspector, User
+from app.models import AppealAttachment, InspectionAgency, InspectionGrant, Inspector, User
 from app.organization_context import organization_scope
 from app.organization_registry import control_session
 
@@ -60,6 +60,34 @@ def test_task_forwarding_uses_workplace_chats_and_role_boundaries(workflow):
     assert len(sent_items) == 1 and sent_items[0]["shared_appeal"]["id"] == task_id
 
     staff_api = scope.prefix + "/api/appeals"
+    first, second, unpublished = (str(uuid4()) for _ in range(3))
+    with control_session() as db:
+        db.add_all([AppealAttachment(id=id, appeal_id=task_id, content=content, preview=b"preview",
+                                    published=published, width=1, height=1)
+                    for id, content, published in [(first, b"first photo", True), (second, b"second photo", True),
+                                                   (unpublished, b"internal photo", False)]])
+        db.commit()
+
+    suffix = "/response-photos/download"
+    filename = f"appeal-{task_id}-response"
+    params = [("photo_id", first), ("photo_id", second)]
+    admin_download = f"{staff_api}/{task_id}{suffix}"
+    platform_download = f"/api/platform/appeals/{task_id}{suffix}"
+    inspector_download = f"{endpoint}/{task_id}{suffix}"
+    shared_inspector_download = f"/api/inspection/shared-appeals/{task_id}{suffix}"
+    shared_staff_download = f"{staff_api}/shared-view/{task_id}{suffix}"
+    for client, url in [(owner, admin_download), (owner, platform_download), (inspectors[0], inspector_download)]:
+        download = client.get(url, params={"photo_id": first})
+        assert download.status_code == 200, download.text
+        assert download.content == b"first photo"
+        assert download.headers["content-type"] == "image/jpeg"
+        assert download.headers["content-disposition"] == f'attachment; filename="{filename}-{first}.jpg"'
+    assert owner.get(admin_download, params=[*params, ("photo_id", unpublished)]).status_code == 404
+    assert owner.get(admin_download, params={"photo_id": [first] * 11}).status_code == 422
+    assert operator.get(admin_download, params=params).status_code == 404
+    assert inspectors[0].get(shared_inspector_download, params=params).status_code == 404
+    assert operator.get(shared_staff_download, params=params).status_code == 404
+
     assert owner.get(f"{staff_api}/{task_id}").json()["can_share"]
     targets = owner.get(staff_api + "/sharing/recipients").json()
     staff_key = str(operator_ids[0])
@@ -114,6 +142,18 @@ def test_task_forwarding_uses_workplace_chats_and_role_boundaries(workflow):
     assert not detail["can_share"] and not detail["can_set_task_status"] and "contact" not in detail
     assert operator.get(detail["photos"][0]["preview_url"]).status_code == 200
     assert operators[1].get(detail["photos"][0]["preview_url"]).status_code in (401, 404)
+    for client, url in [(operator, shared_staff_download), (inspectors[1], shared_inspector_download)]:
+        download = client.get(url, params=params)
+        assert download.status_code == 200, download.text
+        assert download.headers["content-type"] == "application/zip"
+        assert download.headers["content-disposition"] == f'attachment; filename="{filename}.zip"'
+        with ZipFile(BytesIO(download.content)) as archive:
+            assert {name: archive.read(name) for name in archive.namelist()} == {
+                f"{filename}-{first}.jpg": b"first photo",
+                f"{filename}-{second}.jpg": b"second photo",
+            }
+        assert client.get(url, params={"photo_id": unpublished}).status_code == 404
+    assert operators[1].get(shared_staff_download, params=params).status_code in (401, 404)
     assert operator.get(f"{staff_api}/{task_id}/events").status_code == 404
     staff_chat = scope.prefix + f"/api/operator-chats/{scope.owner_user_id}/messages"
     assert operator.get(staff_chat).json()["items"][0]["shared_appeal"]["id"] == task_id
