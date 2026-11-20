@@ -1,5 +1,6 @@
 from io import BytesIO
 from uuid import uuid4
+from xml.etree import ElementTree
 
 import pytest
 from fastapi.testclient import TestClient
@@ -63,6 +64,7 @@ def test_public_link_has_server_rendered_metadata_photo_and_no_private_fields(sh
         assert '<script>alert' not in page.text and '&lt;script&gt;alert' in page.text
         assert "Копировать ссылку" in page.text and "Ответ организации" not in page.text
         assert "max.ru/:share" not in page.text and "vk.com/share.php" not in page.text
+        assert "Нефтеюганск, обращение" in page.text
         card = citizen.get(f"/a/{shared.id}/card.jpg")
         assert card.status_code == 200 and card.headers["content-type"] == "image/jpeg"
         assert "no-store" in card.headers["cache-control"]
@@ -70,6 +72,22 @@ def test_public_link_has_server_rendered_metadata_photo_and_no_private_fields(sh
             assert image.size == (1200, 630)
         detail = citizen.get(f"/api/public/appeals/wall/{shared.id}").json()
         assert detail["share_url"] == f"https://signal.example/a/{shared.id}"
+
+
+@pytest.mark.integration
+def test_sitemap_discovers_public_html_pages_and_immediately_removes_unpublished_appeals(shared, db):
+    with TestClient(app) as citizen:
+        response = citizen.get("/sitemap.xml", headers={"Host": "untrusted-host.example"})
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/xml")
+        assert "no-store" in response.headers["cache-control"]
+        urls = [node.text for node in ElementTree.fromstring(response.content).findall("{*}url/{*}loc")]
+        assert urls == ["https://signal.example/", f"https://signal.example/a/{shared.id}"]
+        assert "private-" not in response.text and "untrusted-host" not in response.text
+        shared.is_public = False
+        db.commit()
+        response = citizen.get("/sitemap.xml")
+        assert f"/a/{shared.id}" not in response.text
 
 
 @pytest.mark.integration
@@ -83,6 +101,9 @@ def test_hidden_appeals_never_have_a_public_page_or_preview(shared, db, hidden):
         db.get(Organization, shared.organization_id).status = "PAUSED"
     db.commit()
     with TestClient(app) as citizen:
+        sitemap = citizen.get("/sitemap.xml")
+        assert sitemap.status_code == 200
+        assert f"/a/{shared.id}" not in sitemap.text
         for path in (f"/a/{shared.id}", f"/a/{shared.id}/card.jpg", "/a/999999999"):
             response = citizen.get(path)
             assert response.status_code == 404

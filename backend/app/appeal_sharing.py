@@ -46,7 +46,7 @@ def public_html(item):
     url = appeal_url(item["id"])
     status = STATUSES.get(item["status"], "На рассмотрении")
     subject = item.get("subject", "")
-    title = f'{subject or item["address"]} — обращение {item["number"]} | Сигнал'
+    title = f'{subject or item["address"]} — {item["city"]}, обращение {item["number"]} | Сигнал'
     description = " ".join(item["description"].split())[:200]
     image = f'{url}/card.jpg?v={item["updated_at"].timestamp():.0f}'
     created = item["created_at"].astimezone(ZoneInfo(base_settings().app_timezone)).strftime("%d.%m.%Y в %H:%M")

@@ -1,5 +1,7 @@
 User-agent: *
-Allow: /
+Allow: /api/public/appeals/catalog
+Allow: /api/public/appeals/wall
 Disallow: /api/
+Allow: /
 
 Sitemap: https://metka-signal.yunorit.ru/sitemap.xml
