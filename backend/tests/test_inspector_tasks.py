@@ -21,8 +21,9 @@ from app.appeal_reporting import today
 from app.appeals_public import app as public_app
 from app.auth import hasher
 from app.db import engine
-from app.models import User
+from app.models import InspectionAgency, InspectionGrant, Inspector, User
 from app.organization_context import organization_scope
+from app.organization_registry import control_session
 
 
 def office_file(member):
@@ -79,6 +80,30 @@ def test_task_forwarding_uses_workplace_chats_and_role_boundaries(workflow):
     assert inspectors[0].get(shared.json()["photos"][0]["preview_url"]).status_code == 200
     grant(owner, inspectors[1], scope)
     assert inspectors[1].get(f"/api/inspection/shared-appeals/{task_id}").status_code == 404
+    colleague_key = f"i:{other_inspector}"
+    with control_session() as db:
+        agency = InspectionAgency(id=str(uuid4()), name="Другое ведомство")
+        db.add(agency)
+        db.flush()
+        account = Inspector(agency_id=agency.id, login="unrelated", name="Другой проверяющий", password_hash="unused")
+        db.add(account)
+        db.flush()
+        db.add(InspectionGrant(inspector_id=account.id, organization_id=scope.id))
+        stranger_key = f"i:{account.id}"
+        db.commit()
+    updated_targets = inspectors[0].get(endpoint + "/share-recipients").json()
+    assert any(item["key"] == colleague_key and item["label"] == "Проверяющий" for item in updated_targets)
+    assert stranger_key not in {item["key"] for item in updated_targets}
+    assert inspectors[0].post(endpoint + "/share", json={**data, "recipient": stranger_key}).status_code == 404
+    sent_to_colleague = inspectors[0].post(endpoint + "/share", json={
+        **data, "recipient": colleague_key, "client_id": str(uuid4()),
+    })
+    assert sent_to_colleague.status_code == 200, sent_to_colleague.text
+    history = inspectors[1].get("/api/inspection/messages", params={"peer": inspector_key}).json()["items"]
+    assert history[0]["shared_appeal"]["id"] == task_id
+    restricted = inspectors[1].get(f"/api/inspection/shared-appeals/{task_id}").json()
+    assert restricted["id"] == task_id and not restricted["can_share"]
+    assert not restricted["can_set_task_status"] and "contact" not in restricted
     operation = {"appeal_ids": [task_id], "recipient": staff_key, "client_id": str(uuid4())}
     assert owner.post(scopes[1].prefix + "/api/appeals/sharing/send", json=operation).status_code == 404
     assert operator.get(f"{staff_api}/shared-view/{task_id}").status_code == 404

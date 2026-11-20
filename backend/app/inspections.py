@@ -838,22 +838,33 @@ def inspection_task_targets(db, user, organization_id):
 
     org = authorized_organization(db, user, organization_id)
     with inspection_tenant(db, org) as tenant:
-        return staff_targets(tenant, roles=("ADMIN_OPERATOR",), prefix=f"a:{org.id}:")
+        admins = staff_targets(tenant, roles=("ADMIN_OPERATOR",), prefix=f"a:{org.id}:")
+    colleagues = db.execute(select(Inspector.id, Inspector.name).join(
+        InspectionGrant, InspectionGrant.inspector_id == Inspector.id,
+    ).where(
+        Inspector.agency_id == user.agency_id, Inspector.id != user.id, Inspector.active,
+        InspectionGrant.organization_id == org.id,
+    ).order_by(func.lower(Inspector.name), Inspector.id))
+    return admins + [{"key": f"i:{id}", "name": name, "label": "Проверяющий"} for id, name in colleagues]
 
 
 @router.post("/organizations/{organization_id}/appeals/share")
 def share_appeals(organization_id: UUID, body: AppealShareInput, db: Db, user: InspectorUser):
     if body.recipient not in {item["key"] for item in inspection_task_targets(db, user, organization_id)}:
-        raise HTTPException(404, "Администратор недоступен")
+        raise HTTPException(404, "Получатель недоступен")
     appeals = load_tasks(db, body, [inspector_appeal_scope(organization_id, user)])
     return save_task_messages(db, body, appeals, f"i:{user.id}", body.recipient)
 
 
 def find_inspector_shared_appeal(db, user, appeal_id):
+    colleague = select(Inspector.id).where(
+        InspectionMessage.sender_key == func.concat("i:", Inspector.id),
+        Inspector.agency_id == user.agency_id, Inspector.active,
+    ).exists()
     message = select(InspectionMessage.id).where(
         InspectionMessage.recipient_key == f"i:{user.id}", InspectionMessage.shared_appeal_id == CitizenAppeal.id,
         InspectionMessage.sender_key.startswith(func.concat("a:", CitizenAppeal.organization_id, ":"))
-        | InspectionMessage.sender_key.startswith("o:"),
+        | InspectionMessage.sender_key.startswith("o:") | colleague,
     ).exists()
     appeal = db.scalar(select(CitizenAppeal).join(Organization).join(
         InspectionGrant, InspectionGrant.organization_id == Organization.id).where(
