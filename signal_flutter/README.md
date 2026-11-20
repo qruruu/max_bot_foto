@@ -14,6 +14,12 @@ node --test test/browser/*.test.cjs
 python3 tool/build.py
 ```
 
+В production Nginx включает gzip для JavaScript и WebAssembly, включая файлы
+CanvasKit. При изменении прокси проверяйте не только HTML, но и `main.dart.js`
+и `canvaskit/chromium/canvaskit.wasm`: запрос с `Accept-Encoding: gzip` должен
+получать `Content-Encoding: gzip` и `Vary: Accept-Encoding`. Это уменьшает объём
+первой загрузки; запуск движка и скорость сети всё ещё влияют на время открытия.
+
 Готовая страница находится в `build/web`. Сервер должен отдавать её на одном
 домене с `/api/public/appeals`, `/a/<номер>` и `/version.json`. Ключ Яндекс.Карт,
 список городов и территории берутся из существующего публичного API. Шрифты Inter и Roboto
