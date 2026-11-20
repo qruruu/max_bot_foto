@@ -354,7 +354,8 @@ def workspace_task_targets(user, tenant, db):
     excluded = set()
     if tenant is db:
         excluded = {str(id) for id in db.scalars(select(PlatformOwner.user_id)) if id != scope.owner_user_id}
-    return [item for item in staff_targets(tenant, roles=roles, exclude=user.id) if item["key"] not in excluded] + inspectors
+    return [item for item in staff_targets(tenant, roles=roles, scope=scope, control=db, exclude=user.id)
+            if item["key"] not in excluded] + inspectors
 
 
 @contextmanager

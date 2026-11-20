@@ -8,6 +8,7 @@ export type OperatorMessage = ChatContent & {
 };
 export type OperatorContact = {
   id: number; name: string; role: string; active: boolean; avatar_url: string | null;
+  platform_owner_key?: string;
   unread: number; last_seen_at?: string | null; last_message: OperatorMessage | null;
 };
 export type ContactPage = {items: OperatorContact[]; unread: number};

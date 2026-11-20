@@ -6,12 +6,35 @@ import { afterEach, expect, it, vi } from 'vitest';
 import OperatorChats from './OperatorChats';
 import { api } from './api';
 
-const {refreshUnread} = vi.hoisted(()=>({refreshUnread:vi.fn(async()=>{})}));
+const {refreshUnread, workspace} = vi.hoisted(()=>({refreshUnread:vi.fn(async()=>{}), workspace:{enabled:false}}));
 vi.mock('./OperatorChatsProvider',()=>({useOperatorChats:()=>({refreshUnread})}));
-vi.mock('./App',()=>({useApp:()=>({user:{id:1},meta:{timezone:'Asia/Yekaterinburg'}}),ErrorBox:({error}:{error:string})=>error?<p role="alert">{error}</p>:null}));
+vi.mock('./App',()=>({useApp:()=>({user:{id:1},meta:{timezone:'Asia/Yekaterinburg', organization:workspace.enabled?{id:'workspace'}:null}}),ErrorBox:({error}:{error:string})=>error?<p role="alert">{error}</p>:null}));
 vi.mock('./api', async importOriginal=>({...await importOriginal<typeof import('./api')>(),api:vi.fn()}));
 let unmount:()=>Promise<void> = async()=>{};
-afterEach(async()=>{await unmount();vi.clearAllMocks();});
+afterEach(async()=>{await unmount();workspace.enabled=false;vi.clearAllMocks();});
+
+it('shows the real administrator once when the alternate inbox is empty', async () => {
+  (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT = true;
+  workspace.enabled = true;
+  const element = document.createElement('div');
+  document.body.append(element);
+  const root = createRoot(element);
+  unmount = async () => {await act(async () => root.unmount()); element.remove();};
+  vi.mocked(api).mockImplementation(async path => {
+    if (path === '/operator-chats') return {items: [{id: 2, name: 'Администратор', role: 'ADMIN_OPERATOR',
+      active: true, avatar_url: null, unread: 0, last_message: null, platform_owner_key: 'o:34'}]};
+    if (path === '/inspection-admin/owners/contacts') return [
+      {key: 'o:34', name: 'Администратор', kind: 'Владелец сервиса', unread: 0, last_message: null, last_message_at: null},
+      {key: 'o:35', name: 'Разработчик', kind: 'Владелец сервиса', unread: 0, last_message: null, last_message_at: null},
+    ];
+    throw new Error(path);
+  });
+  await act(async () => root.render(<MemoryRouter initialEntries={['/messages']}><OperatorChats/></MemoryRouter>));
+  const contacts = [...element.querySelectorAll('.operator-chat-contact')];
+  expect(contacts).toHaveLength(2);
+  expect(contacts.filter(button => button.textContent?.includes('Администратор'))).toHaveLength(1);
+  expect(contacts.some(button => button.textContent?.includes('Разработчик'))).toBe(true);
+});
 
 it('preserves operator photo attachments, read acknowledgement and compose controls in the shared view',async()=>{
   (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;

@@ -6,6 +6,7 @@ from pydantic import Field
 from sqlalchemy import select
 
 from app.models import CitizenAppeal, InspectionMessage, OperatorMessage, User
+from app.organization_registry import is_workspace_owner_proxy, primary_platform_owner
 from app.schemas import StrictModel
 
 
@@ -15,10 +16,17 @@ class AppealShareInput(StrictModel):
     client_id: UUID | None = None
 
 
-def staff_targets(db, *, roles, prefix="", exclude=None):
+def staff_targets(db, *, roles, scope, control, prefix="", exclude=None):
     accounts = db.scalars(select(User).where(User.active, User.role.in_(roles))
                           .order_by(User.name, User.id))
-    return [recipient(prefix + str(account.id), account.name, account.role) for account in accounts if account.id != exclude]
+    targets = []
+    for account in accounts:
+        if account.id == exclude:
+            continue
+        profile = primary_platform_owner(control) if is_workspace_owner_proxy(scope, account) else account
+        if profile:
+            targets.append(recipient(prefix + str(account.id), profile.name, account.role))
+    return targets
 
 
 def recipient(key, name, role):

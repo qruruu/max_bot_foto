@@ -449,6 +449,13 @@ def test_workspace_admin_can_share_photos_in_a_local_operator_chat(inspection):
         peer_id = peer.id
         db.commit()
     endpoint = scope.prefix + "/api/operator-chats"
+    real_admin = owner.get("/api/auth/me").json()
+    staff_contacts = operators[0].get(endpoint).json()["items"]
+    visible_admin = next(item for item in staff_contacts if item["id"] == scope.owner_user_id)
+    assert visible_admin["name"] == real_admin["name"]
+    assert visible_admin["platform_owner_key"] == f'o:{real_admin["id"]}'
+    targets = operators[0].get(scope.prefix + "/api/appeals/sharing/recipients").json()
+    assert any(item["name"] == real_admin["name"] and item["key"] == str(scope.owner_user_id) for item in targets)
     contacts = owner.get(endpoint, params={"photo_id": 10, "share_photo": True})
     assert contacts.status_code == 200, contacts.text
     assert peer_id in {item["id"] for item in contacts.json()["items"]}

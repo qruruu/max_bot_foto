@@ -837,8 +837,9 @@ def inspection_task_targets(db, user, organization_id):
     from app.inspection_chats import inspection_tenant
 
     org = authorized_organization(db, user, organization_id)
-    with inspection_tenant(db, org) as tenant:
-        admins = staff_targets(tenant, roles=("ADMIN_OPERATOR",), prefix=f"a:{org.id}:")
+    scope = scope_for(org)
+    with inspection_tenant(db, org, scope) as tenant:
+        admins = staff_targets(tenant, roles=("ADMIN_OPERATOR",), scope=scope, control=db, prefix=f"a:{org.id}:")
     colleagues = db.execute(select(Inspector.id, Inspector.name).join(
         InspectionGrant, InspectionGrant.inspector_id == Inspector.id,
     ).where(

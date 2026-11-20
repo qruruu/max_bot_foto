@@ -19,7 +19,7 @@ from app.domain import now
 from app.media import media_path
 from app.models import OperatorMessage, Photo, PlatformOwner, User
 from app.organization_context import current_organization, workspace_url
-from app.organization_registry import control_session
+from app.organization_registry import control_session, is_workspace_owner_proxy, primary_platform_owner
 from app.permissions import Permission, has_permission
 from app.photo_scope import active_cohort_condition
 from app.schemas import StrictModel
@@ -74,6 +74,15 @@ def conversation(user_id: int, peer_id: int):
         and_(OperatorMessage.sender_id == user_id, OperatorMessage.recipient_id == peer_id),
         and_(OperatorMessage.sender_id == peer_id, OperatorMessage.recipient_id == user_id),
     )
+
+
+def operator_chat_name(db, user_id):
+    account = db.get(User, user_id)
+    if is_workspace_owner_proxy(current_organization(), account):
+        with control_session() as control:
+            owner = primary_platform_owner(control)
+            return owner.name if owner else "Администратор"
+    return account.name
 
 
 def peer_user(db, user_id, peer_id, sending=False):
@@ -226,16 +235,28 @@ def contacts(db: Db, user: CurrentUser, photo_id: Annotated[int | None, Query(gt
 
         owner_ids = set(db.scalars(select(PlatformOwner.user_id))) if org.database_url == base_settings().database_url else set()
         owner_ids.add(org.owner_user_id)
+    primary = None
+    if any(is_workspace_owner_proxy(org, peer) for peer, _, _ in rows):
+        with control_session() as control:
+            primary = primary_platform_owner(control)
     for peer, latest, unread in rows:
         if peer.id in owner_ids and latest is None:
             continue
         if photo_id is not None and (not peer.active or (not share_with_staff and photo_id not in visible_photos(db, peer, [photo_id]))):
             continue
-        avatar = workspace_url(f"/api/operator-chats/avatars/{peer.id}?v={hashlib.sha256(peer.avatar_image).hexdigest()[:16]}") \
-            if peer.active and peer.avatar_image else None
+        proxy = is_workspace_owner_proxy(org, peer)
+        if proxy and primary is None:
+            continue
+        profile = primary if proxy else peer
+        avatar = None
+        if peer.active and profile.avatar_image:
+            version = hashlib.sha256(profile.avatar_image).hexdigest()[:16]
+            avatar = workspace_url(f"/api/inspection-admin/owners/contact-avatar?peer=o:{profile.id}&v={version}"
+                                   if proxy else f"/api/operator-chats/avatars/{peer.id}?v={version}")
         items.append({
-            "id": peer.id, "name": peer.name, "role": peer.role, "active": peer.active,
-            "avatar_url": avatar, "unread": unread or 0, "last_seen_at": peer.last_seen_at,
+            "id": peer.id, "name": profile.name, "role": peer.role, "active": peer.active,
+            "avatar_url": avatar, "unread": unread or 0, "last_seen_at": profile.last_seen_at,
+            **({"platform_owner_key": f"o:{profile.id}"} if proxy else {}),
             "last_message": {**message_dict(latest, photos, shared), "body": latest.body[:140]} if latest else None,
         })
     return {"items": items, "unread": sum(item["unread"] for item in items)}
@@ -320,7 +341,7 @@ def send_message(peer_id: int, body: MessageInput, db: Db, user: CurrentUser):
     if body.forward_message_id:
         source = source_message(db, user, body.forward_message_id)
         content, photo_id, screenshots = source.body, source.photo_id, source.screenshots
-        forward_name = source.forwarded_name or db.get(User, source.sender_id).name
+        forward_name = source.forwarded_name or operator_chat_name(db, source.sender_id)
     if body.forward_inspection_message_id:
         content, photo_id, screenshots, forward_name = inspection_forward(user, body.forward_inspection_message_id)
     if body.forward_task_message_id:
@@ -331,7 +352,7 @@ def send_message(peer_id: int, body: MessageInput, db: Db, user: CurrentUser):
             OperatorMessage.id == body.reply_to_id, conversation(user.id, peer_id)))
         if source is None:
             raise HTTPException(404, "Сообщение для ответа недоступно")
-        reply = quote(source.id, db.get(User, source.sender_id).name, source.body,
+        reply = quote(source.id, operator_chat_name(db, source.sender_id), source.body,
                       source.photo_id or source.screenshot_count)
     lock_operator_send(db, user.id, peer_id)
     existing = db.scalar(select(OperatorMessage).where(

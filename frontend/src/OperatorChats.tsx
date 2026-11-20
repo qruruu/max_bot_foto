@@ -17,6 +17,7 @@ const inspectionBase = '/inspection-admin';
 const ownersBase = inspectionBase + '/owners';
 const isOwner = (key: string) => /^[oa]:/.test(key);
 type WorkspaceMessage = (OperatorMessage | Message);
+type WorkspaceContact = ChatContact & {platformOwnerKey?: string};
 const isInspector = (key: string) => /^i:[1-9]\d*$/.test(key);
 const chatKey = (value: string) => /^([1-9]\d*|[io]:[1-9]\d*|a:[0-9a-f-]{36}:[1-9]\d*)$/.test(value) ? value : '';
 function messagePath(key: string, filters: Record<string, string> = {}) {
@@ -37,7 +38,7 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
   const peerKey = !includeInspectors && isInspector(selected) ? '' : selected;
   const currentPeer = useRef(peerKey);
   currentPeer.current = peerKey;
-  const [contacts, setContacts] = useState<ChatContact[]>([]);
+  const [contacts, setContacts] = useState<WorkspaceContact[]>([]);
   const [contactError, setContactError] = useState(''), [contactLoading, setContactLoading] = useState(true);
   const [messages, setMessages] = useState<WorkspaceMessage[]>([]), [historyError, setHistoryError] = useState('');
   const [loading, setLoading] = useState(false), [hasOlder, setHasOlder] = useState(false);
@@ -66,6 +67,7 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
       const requests = [
         api<ContactPage>('/operator-chats', 'GET', undefined, controller.signal).then(page => page.items.map(contact => ({
           key: String(contact.id), name: contact.name, avatar_url: contact.avatar_url, active: contact.active, unread: contact.unread, last_seen_at: contact.last_seen_at,
+          platformOwnerKey: contact.platform_owner_key,
           subtitle: !contact.active ? 'Аккаунт отключён' : contact.role === 'ADMIN_OPERATOR' ? 'Администратор' : 'Оператор',
           preview: contact.last_message ? (contact.last_message.sender_id === user.id ? 'Вы: ' : '') + messagePreview(contact.last_message) : null,
           preview_at: contact.last_message?.created_at,
@@ -84,9 +86,13 @@ export default function OperatorChats({includeInspectors = false}: {includeInspe
       setContactLoading(false);
       const failed = results.find(result => result.status === 'rejected');
       setContactError(failed ? (failed.reason as Error).message : '');
-      setContacts(previous => results.flatMap((result, index) => result.status === 'fulfilled'
-        ? result.value : previous.filter(contact => index === 0 ? !isInspector(contact.key) && !isOwner(contact.key) : index === 1 && includeInspectors ? isInspector(contact.key) : isOwner(contact.key)))
-        .sort((a, b) => (b.preview_at || '').localeCompare(a.preview_at || '') || a.name.localeCompare(b.name, 'ru')));
+      setContacts(previous => {
+        const available: WorkspaceContact[] = results.flatMap<WorkspaceContact>((result, index) => result.status === 'fulfilled'
+          ? result.value : previous.filter(contact => index === 0 ? !isInspector(contact.key) && !isOwner(contact.key) : index === 1 && includeInspectors ? isInspector(contact.key) : isOwner(contact.key)));
+        const ownerAliases = new Set(available.map(contact => contact.platformOwnerKey).filter(Boolean));
+        return available.filter(contact => !ownerAliases.has(contact.key) || contact.preview_at || contact.key === currentPeer.current)
+          .sort((a, b) => (b.preview_at || '').localeCompare(a.preview_at || '') || a.name.localeCompare(b.name, 'ru'));
+      });
     };
     const visible = () => {void refresh();};
     visible();

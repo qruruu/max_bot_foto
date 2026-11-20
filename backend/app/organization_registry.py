@@ -55,6 +55,21 @@ def control_session():
         yield db
 
 
+def primary_platform_owner(db):
+    primary_id = db.scalar(select(Organization.owner_user_id).where(Organization.legacy).limit(1))
+    if primary_id is None:
+        owner_ids = list(db.scalars(select(PlatformOwner.user_id).limit(2)))
+        if len(owner_ids) != 1:
+            return None
+        primary_id = owner_ids[0]
+    return db.scalar(select(User).join(PlatformOwner).where(User.id == primary_id, User.active))
+
+
+def is_workspace_owner_proxy(scope, account):
+    return bool(scope and account and scope.database_url != base_settings().database_url
+                and account.id == scope.owner_user_id and account.login == "platform-owner")
+
+
 def organization_directory(id):
     return base_settings().data_dir / "organizations" / str(UUID(id))
 
